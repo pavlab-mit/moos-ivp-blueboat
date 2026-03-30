@@ -1,0 +1,19 @@
+# MAC Address Lookup Table for DoodleLabs Radio Auto-Discovery
+# Format: VEHICLE_NAME:MAC_ADDRESS
+# Lines starting with # or / are comments
+# Empty lines are ignored
+# MAC addresses can be in any case and with or without colons
+
+# WEARABLE RADIOS
+MIT_WEARABLE:00:30:1A:3C:40:97
+DRAPER_WEARABLE:00:30:1A:3B:47:BB
+
+# SURFACE VEHICLES
+ZOE:00:30:1A:3A:B3:29
+YIP:00:30:1A:3C:14:0E
+XAI:00:30:1A:3C:21:C6
+
+# Test Vehicles (uncomment as needed)
+#ALPHA:00:30:18:0C:4A:2B
+#BRAVO:00:30:18:0C:4A:2C
+#CHARLIE:00:30:18:0C:4A:2D

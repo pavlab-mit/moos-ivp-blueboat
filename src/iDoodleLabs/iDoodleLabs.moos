@@ -1,0 +1,61 @@
+//------------------------------------------------
+// iDoodleLabs config block
+// 
+// This app monitors Doodle Labs radio link quality between vehicles
+// and publishes MOOS variables with signal strength and mesh metrics
+
+ProcessConfig = iDoodleLabs
+{
+   AppTick   = 4
+   CommsTick = 4
+
+   // Radio connection settings
+   RADIO_IP  = 192.168.20.1        // IP address of local Doodle radio
+   USERNAME  = user                // Radio login username
+   PASSWORD  = DoodleSmartRadio    // Radio login password
+   
+   // Polling configuration  
+   POLL_INTERVAL = 1.0             // Seconds between radio queries (default 1.0)
+   
+   // Connection timeout settings
+   CONNECTION_TIMEOUT = 5          // Seconds to wait for connection (default 5)
+   REQUEST_TIMEOUT = 10            // Seconds to wait for each request (default 10)
+   
+   // Automatic reconnection settings
+   RECONNECT_INTERVAL = 5.0        // Seconds between reconnection attempts (default 5.0)
+   MAX_RECONNECT_ATTEMPTS = -1     // Max reconnection attempts (-1 = unlimited, default -1)
+   
+   // ========================================================================
+   // Peer monitoring configuration - Choose ONE of the following methods:
+   // ========================================================================
+   
+   // Method 1: Hard-coded MAC addresses (original method)
+   // Format: vehicle_name:MAC_address (comma separated list)
+   //MONITOR_PEERS = alpha:00:30:18:0C:4A:2B,bravo:00:30:18:0C:4A:2C,shoreside:00:30:18:0C:4A:2D
+   
+   // Method 2: Auto-discovery with MAC lookup file
+   AUTO_DISCOVER = true             // Enable auto-discovery of peers
+   MAC_LOOKUP_FILE = ./mac_lookup.txt  // Path to MAC lookup table file
+   MONITOR_ALL = false              // If true, monitor all discovered radios
+                                   // even if not in lookup table
+   
+   // Method 3: Hybrid - both hard-coded and auto-discovery
+   // You can use both MONITOR_PEERS and AUTO_DISCOVER together
+   
+   // Debug logging
+   DEBUG = false                   // Enable debug file logging
+}
+
+// Published variables:
+// DOODLE_RADIO_CONNECTED       - 1 if connected to local radio, 0 otherwise
+// DOODLE_NOISE_FLOOR          - Local radio noise floor in dBm
+// DOODLE_NUM_PEERS            - Number of monitored peers currently connected
+//
+// Per monitored peer (where <VEHICLE> is the vehicle name):
+// DOODLE_<VEHICLE>_RSSI       - Average RSSI across antennas (dBm)
+// DOODLE_<VEHICLE>_RSSI_ANT0  - Antenna 0 RSSI (dBm)
+// DOODLE_<VEHICLE>_RSSI_ANT1  - Antenna 1 RSSI (dBm)  
+// DOODLE_<VEHICLE>_SNR        - Signal-to-noise ratio (dB)
+// DOODLE_<VEHICLE>_CONNECTED  - 1 if peer is connected, 0 otherwise
+// DOODLE_<VEHICLE>_TQ         - Transmit quality (0-255, mesh metric)
+// DOODLE_<VEHICLE>_HOP_COUNT  - Number of hops to reach peer

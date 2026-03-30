@@ -1,0 +1,551 @@
+<!doctype html><html><head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta charset="UTF-8">
+  
+  
+
+    <!-- Keep template variables -->
+    <title>Doodle Labs API Reference</title>
+    <meta name="description" content="">
+    
+    <link rel="shortcut icon" href="https://learn.doodlelabs.com/hubfs/favicon.ico">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    
+    <meta property="og:description" content="">
+    <meta property="og:title" content="Doodle Labs API Reference">
+    <meta name="twitter:description" content="">
+    <meta name="twitter:title" content="Doodle Labs API Reference">
+
+    
+
+    
+    <style>
+a.cta_button{-moz-box-sizing:content-box !important;-webkit-box-sizing:content-box !important;box-sizing:content-box !important;vertical-align:middle}.hs-breadcrumb-menu{list-style-type:none;margin:0px 0px 0px 0px;padding:0px 0px 0px 0px}.hs-breadcrumb-menu-item{float:left;padding:10px 0px 10px 10px}.hs-breadcrumb-menu-divider:before{content:'›';padding-left:10px}.hs-featured-image-link{border:0}.hs-featured-image{float:right;margin:0 0 20px 20px;max-width:50%}@media (max-width: 568px){.hs-featured-image{float:none;margin:0;width:100%;max-width:100%}}.hs-screen-reader-text{clip:rect(1px, 1px, 1px, 1px);height:1px;overflow:hidden;position:absolute !important;width:1px}
+</style>
+
+    
+
+    
+<!--  Added by GoogleAnalytics4 integration -->
+<script>
+var _hsp = window._hsp = window._hsp || [];
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+
+var useGoogleConsentModeV2 = true;
+var waitForUpdateMillis = 1000;
+
+
+if (!window._hsGoogleConsentRunOnce) {
+  window._hsGoogleConsentRunOnce = true;
+
+  gtag('consent', 'default', {
+    'ad_storage': 'denied',
+    'analytics_storage': 'denied',
+    'ad_user_data': 'denied',
+    'ad_personalization': 'denied',
+    'wait_for_update': waitForUpdateMillis
+  });
+
+  if (useGoogleConsentModeV2) {
+    _hsp.push(['useGoogleConsentModeV2'])
+  } else {
+    _hsp.push(['addPrivacyConsentListener', function(consent){
+      var hasAnalyticsConsent = consent && (consent.allowed || (consent.categories && consent.categories.analytics));
+      var hasAdsConsent = consent && (consent.allowed || (consent.categories && consent.categories.advertisement));
+
+      gtag('consent', 'update', {
+        'ad_storage': hasAdsConsent ? 'granted' : 'denied',
+        'analytics_storage': hasAnalyticsConsent ? 'granted' : 'denied',
+        'ad_user_data': hasAdsConsent ? 'granted' : 'denied',
+        'ad_personalization': hasAdsConsent ? 'granted' : 'denied'
+      });
+    }]);
+  }
+}
+
+gtag('js', new Date());
+gtag('set', 'developer_id.dZTQ1Zm', true);
+gtag('config', 'G-277027159');
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-277027159"></script>
+
+<!-- /Added by GoogleAnalytics4 integration -->
+
+    <link rel="canonical" href="https://learn.doodlelabs.com/doodle-labs-api-reference">
+
+
+<meta property="og:url" content="https://learn.doodlelabs.com/doodle-labs-api-reference">
+<meta name="twitter:card" content="summary">
+<meta http-equiv="content-language" content="en">
+
+
+
+
+
+
+  
+    <!-- Docsify Theme -->
+    <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/themes/vue.css">
+  <!-- Prism CSS for Syntax Highlighting (Okaidia Theme) -->
+<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css">
+
+  
+  <!-- Custom Styles -->
+    <style>
+        /* Main Background Color */
+        body {
+            background-color: #f5f7fa;
+        }
+
+        /* Custom Navbar Styling */
+        .custom-navbar {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            background-color: #ad40ad; /* Purple Color */
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+        }
+
+        .custom-navbar .logo {
+            height: 60px;
+            width: auto;
+            margin-right: 15px;
+        }
+
+        .custom-navbar .title {
+            color: #fff;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        /* Adjust Docsify Sidebar */
+        .sidebar {
+            position: fixed;
+            top: 0; /* Adjusted via JavaScript */
+            left: 0;
+            overflow-y: auto;
+            z-index: 500;
+        }
+
+        /* Adjust Main Content Area */
+        .content {
+            margin-top: 80px; /* Match Navbar Height */
+            padding-top: 20px;
+        }
+
+        /* Remove Default Margin-Top from #app */
+        #app {
+            margin-top: 0;
+        }
+
+        /* Code Block Styling */
+        .markdown-section pre {
+            /* background-color: #2d2d2d; */
+            border-radius: 5px;
+            padding: 15px;
+            overflow: auto;
+            position: relative;
+        }
+
+        .markdown-section pre code {
+            background: none;
+        }
+
+        /* Inline Code Styling */
+        .markdown-section p code {
+            background-color: #f5f7fa;
+            color: #d14;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        /* Clipboard Button Positioning */
+        .markdown-section .docsify-copy-code-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+
+        /* Clipboard Button Styling */
+        .docsify-copy-code-button {
+            background: #ad40ad;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            opacity: 1;
+            transition: background 0.3s, opacity 0.3s;
+            padding: 5px;
+            font-size: 14px;
+        }
+
+        .docsify-copy-code-button:hover {
+            background: #9b379b;
+            color: #fff;
+            opacity: 1;
+        }
+
+        .docsify-copy-code-button:focus {
+            outline: none;
+        }
+
+        .docsify-copy-code-button::selection {
+            background: transparent;
+        }
+
+        /* Reset Styles for Non-Active Links */
+        .sidebar-nav li:not(.active) a {
+            background-color: transparent !important;
+            color: inherit !important;
+        }
+
+        /* Ensure Parent Links Are Not Highlighted When Open */
+        .sidebar-nav .open > a {
+            background-color: transparent !important;
+            color: inherit !important;
+        }
+
+        /* Tabs Styling */
+        :root {
+            --docsifytabs-border-color: #ededed;
+            --docsifytabs-tab-highlight-color: #ad40ad;
+            --docsifytabs-tab-background-color: #fff;
+            --docsifytabs-tab-text-color: #333;
+            --docsifytabs-tab-active-background-color: #ad40ad;
+            --docsifytabs-tab-active-text-color: #fff;
+            --docsifytabs-content-background-color: #fff;
+        }
+
+        /* Sidebar Search Input Styling */
+        .sidebar-search-container {
+            position: relative;
+            width: 90%;
+            margin: 10px 5%;
+        }
+
+        .sidebar-search {
+            width: 100%;
+            padding: 8px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .sidebar-search:focus {
+            border-color: #ad40ad;
+            outline: none;
+        }
+
+        /* Clear Button Styling */
+        .sidebar-search-clear {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #999;
+        }
+
+        .sidebar-search-clear:hover {
+            color: #666;
+        }
+
+        /* Ensure List Items Are Visible by Default */
+        .sidebar-nav li {
+            display: block;
+        }
+
+        /* Adjust Headings to Prevent Being Hidden Under Navbar */
+        .markdown-section h1,
+        .markdown-section h2,
+        .markdown-section h3,
+        .markdown-section h4,
+        .markdown-section h5,
+        .markdown-section h6 {
+            padding-top: 80px;
+            margin-top: -80px;
+        }
+
+        /* Style H4 Headings in Main Content */
+        .markdown-section h4,
+        .markdown-section h4 span {
+            color: #ad40ad !important;
+            font-weight: bold !important;
+        }
+
+        .markdown-section pre > code {
+        background: none;
+        color: inherit; /* Override to allow Prism.js colors */
+        font-size: 0.8rem; /* You can adjust this if needed */
+        padding: 0; /* Remove padding to prevent double padding */
+        line-height: inherit;
+        margin: 0;
+        max-width: inherit;
+        overflow: inherit;
+        white-space: inherit;
+    }
+
+    </style>
+<meta name="generator" content="HubSpot"></head>
+
+<body>
+    <!-- Logo and Title -->
+    <div class="custom-navbar" id="custom-navbar">
+        <img src="https://learn.doodlelabs.com/hubfs/raw_assets/public/doodle-labs-theme/modules/api-docs/DoodleLabs-Brand-01-primary-transparent.png" alt="Logo" class="logo">
+        <span class="title">Doodle Labs JSON RPC API Reference v1.0</span>
+    </div>
+
+    <div id="app">Loading...</div>
+
+    <!-- Docsify Configuration -->
+    <script>
+        // Custom Sidebar Search Function
+        function addSidebarSearch() {
+            var sidebar = document.querySelector('.sidebar');
+            if (!sidebar) return;
+
+            // Create Search Input Container
+            var searchContainer = document.createElement('div');
+            searchContainer.className = 'sidebar-search-container';
+
+            // Create Search Input
+            var searchInput = document.createElement('input');
+            searchInput.type = 'search';
+            searchInput.placeholder = 'Search api calls...';
+            searchInput.className = 'sidebar-search';
+
+            // Create Clear Button
+            var clearButton = document.createElement('button');
+            clearButton.className = 'sidebar-search-clear';
+            clearButton.innerHTML = '&times;';
+
+            // Append Input and Button to Container
+            searchContainer.appendChild(searchInput);
+            searchContainer.appendChild(clearButton);
+
+            // Insert at the Top of the Sidebar Navigation
+            var nav = sidebar.querySelector('.sidebar-nav');
+            if (nav) {
+                sidebar.insertBefore(searchContainer, nav);
+            } else {
+                sidebar.insertBefore(searchContainer, sidebar.firstChild);
+            }
+
+            // Event Listener for Input
+            searchInput.addEventListener('input', function () {
+                var query = this.value.toLowerCase();
+
+                if (!query) {
+                    clearButton.style.display = 'none';
+                } else {
+                    clearButton.style.display = 'block';
+                }
+
+                var sidebarNav = document.querySelector('.sidebar-nav');
+                if (!sidebarNav) return;
+
+                // Recursive Function to Filter Items
+                function recursiveFilter(li) {
+                    var showItem = false;
+
+                    // Check if the Current Item Matches the Query
+                    var a = li.querySelector(':scope > a');
+                    var text = a ? a.innerText.toLowerCase() : '';
+
+                    if (text.includes(query)) {
+                        showItem = true;
+                    }
+
+                    // Check Child Items
+                    var childLis = li.querySelectorAll(':scope > ul > li');
+                    childLis.forEach(function (childLi) {
+                        var childShow = recursiveFilter(childLi);
+                        if (childShow) {
+                            showItem = true;
+
+                            // Expand Current Item if Child is Shown
+                            li.classList.add('open');
+                            li.classList.remove('collapse');
+                            var ul = li.querySelector(':scope > ul');
+                            if (ul) {
+                                ul.style.display = '';
+                            }
+                        }
+                    });
+
+                    // Show or Hide the Current Item
+                    li.style.display = showItem ? '' : 'none';
+
+                    return showItem;
+                }
+
+                var topLevelLis = sidebarNav.querySelectorAll(':scope > ul > li');
+                topLevelLis.forEach(function (li) {
+                    recursiveFilter(li);
+                });
+            });
+
+            // Clear Search Input on Button Click
+            clearButton.addEventListener('click', function () {
+                searchInput.value = '';
+                clearButton.style.display = 'none';
+                searchInput.dispatchEvent(new Event('input'));
+            });
+
+            // Hide Clear Button Initially
+            clearButton.style.display = 'none';
+        }
+
+        // Docsify Configuration
+        window.$docsify = {
+            homepage: "//23427487.fs1.hubspotusercontent-na1.net/hubfs/23427487/raw_assets/public/doodle-labs-theme/modules/api-docs/README.md",
+            loadSidebar: "//23427487.fs1.hubspotusercontent-na1.net/hubfs/23427487/raw_assets/public/doodle-labs-theme/modules/api-docs/_sidebar.md",
+            subMaxLevel: 0, // Disable automatic subheadings to prevent duplication
+            search: false,
+            markdown: {},
+            externalLinkTarget: '',
+            
+            tabs: {
+                persist: true,
+                sync: false,
+                theme: 'material',
+                tabComments: true,
+                tabHeadings: true,
+                  
+            },
+            activeHeaderLinks: true,
+            plugins: [
+                // Docsify Copy Code Initialization
+                window.DocsifyCopyCode && window.DocsifyCopyCode({
+                    appendLang: false,
+                }),
+                // Custom Styles Injection and Dynamic Position Adjustment
+                function (hook, vm) {
+                    hook.ready(function () {
+                        document.title = 'Doodle Labs API Reference';
+                    });
+                    hook.doneEach(function () {
+                        // Prevent Docsify from Changing the Title
+                        document.title = 'Doodle Labs API Reference';
+
+                        // Adjust Layout Based on Navbar Height
+                        function adjustLayout() {
+                            var navbar = document.getElementById('custom-navbar');
+                            var sidebar = document.querySelector('.sidebar');
+                            var navbarHeight = navbar.offsetHeight;
+
+                            // Adjust Sidebar
+                            if (sidebar) {
+                                sidebar.style.top = navbarHeight + 'px';
+                            }
+                        }
+
+                        // Adjust Layout After Each Page Load
+                        adjustLayout();
+
+                        // Adjust Layout on Window Resize
+                        window.addEventListener('resize', adjustLayout);
+                    });
+                },
+                // Add Custom Sidebar Search
+                function (hook, vm) {
+                    hook.doneEach(function () {
+                        addSidebarSearch();
+                    });
+                },
+            ],
+        };
+    </script>
+
+    <!-- Load Docsify and Plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/docsify@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docsify-tabs@1"></script>
+    <script src="//unpkg.com/docsify-copy-code@2"></script>
+    <script src="//cdn.jsdelivr.net/npm/docsify-prism@latest/dist/docsify-prism.min.js"></script>
+
+
+    <!-- Include Prism.js JavaScript -->
+    <script src="//cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <!-- Include Prism.js Language Components (add languages as needed) -->
+    <script src="//cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/9000.0.1/components/prism-python.min.js" integrity="sha512-3qtI9+9JXi658yli19POddU1RouYtkTEhTHo6X5ilOvMiDfNvo6GIS6k2Ukrsx8MyaKSXeVrnIWeyH8G5EOyIQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- Include Prism.js Plugins if needed -->
+    <!-- For example, line numbers plugin -->
+    
+    <script src="//cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css">
+    
+
+
+    <script src="/hs/hsstatic/jquery-libs/static-1.1/jquery/jquery-1.7.1.js"></script>
+<script>hsjQuery = window['jQuery'];</script>
+<!-- HubSpot performance collection script -->
+<script defer src="/hs/hsstatic/content-cwv-embed/static-1.1293/embed.js"></script>
+
+<!-- Start of HubSpot Analytics Code -->
+<script type="text/javascript">
+var _hsq = _hsq || [];
+_hsq.push(["setContentType", "standard-page"]);
+_hsq.push(["setCanonicalUrl", "https:\/\/learn.doodlelabs.com\/doodle-labs-api-reference"]);
+_hsq.push(["setPageId", "182654620601"]);
+_hsq.push(["setContentMetadata", {
+    "contentPageId": 182654620601,
+    "legacyPageId": "182654620601",
+    "contentFolderId": null,
+    "contentGroupId": null,
+    "abTestId": null,
+    "languageVariantId": 182654620601,
+    "languageCode": "en",
+    
+    
+}]);
+</script>
+
+<script type="text/javascript" id="hs-script-loader" async defer src="/hs/scriptloader/23427487.js"></script>
+<!-- End of HubSpot Analytics Code -->
+
+
+<script type="text/javascript">
+var hsVars = {
+    render_id: "8336da98-5101-42bd-8f5d-04571c7332d9",
+    ticks: 1752126700316,
+    page_id: 182654620601,
+    
+    content_group_id: 0,
+    portal_id: 23427487,
+    app_hs_base_url: "https://app-na2.hubspot.com",
+    cp_hs_base_url: "https://cp-na2.hubspot.com",
+    language: "en",
+    analytics_page_type: "standard-page",
+    scp_content_type: "",
+    
+    analytics_page_id: "182654620601",
+    category_id: 1,
+    folder_id: 0,
+    is_hubspot_user: false
+}
+</script>
+
+
+<script defer src="/hs/hsstatic/HubspotToolsMenu/static-1.432/js/index.js"></script>
+
+
+
+
+
+  
+
+
+</body></html>
