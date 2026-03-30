@@ -1,0 +1,30 @@
+//------------------------------------------------
+// iBackSeatBroker config block
+
+ProcessConfig = iBackSeatBroker
+{
+   AppTick   = 10
+   CommsTick = 10
+
+   //startup id
+   startup_id_repeat_frames = 20
+
+   // Backseat listens locally for front-seat telemetry.
+   // In missions this usually maps to the vehicle-side IP.
+   listen_ip   = $(IP_ADDR)
+   listen_port = 9445
+
+   // Backseat sends C2 to the front-seat endpoint.
+   // In missions this usually maps to FSEAT_IP.
+   tx_ip   = $(FSEAT_IP)
+   tx_port = 9444
+
+   // MOOS vars sent every Iterate tick if available
+   tx_vars = DESIRED_THRUST_L,DESIRED_THRUST_R,ALL_STOP
+
+   // Optional inbound remap: WIRE_VAR:MOOS_VAR
+   in_map = NAV_SPEED:NAV_SPEED_GPS, NAV_LAT:NAV_LAT_GPS, NAV_LONG:NAV_LONG_GPS
+
+   debug = false
+}
+

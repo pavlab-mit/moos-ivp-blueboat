@@ -1,0 +1,24 @@
+ProcessConfig = iBBBSBroker
+{
+  AppTick   = 10
+  CommsTick = 10
+
+
+  mag_heading_validation = false
+  heading_validation_thresh = 120.0
+
+  // UDP Network configuration
+  listen_ip        = $(IP_ADDR)      
+  fs_data_port       = 9200             
+  broadcast_ip     = $(FSEAT_IP)    
+  fs_command_port  = 9202            
+
+  // Enable/disable streams
+  command_enabled = true            // Enable sending commands to front seat
+
+  // Debug logging (optional)
+  debug = false
+
+  // Variables to send as commands to front seat (if command_enabled)
+  fs_command_vars = ALL_STOP, DESIRED_THRUST_L, DESIRED_THRUST_R
+}

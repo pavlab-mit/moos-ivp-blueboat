@@ -1,0 +1,28 @@
+//--------------------------------------------------
+// pLogger Configuration Block (Vehicle)
+
+ProcessConfig = pLogger
+{
+  AppTick     = 5
+  CommsTick   = 5
+
+#ifdef XMODE SIM
+  File          = LOG_%(VNAME)_SIM
+#else
+  File          = LOG_%(VNAME)
+#endif
+  PATH          = ./logs
+  AsyncLog      = true
+  FileTimeStamp = true
+
+  Log = IVPHELM_LIFE_EVENT @ 0 nosync
+  Log = BCM_ALERT_REQUEST @ 0 nosync
+  Log = MUSTER_START @ 0 nosync
+  Log = MISSION_TASK @ 0 nosync
+  Log = APPCAST @ 0 nosync
+  Log = APP_LOG @ 0 nosync
+
+  LogAuxSrc = true
+
+  WildCardLogging = true
+}

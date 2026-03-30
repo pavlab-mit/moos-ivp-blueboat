@@ -1,0 +1,26 @@
+
+ProcessConfig = uRTCMBroker
+{
+   AppTick   = 4
+   CommsTick = 4
+
+   // NTRIP caster connection
+   ntrip_host       = macorsrtk.massdot.state.ma.us
+   ntrip_port       = 10000
+   ntrip_mountpoint = RTCM3MSM_IMAX
+   ntrip_user       = trogdor19
+   ntrip_password   = GPSFIXED1
+
+   // GGA position sent to caster for VRS
+   // If not set, falls back to LatOrigin/LongOrigin from mission file
+   send_gga   = true
+   gga_lat    = 42.358431
+   gga_lon    = -71.093124
+   gga_alt    = 3.0
+
+   // Timing
+   gga_interval       = 10   // seconds between GGA sends to caster
+   reconnect_interval = 5    // seconds between reconnect attempts
+
+   debug = $(LOG)
+}
