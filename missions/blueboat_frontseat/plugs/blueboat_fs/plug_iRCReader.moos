@@ -1,0 +1,10 @@
+//--------------------------------------------------------
+// iRCReader Config Block
+	
+ProcessConfig = iRCReader
+{
+  AppTick    = 16
+  CommsTick  = 16
+
+}
+

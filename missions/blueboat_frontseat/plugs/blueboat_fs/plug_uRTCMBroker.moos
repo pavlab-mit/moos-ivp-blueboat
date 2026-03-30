@@ -1,0 +1,26 @@
+
+ProcessConfig = uRTCMBroker
+{
+   AppTick   = 4
+   CommsTick = 4
+
+   // NTRIP caster connection
+   ntrip_host       = YOUR_NTRIP_HOST
+   ntrip_port       = 10000
+   ntrip_mountpoint = YOUR_NTRIP_MOUNTPOINT
+   ntrip_user       = YOUR_NTRIP_USER
+   ntrip_password   = YOUR_NTRIP_PASSWORD
+
+   // GGA position sent to caster for VRS
+   // If not set, falls back to LatOrigin/LongOrigin from mission file
+   send_gga   = true
+   gga_lat    = 42.358431
+   gga_lon    = -71.093124
+   gga_alt    = 3.0
+
+   // Timing
+   gga_interval       = 10   // seconds between GGA sends to caster
+   reconnect_interval = 5    // seconds between reconnect attempts
+
+   debug = $(LOG)
+}

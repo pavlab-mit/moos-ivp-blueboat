@@ -1,0 +1,27 @@
+//---------------------------------------
+// pDiffThrustPID Config Block
+
+ProcessConfig = pDiffThrustPID
+{
+  AppTick    = 10
+  CommsTick  = 10
+
+  // General settings
+  debug = true
+
+  // Variable names for setpoints and feedback
+  setpoint_heading_var  = DESIRED_HEADING
+  feedback_heading_var  = NAV_HEADING
+  setpoint_speed_var    = DESIRED_SPEED
+  feedback_speed_var    = NAV_SPEED
+
+  // Speed PID controller
+  speed_kp        = 0
+  speed_ki        = 10
+  speed_kd        = 0
+  speed_kimax     = 100
+  speed_max_effort = 100.0
+
+  // Bank angle for mixing
+  theta_b          = 30
+}

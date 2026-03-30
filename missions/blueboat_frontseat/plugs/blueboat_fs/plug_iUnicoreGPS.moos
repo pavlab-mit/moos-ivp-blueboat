@@ -1,0 +1,25 @@
+//------------------------------------------
+ProcessConfig = iUnicoreGPS
+{
+  AppTick   = 10
+  CommsTick = 10
+
+  port      = /dev/ttyUSB0
+  baud_rate = 230400
+
+  enable_geodesic  = false
+
+  publish_position = true
+  publish_velocity = true
+  publish_heading  = true
+  publish_dops     = true
+  publish_status   = true
+  publish_time     = true
+  publish_state    = true
+  publish_dto      = true
+
+  stale_data_timeout_sec = 2.0
+  stale_warn_repeat_sec  = 5.0
+
+  debug = $(LOG)
+}

@@ -1,0 +1,21 @@
+//--------------------------------------------------------
+// pNodeReporter config Block 
+
+ProcessConfig = pNodeReporter
+{
+  AppTick     = 4
+  CommsTick   = 4
+
+	app_logging = off
+
+	platform_color  = $(COLOR)
+  	platform_type   = heron
+  	terse_reports   = true
+
+	extrap_enabled = true
+	extrap_pos_thresh = 0.25  // meters
+	extrap_hdg_thresh = 2.0  // degrees
+	extrap_max_gap = 3       // seconds
+	
+	nav_grace_period = 180
+}

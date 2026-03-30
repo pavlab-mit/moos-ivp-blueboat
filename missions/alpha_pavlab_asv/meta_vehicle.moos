@@ -1,0 +1,68 @@
+ServerHost = localhost
+ServerPort = $(MOOS_PORT)
+Community  = $(VNAME)
+
+#include plugs/shared_all/plug_origin_warp.moos
+
+//------------------------------------------------------------
+ProcessConfig = ANTLER
+{
+  MSBetweenLaunches = 100
+
+  //Core vehicle
+  Run = MOOSDB             @ NewConsole = false
+  Run = pShare             @ NewConsole = false
+  Run = pLogger            @ NewConsole = false
+  Run = pNodeReporter      @ NewConsole = false
+  Run = uProcessWatch      @ NewConsole = false
+  Run = pHelmIvP           @ NewConsole = false
+  Run = pHostInfo          @ NewConsole = false
+  Run = uFldNodeBroker     @ NewConsole = false
+  Run = pDeadManPost       @ NewConsole = false
+  Run = pRealm             @ NewConsole = false
+  Run = uFldMessageHandler @ NewConsole = false
+  Run = pContactMgrV20     @ NewConsole = false
+  Run = uLoadWatch         @ NewConsole = false
+
+#ifdef XMODE SIM
+  Run = uSimMarineV22  @ NewConsole = false
+#elseifdef XMODE M300
+  Run = iM300          @ NewConsole = false
+  Run = iM300Health    @ NewConsole = false
+  Run = pMarinePIDV22  @ NewConsole = false
+#elseifdef XMODE BBOAT
+  Run = iBackSeatBroker  @ NewConsole = false
+  Run = pBB_DGPS_EKF     @ NewConsole = false
+  Run = pMarinePIDV22    @ NewConsole = false
+  Run = pThrustMix       @ NewConsole = false
+  Run = pBB_Health       @ NewConsole = false
+#endif
+}
+
+#ifdef XMODE SIM
+#include plugs/shared_asv/plug_uSimMarineV22.moos
+#elseifdef XMODE M300
+#include plugs/heron/plug_iM300.moos
+#include plugs/heron/plug_iM300Health.moos
+#include plugs/heron/plug_pMarinePIDV22.moos
+#elseifdef XMODE BBOAT
+#include plugs/blueboat/plug_iBackSeatBroker.moos
+#include plugs/blueboat/plug_pBB_DGPS_EKF.moos
+#include plugs/blueboat/plug_pMarinePIDV22.moos
+#include plugs/blueboat/plug_pThrustMix.moos
+#include plugs/blueboat/plug_pBB_Health.moos
+#endif
+
+#include plugs/shared_all/plug_pShare.moos
+#include plugs/shared_all/plug_pHostInfo.moos
+#include plugs/shared_all/plug_pRealm.moos
+#include plugs/shared_all/plug_uProcessWatch.moos
+
+#include plugs/shared_asv/plug_pLogger.moos
+#include plugs/shared_asv/plug_pHelmIvP.moos
+#include plugs/shared_asv/plug_uFldNodeBroker.moos
+#include plugs/shared_asv/plug_uFldMessageHandler.moos
+#include plugs/shared_asv/plug_pNodeReporter.moos
+#include plugs/shared_asv/plug_pDeadManPost.moos
+#include plugs/shared_asv/plug_pContactMgrV20.moos
+#include plugs/shared_asv/plug_uLoadWatch.moos

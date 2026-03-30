@@ -1,0 +1,32 @@
+//------------------------------------------------
+// iBBThrustCtrl config block
+
+ProcessConfig = iBBThrustCtrl
+{
+   AppTick   = 16
+   CommsTick = 16
+   
+   // Thruster Configuration
+   left_thruster_pin = 14
+   right_thruster_pin = 16
+   left_thruster_invert = false
+   right_thruster_invert = true
+   min_thrust = -100
+   max_thrust = 100
+   thruster_dead_band = 5.0
+   thruster_alpha = 0.5
+   thruster_enabled = true
+   
+   // ADC and Power Monitoring
+   current_scale = 37.8788
+   current_offset = 0.3235
+   voltage_scale = 11.132
+   voltage_offset = 0.0
+   rolling_window_period = 2.0
+   
+   // RGB LED Configuration (commented as placeholder)
+   // rgbw_color = 255,255,255,255
+   
+   // Debug Option
+   debug = $(LOG)
+}

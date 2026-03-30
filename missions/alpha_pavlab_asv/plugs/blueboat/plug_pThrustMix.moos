@@ -1,0 +1,32 @@
+//-----------------------------------------------------
+// pThrustMix Config Block (BlueBoat)
+
+ProcessConfig = pThrustMix
+{
+  AppTick   = 16
+  CommsTick = 16
+
+  // Basic asymmetric mixing gains
+  k_inner_base = 4.0    // inside thruster reduction
+  k_outer_base = 0.75    // outside thruster increase
+
+  // Speed-dependent scaling (disabled by default)
+  enable_speed_scaling = true
+   speed_gain_points = 0.0,0.2, 0.25,0.3, 0.5,0.5, 0.75,0.75, 1.0,1.0, 20.0,1.0
+
+  // Yaw rate feedback (disabled by default)
+  enable_yaw_feedback = false
+  k_yaw_correction = 0.0
+  max_yaw_rate = 25.0         // deg/s
+  k_heading_to_rate = 1.0
+
+  // Variable names (default values shown)
+  desired_thrust_var = DESIRED_THRUST
+  desired_rudder_var = DESIRED_RUDDER
+  feedback_speed_var = NAV_SPEED
+  feedback_yaw_var = NAV_YAW_RATE
+  feedback_heading_var = NAV_HEADING
+  desired_heading_var = DESIRED_HEADING
+  desired_thrust_l_var = DESIRED_THRUST_L
+  desired_thrust_r_var = DESIRED_THRUST_R
+}

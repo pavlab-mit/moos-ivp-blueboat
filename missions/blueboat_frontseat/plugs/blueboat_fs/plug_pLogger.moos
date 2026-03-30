@@ -1,0 +1,46 @@
+//--------------------------------------------------
+// pLogger Configuration Block (Created from Plugin)
+
+ProcessConfig = pLogger
+{
+  AppTick 	= 5
+  CommsTick = 5
+  
+  File          = LOG_%(VNAME)
+  PATH	        = ./logs/%(MISSION_NAME)
+  AsyncLog 	    = true
+  FileTimeStamp = true
+
+  Log = IVPHELM_LIFE_EVENT @ 0 nosync
+  Log = BCM_ALERT_REQUEST @ 0 nosync
+  Log = MUSTER_START @ 0 nosync
+  Log = MISSION_TASK @ 0 nosync
+  Log = APPCAST @ 0 nosync
+  Log = APP_LOG @ 0 nosync
+
+  LogAuxSrc = true
+
+  WildCardLogging = true 
+
+  //WildCardOmitPattern = *ITER_LEN, *ITER_GAP, DB_CLIENTS*, APPCAST, APPCAST_REQ*, ACK_MESSAGE, COMMS_POLICY, APPCAST_REQ, DB_EVENT, DB_VARSUMMARY, IVPHELM
+  //WildCardOmitPattern = *ACK_MESSAGE*,               *ACK_MESSAGE_*,            *APPCAST*,                   *APPCAST_REQ*,                  *BCM_ALERT_REQUEST*
+  //WildCardOmitPattern = *COMMS_POLICY*,              *CONTACT_RANGES*,           *CONTACTS_RECAP*,            *DB_CLIENTS*,                   *DB_EVENT*
+  //WildCardOmitPattern = *DB_QOS*,                    *DB_RWSUMMARY*,             *DB_TIME*,                   *DB_UPTIME*,                    *DB_VARSUMMARY*
+  //WildCardOmitPattern = *HELM_MAP_CLEAR*,            *HIT_MARKER*,               *HM_SIZE*,                   *IVPHELM_ALLSTOP_DEBUG*,        *IVPHELM_CPU*
+  //WildCardOmitPattern = *IVPHELM_CREATE_CPU*,        *IVPHELM_IPF_CNT*,          *IVPHELM_ITER*,              *IVPHELM_LOOP_CPU*,             *IVPHELM_REGISTER*
+  //WildCardOmitPattern = *IVPHELM_SUMMARY*,           *IVPHELM_TOTAL_PCS_CACHED*, *IVPHELM_TOTAL_PCS_FORMED*,  *IVPHELM_UPDATE_RESULT*,        *MEDIATED_MESSAGE*
+  //WildCardOmitPattern = *MEDIATED_MESSAGE*,         *MEDIATED_MESSAGE_LOCAL*,   *MISSION_HASH*,              *MOOS_DEBUG*,                   *NAV_HEADING_OVER_GROUND*
+  //WildCardOmitPattern = *NAV_LAT*,                   *NAV_LONG*,                 *NAV_PITCH*,                 *NAV_SPEED_OVER_GROUND*,        *NAV_YAW*
+  //WildCardOmitPattern = *NAV_Z*,                     *OPR_ABSOLUTE_PERIM_DIST*,  *OPR_ABSOLUTE_PERIM_ETA*,    *OPR_DEBUG*,                    *OPR_SECS_IN_POLY*
+  //WildCardOmitPattern = *OPR_TRAJECTORY_PERIM_DIST*, *OPR_TRAJECTORY_PERIM_ETA*, *PCONTACTMGRV20_PID*,        *PLOGGER_CMD*,                  *PNODEREPORTER_PID*
+  //WildCardOmitPattern = *PNR_EXTRAP_HDG_GAP*,        *PNR_EXTRAP_POS_GAP*,       *PNR_POST_GAP*,              *PROC_WATCH_ALL_OK*,            *PROC_WATCH_EVENT*
+  //WildCardOmitPattern = *PROC_WATCH_FULL_SUMMARY*,   *PROC_WATCH_SUMMARY*,       *PROC_WATCH_TIME_WARP*,      *REALMCAST_CHANNELS*,           *SIMULATION_MODE*
+  //WildCardOmitPattern = *TM_ALERT_REQUEST*,          *TRUE_X*,                   *TRUE_Y*,                    *UFLDCOLLISIONDETECT_ITER_GAP*, *UFLDCOLLISIONDETECT_ITER_LEN*
+  //WildCardOmitPattern = *UFLDNODEBROKER_PID*,        *UFLDSHOREBROKER_ITER_GAP*, *UFLDSHOREBROKER_ITER_LEN*,  *UFSB_BRIDGE_VARS*,             *UXMS_838_ITER_GAP*
+  //WildCardOmitPattern = *UXMS_838_ITER_LEN*,         *UMH_SUMMARY_MSGS*,         *VIEW_COMMS_PULSE*,          *VIEW_POINT*,                   *ITER_GAP*
+  //WildCardOmitPattern = *ITER_LEN*
+
+
+
+
+}
