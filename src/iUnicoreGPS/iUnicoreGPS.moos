@@ -1,0 +1,37 @@
+//------------------------------------------------
+// iUnicoreGPS config block
+//
+// Reads from Unicore UM982 dual-antenna GNSS receiver
+// and publishes navigation data to MOOSDB.
+
+ProcessConfig = iUnicoreGPS
+{
+   AppTick   = 10
+   CommsTick = 10
+
+   // Serial port configuration
+   port      = /dev/tty.usbserial-D30HFYVU // /dev/ttyUSB0
+   baud_rate = 921600
+
+   // Navigation
+   nav_suffix      =          // Suffix for NAV_X/Y/LAT/LONG/SPEED
+   enable_geodesic = true     // Lat/lon -> local X/Y conversion
+
+   // Publish groups (true/false)
+   publish_position = true
+   publish_velocity = true
+   publish_heading  = true
+   publish_dops     = true
+   publish_status   = true
+   publish_time     = false
+   publish_state    = true
+   publish_dto      = false
+
+   // Serial watchdog
+   stale_data_timeout_sec = 2.0   // Warn if no new parsed GPS data for this long
+   stale_warn_repeat_sec  = 5.0   // Repeat stale warning interval while still stale
+   quality_warn_repeat_sec = 10.0 // Repeat interval for debug quality-degraded logs
+
+   // Debug
+   debug = false
+}

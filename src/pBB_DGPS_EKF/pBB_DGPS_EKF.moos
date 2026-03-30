@@ -1,0 +1,9 @@
+//------------------------------------------------
+// pBB_DGPS_EKF config block
+
+ProcessConfig = pBB_DGPS_EKF
+{
+   AppTick   = 4
+   CommsTick = 4
+}
+

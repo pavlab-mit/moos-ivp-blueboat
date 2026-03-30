@@ -1,0 +1,17 @@
+ProcessConfig = uBBBundler
+{
+  AppTick   = 10
+  CommsTick = 10
+
+  debug = false
+
+  lat_var          = NAV_LAT
+  lon_var          = NAV_LONG
+  nav_x_out_var    = NAV_X
+  nav_y_out_var    = NAV_Y
+
+  // Source:Destination mappings for helm-facing outputs
+  forward_map = GPS_HEADING:NAV_HEADING,NAV_SPEED:NAV_SPEED,NAV_COG:NAV_COG
+  forward_map = NAV_ROLL:NAV_ROLL,NAV_PITCH:NAV_PITCH,NAV_YAW:NAV_YAW
+}
+

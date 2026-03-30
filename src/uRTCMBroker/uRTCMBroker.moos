@@ -1,0 +1,33 @@
+//------------------------------------------------
+// uRTCMBroker config block
+//
+// Connects to an NTRIP caster and publishes RTCM
+// corrections as binary MOOS messages (RTCM_DATA).
+// Designed to run on the shoreside community.
+// Use pShare to bridge RTCM_DATA to vehicle communities.
+
+ProcessConfig = uRTCMBroker
+{
+   AppTick   = 4
+   CommsTick = 4
+
+   // NTRIP caster connection
+   ntrip_host       = macorsrtk.massdot.state.ma.us
+   ntrip_port       = 10000
+   ntrip_mountpoint = RTCM3MSM_IMAX
+   ntrip_user       = myuser
+   ntrip_password   = mypass
+
+   // GGA position sent to caster for VRS
+   // If not set, falls back to LatOrigin/LongOrigin from mission file
+   send_gga   = true
+   gga_lat    = 42.358431
+   gga_lon    = -71.093124
+   gga_alt    = 10.0
+
+   // Timing
+   gga_interval       = 10   // seconds between GGA sends to caster
+   reconnect_interval = 5    // seconds between reconnect attempts
+
+   debug = false
+}

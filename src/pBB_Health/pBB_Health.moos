@@ -1,0 +1,9 @@
+//------------------------------------------------
+// pBB_Health config block
+
+ProcessConfig = pBB_Health
+{
+   AppTick   = 4
+   CommsTick = 4
+}
+
