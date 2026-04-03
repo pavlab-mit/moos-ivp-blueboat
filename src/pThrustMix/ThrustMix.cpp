@@ -238,6 +238,8 @@ bool ThrustMix::Iterate()
   }
 
   // Step 4: Asymmetric differential mixing
+
+  /*
   if (m_mixer > 0.0)
   {
     // Right turn: left thruster increases, right thruster decreases more
@@ -255,6 +257,37 @@ bool ThrustMix::Iterate()
     // Straight
     m_thrust_l = m_desired_thrust;
     m_thrust_r = m_desired_thrust;
+  }
+  */
+
+  // additive scaling
+  m_thrust_l = m_desired_thrust + (m_mixer * 100.0);
+  m_thrust_r = m_desired_thrust - (m_mixer * 100.0);
+
+  // shift back within bounds maintaining difference
+  if (m_thrust_l > 100)
+  {
+    double over_left = m_thrust_l - 100;
+    m_thrust_l -= over_left;
+    m_thrust_r -= over_left;
+  }
+  else if (m_thrust_r > 100)
+  {
+    double over_right = m_thrust_r - 100;
+    m_thrust_l -= over_right;
+    m_thrust_r -= over_right;
+  }
+  else if (m_thrust_l < -100)
+  {
+    double under_left = m_thrust_l + 100;
+    m_thrust_l -= under_left;
+    m_thrust_r -= under_left;
+  }
+  else if (m_thrust_r < -100)
+  {
+    double under_right = m_thrust_r + 100;
+    m_thrust_l -= under_right;
+    m_thrust_r -= under_right;
   }
 
   // Step 5: Clamp outputs to motor limits [-100, 100]
