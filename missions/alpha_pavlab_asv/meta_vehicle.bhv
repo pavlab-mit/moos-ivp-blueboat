@@ -32,7 +32,7 @@ Behavior = BHV_Waypoint
   updates   = WPT_UPDATE
   perpetual = true
 
-                lead = 12
+                lead = 6
          lead_damper = 1
        lead_to_start = true
               speed = $(SPEED)  // meters per second
