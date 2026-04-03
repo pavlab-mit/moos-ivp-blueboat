@@ -258,11 +258,28 @@ bool ThrustMix::Iterate()
     m_thrust_l = m_desired_thrust;
     m_thrust_r = m_desired_thrust;
   }
+
   */
 
+  double turn_left;
+  double turn_right;
+
+  if (m_mixer > 0.0)
+  {
+    // left outer, right inner
+    turn_left = m_k_outer * abs(m_mixer);
+    turn_right = -m_k_inner * abs(m_mixer);
+  }
+  else if (m_mixer < 0.0)
+  {
+    // left inner, right outer
+    turn_left = -m_k_inner * abs(m_mixer);
+    turn_right = m_k_outer * abs(m_mixer);
+  }
+
   // additive scaling
-  m_thrust_l = m_desired_thrust + (m_mixer * 100.0);
-  m_thrust_r = m_desired_thrust - (m_mixer * 100.0);
+  m_thrust_l = m_desired_thrust + (turn_left * 100.0);
+  m_thrust_r = m_desired_thrust + (turn_right * 100.0);
 
   // shift back within bounds maintaining difference
   if (m_thrust_l > 100)
