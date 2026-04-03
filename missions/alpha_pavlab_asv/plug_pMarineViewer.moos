@@ -10,6 +10,7 @@ ProcessConfig = pMarineViewer
   zoom                 = 2.5
   vehicles_shape_scale = 1.5
   vehicles_name_mode   = names
+  extrap_policy = mode=off
 
   circle_viewable_all = true
 

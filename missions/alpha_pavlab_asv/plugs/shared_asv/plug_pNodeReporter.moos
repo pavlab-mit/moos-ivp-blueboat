@@ -12,7 +12,7 @@ ProcessConfig = pNodeReporter
   	platform_type   = heron
   	terse_reports   = true
 
-	extrap_enabled = true
+	extrap_enabled = false
 	extrap_pos_thresh = 0.25  // meters
 	extrap_hdg_thresh = 2.0  // degrees
 	extrap_max_gap = 3       // seconds
