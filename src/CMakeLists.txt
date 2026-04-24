@@ -32,6 +32,7 @@ ADD_SUBDIRECTORY(iFrontSeatBroker)
 ADD_SUBDIRECTORY(iBackSeatBroker)
 ADD_SUBDIRECTORY(uBBBundler)
 ADD_SUBDIRECTORY(iUnicoreGPS)
+ADD_SUBDIRECTORY(iRCReader)
 
 # Armadillo-dependent processes
 IF(${ARMA_AVAIL})
