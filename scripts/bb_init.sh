@@ -39,9 +39,9 @@ $DEBUG && set -x
 # ---------- Config ----------
 RUN_AS_USER="pi"
 
-REPO_DIR="/home/pi/moos-ivp-seascout"
+REPO_DIR="/home/pi/moos-ivp-blueboat"
 BIN_DIR="$REPO_DIR/bin"
-MISSIONS_DIR="$REPO_DIR/missions/blueboat_fs"
+MISSIONS_DIR="$REPO_DIR/missions/blueboat_frontseat"
 
 MOOS_DIRS=(
   "/home/pi/moos-ivp/bin"
