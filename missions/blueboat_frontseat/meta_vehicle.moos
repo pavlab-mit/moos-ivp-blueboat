@@ -12,9 +12,7 @@ ProcessConfig = ANTLER
   //Core vehicle 
   Run = MOOSDB                 @ NewConsole = false
   Run = uProcessWatch          @ NewConsole = false
-  Run = iBBThrustCtrl          @ NewConsole = false
   Run = iRCReader              @ NewConsole = false
-  Run = pNavigator_AHRS        @ NewConsole = false
   Run = iUnicoreGPS            @ NewConsole = false
   Run = iFrontSeatBroker       @ NewConsole = false
 
@@ -28,9 +26,7 @@ ProcessConfig = ANTLER
 
 #include plugs/blueboat_fs/plug_iFrontSeatBroker.moos
 #include plugs/blueboat_fs/plug_iUnicoreGPS.moos
-#include plugs/blueboat_fs/plug_iBBThrustCtrl.moos
 #include plugs/blueboat_fs/plug_iRCReader.moos
-#include plugs/blueboat_fs/plug_pNavigator_AHRS.moos
 #include plugs/blueboat_fs/plug_uProcessWatch.moos
 
 #ifdef DEBUG true
