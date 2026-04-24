@@ -8,7 +8,7 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 PROJECT( IVP_BLUEBOAT )
 
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 14)
 
 #=======================================================================
 # Set the output directories for the binary and library files

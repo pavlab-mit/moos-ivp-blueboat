@@ -7,6 +7,9 @@
 # Madgwick AHRS filter
 ADD_SUBDIRECTORY(lib_MadgwickAHRS)
 
+# SBUS protocol parser for RC receivers
+ADD_SUBDIRECTORY(lib_sbus)
+
 # Unicore GNSS parser
 ADD_SUBDIRECTORY(lib_unicore)
 
