@@ -22,6 +22,7 @@ ProcessConfig = ANTLER
   Run = pRealm             @ NewConsole = false
   Run = pShare             @ NewConsole = false
   Run = pHostInfo          @ NewConsole = false
+  Run = pLogger            @ NewConsole = false
   #endif
 }
 
@@ -36,4 +37,5 @@ ProcessConfig = ANTLER
 #include plugs/blueboat_fs/plug_pRealm.moos
 #include plugs/blueboat_fs/plug_uFldNodeBroker.moos
 #include plugs/blueboat_fs/plug_pHostInfo.moos
+#inlcude plugs/blueboat_fs/plug_plogger.moos
 #endif
