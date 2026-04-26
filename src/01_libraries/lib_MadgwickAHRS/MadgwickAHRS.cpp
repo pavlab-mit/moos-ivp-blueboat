@@ -31,17 +31,6 @@
 //-------------------------------------------------------------------------------------------
 // AHRS algorithm update
 
-Madgwick::Madgwick()
-{
-	beta = 0.2;
-	q0 = 1.0f;
-	q1 = 0.0f;
-	q2 = 0.0f;
-	q3 = 0.0f;
-	invSampleFreq = 1.0f / 150;
-	anglesComputed = 0;
-}
-
 Madgwick::Madgwick(double _beta, double _sampleFreq)
 {
 	beta = _beta;
