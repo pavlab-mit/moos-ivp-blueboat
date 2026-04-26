@@ -20,7 +20,7 @@ ProcessConfig = iBackSeatBroker
    tx_port = 9444
 
    // MOOS vars sent every Iterate tick if available
-   tx_vars = DESIRED_THRUST_L,DESIRED_THRUST_R,ALL_STOP
+   tx_vars = DESIRED_THRUST_L,DESIRED_THRUST_R,ALL_STOP,MISSION_COMPLETE
 
    // Optional inbound remap: WIRE_VAR:MOOS_VAR
    // Backseat-side EKF / uBBBundler is the source of truth for
