@@ -27,7 +27,7 @@ if(ARMA_AVAIL)
     ${SYSTEM_LIBS}
     ${NAVIGATOR_LIB}
     ${ARMA_LIBS}
-    MadgwickAHRS
+    madgwicks
     apputil
     mbutil
     m
