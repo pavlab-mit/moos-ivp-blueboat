@@ -116,6 +116,14 @@ BBNavigatorInterface::BBNavigatorInterface()
   }
   m_rc_mode = false; // Default to MOOS control mode
 
+  // RC deadman defaults: ON, 2-second timeout. Last-good-time is
+  // initialized to 0 so the deadman fires immediately at startup
+  // until the first RC mail arrives - vehicle starts SAFED.
+  m_rc_deadman_enabled = true;
+  m_rc_deadman_timeout = 2.0;
+  m_last_rc_good_time = 0.0;
+  m_rc_deadman_active = false;
+
   set_rgb_led_strip_size(24);
   init();
 
@@ -344,6 +352,11 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
     else if (key == "RC_CONNECTED")
     {
       m_rc_connected = (msg.GetString() == "true");
+      // Only refresh the deadman timestamp on a "good" RC report.
+      // RC_CONNECTED=false leaves m_last_rc_good_time stale so the
+      // deadman timer can run out and safe the vehicle.
+      if (m_rc_connected)
+        m_last_rc_good_time = MOOSTime();
       dbg_print("RC connected: %s\n", m_rc_connected ? "true" : "false");
     }
     else if (key.substr(0, 5) == "RC_CH" && key.length() > 5)
@@ -353,6 +366,9 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
       if (channel >= 0 && channel < 16)
       {
         m_rc_channels[channel] = msg.GetDouble();
+        // iRCReader only publishes RC_CH* when it considers RC
+        // connected, so any RC_CH* mail counts as a "good" RC tick.
+        m_last_rc_good_time = MOOSTime();
 
         // Check mode switch (Channel 6)
         if (channel == 5) // Channel 6 (zero-indexed as 5)
@@ -363,6 +379,15 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
 
         dbg_print("RC_CH%d: %0.2f\n", channel + 1, m_rc_channels[channel]);
       }
+    }
+    else if (key == "RC_DEADMAN_ENABLED")
+    {
+      m_rc_deadman_enabled = (msg.GetString() == "true");
+      reportEvent(std::string("RC deadman ") +
+                  (m_rc_deadman_enabled ? "ENABLED" : "DISABLED") +
+                  " via MOOS");
+      dbg_print("RC deadman %s via MOOS\n",
+                m_rc_deadman_enabled ? "ENABLED" : "DISABLED");
     }
     else if (key != "APPCAST_REQ") // handled by AppCastingMOOSApp
       reportRunWarning("Unhandled Mail: " + key);
@@ -551,6 +576,35 @@ bool BBNavigatorInterface::Iterate()
     m_desired_thrust_right = 0;
     dbg_print("RC disconnected - setting thrusts to zero\n");
   }
+
+  // RC deadman watchdog (final override). When enabled, requires
+  // a "good" RC tick (RC_CONNECTED=true or any RC_CH* mail) within
+  // m_rc_deadman_timeout seconds. Triggers in BOTH RC and autonomous
+  // mode - treats the RC link as a vehicle-side deadman. Disable via
+  // rc_deadman_enabled=false (config) or RC_DEADMAN_ENABLED=false
+  // (runtime) for over-the-horizon missions where RC range loss is
+  // expected.
+  bool deadman_was_active = m_rc_deadman_active;
+  m_rc_deadman_active = false;
+  if (m_rc_deadman_enabled)
+  {
+    double rc_age = MOOSTime() - m_last_rc_good_time;
+    if (rc_age > m_rc_deadman_timeout)
+    {
+      m_rc_deadman_active = true;
+      m_desired_thrust_left = 0;
+      m_desired_thrust_right = 0;
+      if (!deadman_was_active)
+        reportRunWarning("RC deadman tripped (no RC for " +
+                         doubleToString(rc_age, 1) + "s)");
+      dbg_print("RC deadman ACTIVE: rc_age=%.2fs > timeout=%.2fs\n",
+                rc_age, m_rc_deadman_timeout);
+    }
+  }
+  if (deadman_was_active && !m_rc_deadman_active)
+    reportEvent("RC deadman cleared");
+  Notify("NVGR_RC_DEADMAN_ACTIVE",
+         m_rc_deadman_active ? "true" : "false");
 
   // Apply dead band to thrusters
   if (fabs(m_desired_thrust_left) < m_thruster_dead_band)
@@ -778,6 +832,18 @@ bool BBNavigatorInterface::OnStartUp()
       m_thrust_timeout_enabled = (m_thrust_command_timeout > 0);
       handled = true;
     }
+    else if (param == "rc_deadman_enabled")
+    {
+      m_rc_deadman_enabled = (tolower(value) == "true");
+      handled = true;
+    }
+    else if (param == "rc_deadman_timeout")
+    {
+      m_rc_deadman_timeout = stod(value);
+      if (m_rc_deadman_timeout < 0.1)
+        m_rc_deadman_timeout = 0.1;
+      handled = true;
+    }
     else if (param == "theta_b")
     {
       m_theta_b = stod(value);
@@ -988,6 +1054,11 @@ void BBNavigatorInterface::registerVariables()
   {
     Register("RC_CH" + std::to_string(i), 0);
   }
+
+  // Runtime toggle for the RC deadman watchdog (default behavior
+  // set by rc_deadman_enabled config; this lets backseat or operator
+  // override at runtime, e.g. for over-the-horizon autonomy).
+  Register("RC_DEADMAN_ENABLED", 0);
 }
 
 //------------------------------------------------------------
@@ -1022,6 +1093,11 @@ bool BBNavigatorInterface::buildReport()
   actab << "ALL_STOP Active:" << (m_all_stop ? "true" : "false");
   actab << "RC Connected:" << (m_rc_connected ? "true" : "false");
   actab << "RC Mode Active:" << (m_rc_mode ? "true" : "false");
+  actab << "RC Deadman Enabled:" << (m_rc_deadman_enabled ? "true" : "false");
+  actab << "RC Deadman Timeout (sec):" << m_rc_deadman_timeout;
+  double rc_age_now = MOOSTime() - m_last_rc_good_time;
+  actab << "RC Mail Age (sec):" << rc_age_now;
+  actab << "RC Deadman Tripped:" << (m_rc_deadman_active ? "true" : "false");
   actab << "RC Channel 1 (Turning):" << m_rc_channels[0];
   actab << "RC Channel 3 (Speed):" << m_rc_channels[2];
   actab << "RC Channel 6 (Mode Switch):" << m_rc_channels[5];
