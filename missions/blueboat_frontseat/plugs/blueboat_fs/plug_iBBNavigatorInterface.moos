@@ -32,7 +32,7 @@ ProcessConfig = iBBNavigatorInterface
   right_thruster_invert = false
 
   thruster_enabled    = true
-  thruster_alpha      = 0.1     // LPF: alpha = dt/(tau+dt)
+  thruster_alpha      = 0.02     // LPF: alpha = dt/(tau+dt)
 
   // Send min/max/neutral sequence on startup so ESCs arm.
   initialize_esc      = true
