@@ -257,6 +257,13 @@ bool RCReader::Iterate()
     Notify("RC_FRAME_LOST", m_frame_lost ? "true" : "false");
     Notify("RC_FAILSAFE", m_failsafe ? "true" : "false");
   }
+  else
+  {
+    Notify("RC_CH1", 0.0);
+    Notify("RC_CH2", 0.0);
+    Notify("RC_CH3", 0.0);
+    Notify("RC_CH4", 0.0);
+  }
 
   AppCastingMOOSApp::PostReport();
   return(true);
