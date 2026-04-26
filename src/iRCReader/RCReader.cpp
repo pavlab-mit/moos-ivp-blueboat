@@ -213,7 +213,7 @@ bool RCReader::Iterate()
   // Publish connection status
   Notify("RC_CONNECTED", m_rc_connected ? "true" : "false");
 
-  if (m_sbus.isFrameLost())
+  if (!m_sbus.isFrameLost())
   {
     // Lock mutex to safely access shared data
     std::lock_guard<std::mutex> lock(m_mutex);
