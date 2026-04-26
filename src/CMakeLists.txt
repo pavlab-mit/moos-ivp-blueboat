@@ -31,7 +31,7 @@ ADD_SUBDIRECTORY(uRTCMBroker)
 ADD_SUBDIRECTORY(iFrontSeatBroker)
 ADD_SUBDIRECTORY(iBackSeatBroker)
 ADD_SUBDIRECTORY(uBBBundler)
-ADD_SUBDIRECTORY(iUnicoreGPS)
+ADD_SUBDIRECTORY(iUnicore)
 ADD_SUBDIRECTORY(iRCReader)
 
 # Armadillo-dependent processes

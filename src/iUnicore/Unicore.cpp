@@ -1,26 +1,26 @@
-
 /*************************************************************
       Name: Jeremy Wenger
       Orgn: MIT, Cambridge MA
-      File: iUnicoreGPS/UnicoreGPS.cpp
-   Last Ed: 2026-03-04
+      File: iUnicore/Unicore.cpp
+   Last Ed: 2026-04-26
      Brief:
         MOOS interface for Unicore UM982 dual-antenna GNSS
         receiver. Reads position, velocity, heading, and DOP
-        data via serial and publishes to MOOSDB with
-        configurable publish groups.
+        data via serial and publishes to MOOSDB. All published
+        names are appended with "_<pub_suffix>" (default DGNSS).
+        No geodesic conversion - lat/lon only.
 *************************************************************/
 
 #include "MBUtils.h"
 #include "ACTable.h"
-#include "UnicoreGPS.h"
+#include "Unicore.h"
 
 using namespace std;
 
 //---------------------------------------------------------
 // Constructor()
 
-UnicoreGPS::UnicoreGPS()
+Unicore::Unicore()
 {
   m_debug = false;
   m_debug_stream = nullptr;
@@ -28,9 +28,7 @@ UnicoreGPS::UnicoreGPS()
 
   m_port_name = "/dev/ttyUSB0";
   m_baud_rate = 460800;
-  m_nav_suffix = "";
-  m_enable_geodesic = true;
-  m_geodesy_initialized = false;
+  m_pub_suffix = "DGNSS";
 
   m_publish_position = true;
   m_publish_velocity = true;
@@ -53,8 +51,6 @@ UnicoreGPS::UnicoreGPS()
   m_quality_warn_repeat_sec = 10.0;
   m_last_quality_warn_moos_time = 0.0;
 
-  m_nav_x = 0.0;
-  m_nav_y = 0.0;
   m_nav_lat = 0.0;
   m_nav_lon = 0.0;
   m_nav_alt = 0.0;
@@ -111,7 +107,7 @@ UnicoreGPS::UnicoreGPS()
 //---------------------------------------------------------
 // Destructor
 
-UnicoreGPS::~UnicoreGPS()
+Unicore::~Unicore()
 {
   m_thread_running = false;
   if (m_reader_thread.joinable())
@@ -125,9 +121,21 @@ UnicoreGPS::~UnicoreGPS()
 }
 
 //---------------------------------------------------------
+// Procedure: pubName()
+// Appends "_<pub_suffix>" to the given base; returns base bare
+// when suffix is empty.
+
+string Unicore::pubName(const string &base) const
+{
+  if (m_pub_suffix.empty())
+    return base;
+  return base + "_" + m_pub_suffix;
+}
+
+//---------------------------------------------------------
 // Procedure: OnNewMail()
 
-bool UnicoreGPS::OnNewMail(MOOSMSG_LIST &NewMail)
+bool Unicore::OnNewMail(MOOSMSG_LIST &NewMail)
 {
   AppCastingMOOSApp::OnNewMail(NewMail);
 
@@ -163,7 +171,7 @@ bool UnicoreGPS::OnNewMail(MOOSMSG_LIST &NewMail)
 //---------------------------------------------------------
 // Procedure: dbg_print()
 
-bool UnicoreGPS::dbg_print(const char *format, ...)
+bool Unicore::dbg_print(const char *format, ...)
 {
   if (m_debug) {
     va_list args;
@@ -186,7 +194,7 @@ bool UnicoreGPS::dbg_print(const char *format, ...)
 //---------------------------------------------------------
 // Procedure: OnConnectToServer()
 
-bool UnicoreGPS::OnConnectToServer()
+bool Unicore::OnConnectToServer()
 {
   registerVariables();
   return true;
@@ -195,7 +203,7 @@ bool UnicoreGPS::OnConnectToServer()
 //---------------------------------------------------------
 // Procedure: Iterate()
 
-bool UnicoreGPS::Iterate()
+bool Unicore::Iterate()
 {
   AppCastingMOOSApp::Iterate();
 
@@ -285,76 +293,70 @@ bool UnicoreGPS::Iterate()
 
     // GROUP: position
     if (m_publish_position) {
-      if (m_enable_geodesic && m_geodesy_initialized) {
-        Notify("NAV_X" + m_nav_suffix, m_nav_x);
-        Notify("NAV_Y" + m_nav_suffix, m_nav_y);
-      }
-      Notify("NAV_X_GPS", m_nav_x);
-      Notify("NAV_Y_GPS", m_nav_y);
-      Notify("NAV_LAT", m_nav_lat);
-      Notify("NAV_LONG", m_nav_lon);
+      Notify(pubName("NAV_LAT"), m_nav_lat);
+      Notify(pubName("NAV_LONG"), m_nav_lon);
     }
 
     // GROUP: velocity
     if (m_publish_velocity) {
-      Notify("NAV_SPEED", m_nav_speed);
-      Notify("VEL_N", m_vel_n);
-      Notify("VEL_E", m_vel_e);
-      Notify("VEL_D", m_vel_d);
-      Notify("NAV_COG", m_track_over_ground);
+      Notify(pubName("NAV_SPEED"), m_nav_speed);
+      Notify(pubName("VEL_N"), m_vel_n);
+      Notify(pubName("VEL_E"), m_vel_e);
+      Notify(pubName("VEL_D"), m_vel_d);
+      Notify(pubName("NAV_COG"), m_track_over_ground);
     }
 
     // GROUP: heading (dual-antenna)
     if (m_publish_heading) {
-      Notify("GPS_HEADING", m_gps_heading);
-      Notify("GPS_HEADING_ACC", m_gps_heading_acc);
-      Notify("GPS_BASELINE", m_gps_baseline);
-      Notify("GPS_PITCH", m_gps_pitch);
-      Notify("GPS_CARR_SOLN", m_carr_soln);
-      Notify("GPS_HEADING_VALID", m_heading_valid ? "true" : "false");
+      Notify(pubName("GPS_HEADING"), m_gps_heading);
+      Notify(pubName("GPS_HEADING_ACC"), m_gps_heading_acc);
+      Notify(pubName("GPS_BASELINE"), m_gps_baseline);
+      Notify(pubName("GPS_PITCH"), m_gps_pitch);
+      Notify(pubName("GPS_CARR_SOLN"), m_carr_soln);
+      Notify(pubName("GPS_HEADING_VALID"), m_heading_valid ? "true" : "false");
     }
 
     // GROUP: dops (position geometry)
     if (m_publish_dops) {
-      Notify("HDOP", static_cast<double>(m_hdop));
-      Notify("VDOP", static_cast<double>(m_vdop));
-      Notify("PDOP", static_cast<double>(m_pdop));
-      Notify("GDOP", static_cast<double>(m_gdop));
+      Notify(pubName("HDOP"), static_cast<double>(m_hdop));
+      Notify(pubName("VDOP"), static_cast<double>(m_vdop));
+      Notify(pubName("PDOP"), static_cast<double>(m_pdop));
+      Notify(pubName("GDOP"), static_cast<double>(m_gdop));
       // Heading geometry DOPs (from STADOPHA)
-      Notify("HDG_HDOP", static_cast<double>(m_hdg_hdop));
-      Notify("HDG_PDOP", static_cast<double>(m_hdg_pdop));
+      Notify(pubName("HDG_HDOP"), static_cast<double>(m_hdg_hdop));
+      Notify(pubName("HDG_PDOP"), static_cast<double>(m_hdg_pdop));
     }
 
     // GROUP: status
     if (m_publish_status) {
-      Notify("GPS_HAS_LOCK", m_gps_lock ? "true" : "false");
-      Notify("GPS_FIX_TYPE", m_fix_type);
-      Notify("GPS_NUM_SATS", static_cast<double>(m_num_sats));
-      Notify("GPS_CORR_HEALTHY", m_corr_healthy ? "true" : "false");
-      Notify("GPS_RTK_CALC_STATUS", static_cast<double>(m_rtk_calc_status));
-      Notify("GPS_CORR_AGE", static_cast<double>(m_corr_age));
-      Notify("GPS_SOL_AGE", static_cast<double>(m_sol_age));
-      Notify("GPS_BASE_ID", m_base_id.empty() ? "NONE" : m_base_id);
+      Notify(pubName("GPS_HAS_LOCK"), m_gps_lock ? "true" : "false");
+      Notify(pubName("GPS_FIX_TYPE"), m_fix_type);
+      Notify(pubName("GPS_NUM_SATS"), static_cast<double>(m_num_sats));
+      Notify(pubName("GPS_CORR_HEALTHY"), m_corr_healthy ? "true" : "false");
+      Notify(pubName("GPS_RTK_CALC_STATUS"), static_cast<double>(m_rtk_calc_status));
+      Notify(pubName("GPS_CORR_AGE"), static_cast<double>(m_corr_age));
+      Notify(pubName("GPS_SOL_AGE"), static_cast<double>(m_sol_age));
+      Notify(pubName("GPS_BASE_ID"), m_base_id.empty() ? "NONE" : m_base_id);
     }
 
     // GROUP: time
     if (m_publish_time) {
-      Notify("GPS_EPOCH_TIME", m_epoch_time);
+      Notify(pubName("GPS_EPOCH_TIME"), m_epoch_time);
     }
 
-    // GROUP: state
+    // GROUP: state - time-bundled CSV of all fix variables
     if (m_publish_state) {
-      Notify("GPS_STATE", buildStateString());
+      Notify(pubName("FIX_STATE"), buildStateString());
     }
 
     // GROUP: dto
     if (m_publish_dto) {
-      Notify("GNSS_POSITION", m_position_dto.to_moos_string());
-      Notify("GNSS_HEADING", m_heading_dto.to_moos_string());
-      Notify("GNSS_VELOCITY", m_velocity_dto.to_moos_string());
-      Notify("GNSS_DOPS", m_dops_dto.to_moos_string());
-      Notify("GNSS_STATUS", m_status_dto.to_moos_string());
-      Notify("GNSS_RTK_STATUS", m_rtk_status_dto.to_moos_string());
+      Notify(pubName("GNSS_POSITION"), m_position_dto.to_moos_string());
+      Notify(pubName("GNSS_HEADING"), m_heading_dto.to_moos_string());
+      Notify(pubName("GNSS_VELOCITY"), m_velocity_dto.to_moos_string());
+      Notify(pubName("GNSS_DOPS"), m_dops_dto.to_moos_string());
+      Notify(pubName("GNSS_STATUS"), m_status_dto.to_moos_string());
+      Notify(pubName("GNSS_RTK_STATUS"), m_rtk_status_dto.to_moos_string());
     }
 
     m_new_data_available = false;
@@ -366,13 +368,15 @@ bool UnicoreGPS::Iterate()
 
 //---------------------------------------------------------
 // Procedure: buildStateString()
+// Time-bundled CSV of all fix state. Lat/lon only - no local
+// XY (that conversion lives downstream).
 
-string UnicoreGPS::buildStateString()
+string Unicore::buildStateString()
 {
   char buf[2048];
   snprintf(buf, sizeof(buf),
            "MOOSTime=%.6f,NAV_LAT=%.9f,NAV_LONG=%.9f,NAV_ALT=%.3f,"
-           "NAV_X=%.3f,NAV_Y=%.3f,NAV_SPEED=%.3f,"
+           "NAV_SPEED=%.3f,"
            "VEL_N=%.3f,VEL_E=%.3f,VEL_D=%.3f,"
            "NAV_COG=%.2f,"
            "GPS_HEADING=%.3f,GPS_HEADING_ACC=%.3f,GPS_BASELINE=%.4f,"
@@ -384,7 +388,7 @@ string UnicoreGPS::buildStateString()
            "CORR_HEALTHY=%s,CORR_AGE=%.1f,BASE_ID=%s",
            MOOSTime(),
            m_nav_lat, m_nav_lon, m_nav_alt,
-           m_nav_x, m_nav_y, m_nav_speed,
+           m_nav_speed,
            m_vel_n, m_vel_e, m_vel_d,
            m_track_over_ground,
            m_gps_heading, m_gps_heading_acc, m_gps_baseline,
@@ -400,38 +404,9 @@ string UnicoreGPS::buildStateString()
 }
 
 //---------------------------------------------------------
-// Procedure: GeodesySetup()
-
-bool UnicoreGPS::GeodesySetup()
-{
-  double LatOrigin = 0.0;
-  double LonOrigin = 0.0;
-
-  bool latOK = m_MissionReader.GetValue("LatOrigin", LatOrigin);
-  if (!latOK) {
-    reportConfigWarning("Latitude origin missing in MOOS file.");
-    return false;
-  }
-
-  bool lonOK = m_MissionReader.GetValue("LongOrigin", LonOrigin);
-  if (!lonOK) {
-    reportConfigWarning("Longitude origin missing in MOOS file.");
-    return false;
-  }
-
-  bool geoOK = m_geodesy.Initialise(LatOrigin, LonOrigin);
-  if (!geoOK) {
-    reportConfigWarning("CMOOSGeodesy::Initialise() failed. Invalid origin.");
-    return false;
-  }
-
-  return true;
-}
-
-//---------------------------------------------------------
 // Procedure: initializeGPS()
 
-bool UnicoreGPS::initializeGPS()
+bool Unicore::initializeGPS()
 {
   m_parser = new UnicoreParser(m_port_name, m_baud_rate);
 
@@ -455,7 +430,7 @@ bool UnicoreGPS::initializeGPS()
 //---------------------------------------------------------
 // Procedure: OnStartUp()
 
-bool UnicoreGPS::OnStartUp()
+bool Unicore::OnStartUp()
 {
   AppCastingMOOSApp::OnStartUp();
 
@@ -481,12 +456,8 @@ bool UnicoreGPS::OnStartUp()
       m_baud_rate = stoi(value);
       handled = true;
     }
-    else if (param == "nav_suffix") {
-      m_nav_suffix = value;
-      handled = true;
-    }
-    else if (param == "enable_geodesic") {
-      m_enable_geodesic = (tolower(value) == "true");
+    else if (param == "pub_suffix") {
+      m_pub_suffix = value;
       handled = true;
     }
     else if (param == "publish_position") {
@@ -561,15 +532,6 @@ bool UnicoreGPS::OnStartUp()
       reportUnhandledConfigWarning(orig);
   }
 
-  if (m_enable_geodesic) {
-    if (!GeodesySetup()) {
-      reportConfigWarning("Geodesy setup failed. Local coordinates disabled.");
-      m_enable_geodesic = false;
-    } else {
-      m_geodesy_initialized = true;
-    }
-  }
-
   if (!initializeGPS()) {
     reportConfigWarning("Failed to initialize GPS.");
     return false;
@@ -583,7 +545,7 @@ bool UnicoreGPS::OnStartUp()
   m_last_quality_warn_moos_time = 0.0;
 
   m_thread_running = true;
-  m_reader_thread = std::thread(&UnicoreGPS::gpsReaderThread, this);
+  m_reader_thread = std::thread(&Unicore::gpsReaderThread, this);
 
   registerVariables();
   return true;
@@ -592,7 +554,7 @@ bool UnicoreGPS::OnStartUp()
 //---------------------------------------------------------
 // Procedure: gpsReaderThread()
 
-void UnicoreGPS::gpsReaderThread()
+void Unicore::gpsReaderThread()
 {
   while (m_thread_running) {
     try {
@@ -634,16 +596,6 @@ void UnicoreGPS::gpsReaderThread()
         m_sol_age = nav.solAge;
         m_base_id = nav.baseId;
 
-        // Geodesic conversion
-        if (m_enable_geodesic && m_geodesy_initialized &&
-            m_nav_lat != 0.0 && m_nav_lon != 0.0) {
-          double x, y;
-          if (m_geodesy.LatLong2LocalGrid(m_nav_lat, m_nav_lon, y, x)) {
-            m_nav_x = x;
-            m_nav_y = y;
-          }
-        }
-
         // Populate position DTO
         m_position_dto.timestamp_epoch = MOOSTime();
         m_position_dto.latitude = nav.lat;
@@ -659,10 +611,6 @@ void UnicoreGPS::gpsReaderThread()
         m_position_dto.sol_status = nav.solStatus;
         m_position_dto.num_tracked = nav.numTracked;
         m_position_dto.num_used = nav.numUsed;
-        m_position_dto.nav_x = m_nav_x;
-        m_position_dto.nav_y = m_nav_y;
-        m_position_dto.has_local_coords =
-            (m_enable_geodesic && m_geodesy_initialized);
         m_position_dto.epoch_time = nav.epochTime;
 
         m_bestnava_count++;
@@ -824,7 +772,7 @@ void UnicoreGPS::gpsReaderThread()
 //---------------------------------------------------------
 // Procedure: registerVariables()
 
-void UnicoreGPS::registerVariables()
+void Unicore::registerVariables()
 {
   AppCastingMOOSApp::RegisterVariables();
   Register("RTCM_DATA", 0);
@@ -833,13 +781,14 @@ void UnicoreGPS::registerVariables()
 //---------------------------------------------------------
 // Procedure: buildReport()
 
-bool UnicoreGPS::buildReport()
+bool Unicore::buildReport()
 {
   m_msgs << "============================================" << endl;
-  m_msgs << "iUnicoreGPS (UM982) Status" << endl;
+  m_msgs << "iUnicore (UM982) Status" << endl;
   m_msgs << "============================================" << endl;
   m_msgs << "Port: " << m_port_name << " @ " << m_baud_rate << endl;
-  m_msgs << "Suffix: \"" << m_nav_suffix << "\"" << endl;
+  m_msgs << "Pub Suffix: \"" << m_pub_suffix << "\""
+         << " (vars published as <base>" << (m_pub_suffix.empty() ? "" : "_" + m_pub_suffix) << ")" << endl;
   m_msgs << "GPS Lock: " << (m_gps_lock ? "YES" : "NO") << endl;
   if (m_last_gps_data_moos_time > 0.0) {
     const double data_age = MOOSTime() - m_last_gps_data_moos_time;
@@ -859,8 +808,6 @@ bool UnicoreGPS::buildReport()
   postab << "NAV_LAT" << doubleToString(m_nav_lat, 7);
   postab << "NAV_LONG" << doubleToString(m_nav_lon, 7);
   postab << "NAV_ALT" << doubleToString(m_nav_alt, 2);
-  postab << "NAV_X" << doubleToString(m_nav_x, 2);
-  postab << "NAV_Y" << doubleToString(m_nav_y, 2);
   postab << "H_ACC" << doubleToString(m_h_acc, 3);
   postab << "V_ACC" << doubleToString(m_v_acc, 3);
   postab << "FIX_TYPE" << m_fix_type;

@@ -4,11 +4,7 @@
       File: uBBBundler/BBBundler_Info.cpp
    Last Ed:  2026-03-20
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Help, example config, and interface text for uBBBundler.
 *************************************************************/
 
 #include <cstdlib>
@@ -77,11 +73,21 @@ void showExampleConfigAndExit()
   blk("{");
   blk("  AppTick   = 10");
   blk("  CommsTick = 10");
-  blk("  lat_var       = NAV_LAT");
-  blk("  lon_var       = NAV_LONG");
-  blk("  nav_x_out_var = NAV_X");
-  blk("  nav_y_out_var = NAV_Y");
-  blk("  forward_map   = GPS_HEADING:NAV_HEADING,NAV_SPEED:NAV_SPEED");
+  blk("                                                                ");
+  blk("  // Lat/lon inputs (defaults shown).");
+  blk("  lat_var = NAV_LAT_DGNSS");
+  blk("  lon_var = NAV_LONG_DGNSS");
+  blk("                                                                ");
+  blk("  // Geodesic-conversion output bases (suffixed by pub_suffix).");
+  blk("  nav_x_out_base = NAV_X");
+  blk("  nav_y_out_base = NAV_Y");
+  blk("                                                                ");
+  blk("  // Forwarded vars: <source>:<dest>,...  Destinations are");
+  blk("  // suffixed by pub_suffix at publish time.");
+  blk("  forward_map = GPS_HEADING_DGNSS:NAV_HEADING,NAV_SPEED_DGNSS:NAV_SPEED");
+  blk("                                                                ");
+  blk("  // Output suffix - empty publishes bare helm-facing names.");
+  blk("  pub_suffix =");
   blk("}");
   blk("                                                                ");
   exit(0);
@@ -102,12 +108,13 @@ void showInterfaceAndExit()
   blk("                                                                ");
   blk("SUBSCRIPTIONS:");
   blk("------------------------------------");
-  blk("  lat_var, lon_var, and keys appearing on forward_map.");
+  blk("  Whatever is configured as lat_var, lon_var, plus every");
+  blk("  source key appearing on the forward_map list.");
   blk("");
-  blk("PUBLICATIONS:");
+  blk("PUBLICATIONS (suffixed by pub_suffix when set):");
   blk("------------------------------------");
-  blk("  nav_x_out_var/nav_y_out_var,");
-  blk("  and all forward_map destination variables.");
+  blk("  nav_x_out_base, nav_y_out_base (default NAV_X / NAV_Y),");
+  blk("  and every forward_map destination.");
   blk("                                                                ");
   exit(0);
 }

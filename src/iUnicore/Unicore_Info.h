@@ -1,16 +1,15 @@
-
 /*************************************************************
-      Name: Raymond Turrisi
+      Name: Jeremy Wenger
       Orgn: MIT, Cambridge MA
-      File: iRCReader/RCReader_Info.h
-   Last Ed:  2025-03-20
+      File: iUnicore/Unicore_Info.h
+   Last Ed:  2026-04-26
      Brief:
-        Help, example config, and interface text forward
-        declarations for iRCReader.
+        Help and interface documentation forward declarations
+        for iUnicore.
 *************************************************************/
 
-#ifndef RCReader_INFO_HEADER
-#define RCReader_INFO_HEADER
+#ifndef Unicore_INFO_HEADER
+#define Unicore_INFO_HEADER
 
 void showSynopsis();
 void showHelpAndExit();
@@ -19,4 +18,3 @@ void showInterfaceAndExit();
 void showReleaseInfoAndExit();
 
 #endif
-

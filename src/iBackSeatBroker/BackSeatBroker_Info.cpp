@@ -4,11 +4,8 @@
       File: iBackSeatBroker/BackSeatBroker_Info.cpp
    Last Ed:  2026-03-23
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Help, example config, and interface text for
+        iBackSeatBroker.
 *************************************************************/
 
 #include <cstdlib>
@@ -81,7 +78,7 @@ void showExampleConfigAndExit()
   blk("  tx_ip       = $(FSEAT_IP)                                     ");
   blk("  tx_port     = 9201                                            ");
   blk("  tx_vars     = DESIRED_THRUST_L,DESIRED_THRUST_R,ALL_STOP      ");
-  blk("  in_map      = GPS_HEADING:NAV_HEADING,NAV_X_GPS:NAV_X         ");
+  blk("  in_map      = GPS_HEADING_DGNSS:NAV_HEADING                   ");
   blk("  debug       = false                                           ");
   blk("}                                                               ");
   blk("                                                                ");

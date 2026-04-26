@@ -36,10 +36,12 @@ void showSynopsis()
   blk("  When thrusters are off for a configurable period, the drift   ");
   blk("  estimator runs to capture current velocities [v_x, v_y].      ");
   blk("                                                                ");
-  blk("  Subscribes to GPS_STATE (bundled GPS data from iUnicoreGPS),  ");
-  blk("  GYRO_LVL_Z (level-frame gyro), and DESIRED_THRUST_L/R for     ");
-  blk("  drift detection. Uses adaptive measurement noise from GPS     ");
-  blk("  accuracy metrics.                                             ");
+  blk("  Subscribes to FIX_STATE_DGNSS (time-bundled fix state from   ");
+  blk("  iUnicore), GYRO_Z_LVL_IMU (level-frame gyro from navigator), ");
+  blk("  and DESIRED_THRUST_L/R for drift detection. Uses adaptive    ");
+  blk("  measurement noise from GPS accuracy metrics. Outputs are     ");
+  blk("  bare NAV_X/Y/HEADING/etc. unless pub_suffix is set, in which ");
+  blk("  case it's appended as _<pub_suffix>.                         ");
 }
 
 //----------------------------------------------------------------
@@ -89,18 +91,12 @@ void showExampleConfigAndExit()
   blk("  CommsTick = 20                                                ");
   blk("                                                                ");
   blk("  // Input variable names                                       ");
-  blk("  input_gps_state = GPS_STATE        // Bundled GPS from iUnicoreGPS");
-  blk("  input_gyro_z    = GYRO_LVL_Z       // Level-frame gyro (rad/s)");
+  blk("  input_gps_state = FIX_STATE_DGNSS  // Bundle from iUnicore     ");
+  blk("  input_gyro_z    = GYRO_Z_LVL_IMU   // Level-frame gyro (rad/s)");
   blk("                                                                ");
-  blk("  // Output variable names                                      ");
-  blk("  output_nav_x       = NAV_X         // Filtered X position (m) ");
-  blk("  output_nav_y       = NAV_Y         // Filtered Y position (m) ");
-  blk("  output_nav_lat     = NAV_LAT       // Filtered latitude (deg) ");
-  blk("  output_nav_long    = NAV_LONG      // Filtered longitude (deg)");
-  blk("  output_nav_heading = NAV_HEADING   // Filtered heading (deg)  ");
-  blk("  output_nav_speed   = NAV_SPEED     // Filtered speed (m/s)    ");
-  blk("  output_nav_cog     = NAV_COG       // Filtered COG (deg)      ");
-  blk("  output_nav_state   = NAV_STATE     // Bundled EKF state       ");
+  blk("  // Output suffix - empty by default (helm-facing bare names). ");
+  blk("  // Set non-empty to namespace outputs as NAV_X_<suffix> etc.  ");
+  blk("  pub_suffix =                                                  ");
   blk("                                                                ");
   blk("  // Process noise (state drift uncertainty)                    ");
   blk("  sigma_x       = 0.1     // Position X process noise (m)       ");
@@ -150,13 +146,13 @@ void showInterfaceAndExit()
   blk("                                                                ");
   blk("SUBSCRIPTIONS:                                                  ");
   blk("------------------------------------                            ");
-  blk("  GPS_STATE        - Bundled GPS data from iUnicoreGPS:         ");
+  blk("  FIX_STATE_DGNSS  - Time-bundled fix state from iUnicore:      ");
   blk("                     MOOSTime, NAV_LAT, NAV_LONG, NAV_SPEED,    ");
   blk("                     NAV_COG, GPS_HEADING, GPS_HEADING_ACC,     ");
   blk("                     GPS_HEADING_VALID, HDOP, H_ACC, GPS_LOCK,  ");
   blk("                     FIX_TYPE (local x/y computed via geodesy)  ");
   blk("                                                                ");
-  blk("  GYRO_LVL_Z       - Level-frame gyroscope Z-axis (rad/s)       ");
+  blk("  GYRO_Z_LVL_IMU   - Level-frame gyroscope Z-axis (rad/s)       ");
   blk("                     NED convention: positive = CW rotation     ");
   blk("                                                                ");
   blk("  DESIRED_THRUST_L - Left thruster command (0-100) for drift    ");

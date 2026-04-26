@@ -4,11 +4,7 @@
       File: iRCReader/RCReader_Info.cpp
    Last Ed:  2025-03-20
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Help, example config, and interface text for iRCReader.
 *************************************************************/
 
 #include <cstdlib>

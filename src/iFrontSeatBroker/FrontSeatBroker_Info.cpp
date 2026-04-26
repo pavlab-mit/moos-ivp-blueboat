@@ -4,11 +4,8 @@
       File: iFrontSeatBroker/FrontSeatBroker_Info.cpp
    Last Ed:  2026-03-23
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Help, example config, and interface text for
+        iFrontSeatBroker.
 *************************************************************/
 
 #include <cstdlib>
@@ -80,7 +77,7 @@ void showExampleConfigAndExit()
   blk("  listen_port = 9201                                            ");
   blk("  tx_ip       = $(BSEAT_IP)                                     ");
   blk("  tx_port     = 9200                                            ");
-  blk("  tx_vars     = NAV_X_GPS,NAV_Y_GPS,GPS_HEADING,NAV_SPEED       ");
+  blk("  tx_vars     = NAV_LAT_DGNSS,NAV_LONG_DGNSS,GPS_HEADING_DGNSS  ");
   blk("  in_map      = DESIRED_THRUST_L:DESIRED_THRUST_L               ");
   blk("  debug       = false                                           ");
   blk("}                                                               ");
@@ -104,7 +101,7 @@ void showInterfaceAndExit()
   blk("SUBSCRIPTIONS:                                                  ");
   blk("------------------------------------                            ");
   blk("  (configured via tx_vars)                                      ");
-  blk("  Example: NAV_X_GPS, NAV_Y_GPS, GPS_HEADING, NAV_SPEED         ");
+  blk("  Example: NAV_LAT_DGNSS, NAV_LONG_DGNSS, GPS_HEADING_DGNSS     ");
   blk("                                                                ");
   blk("PUBLICATIONS:                                                   ");
   blk("------------------------------------                            ");

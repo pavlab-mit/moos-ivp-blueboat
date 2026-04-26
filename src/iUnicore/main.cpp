@@ -1,21 +1,18 @@
 /*************************************************************
-      Name: 
+      Name: Jeremy Wenger
       Orgn: MIT, Cambridge MA
-      File: iUnicoreGPS/main.cpp
-   Last Ed:  2026-03-04
+      File: iUnicore/main.cpp
+   Last Ed:  2026-04-26
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Launcher for iUnicore: handles CLI args (-h, -e, -i,
+        -v, --alias=) and runs the Unicore MOOS app.
 *************************************************************/
 
 #include <string>
 #include "MBUtils.h"
 #include "ColorParse.h"
-#include "UnicoreGPS.h"
-#include "UnicoreGPS_Info.h"
+#include "Unicore.h"
+#include "Unicore_Info.h"
 
 using namespace std;
 
@@ -41,18 +38,17 @@ int main(int argc, char *argv[])
     else if(i==2)
       run_command = argi;
   }
-  
+
   if(mission_file == "")
     showHelpAndExit();
 
   cout << termColor("green");
-  cout << "iUnicoreGPS launching as " << run_command << endl;
+  cout << "iUnicore launching as " << run_command << endl;
   cout << termColor() << endl;
 
-  UnicoreGPS UnicoreGPS;
+  Unicore Unicore;
 
-  UnicoreGPS.Run(run_command.c_str(), mission_file.c_str());
-  
+  Unicore.Run(run_command.c_str(), mission_file.c_str());
+
   return(0);
 }
-

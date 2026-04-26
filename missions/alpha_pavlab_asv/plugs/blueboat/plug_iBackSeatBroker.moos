@@ -23,7 +23,9 @@ ProcessConfig = iBackSeatBroker
    tx_vars = DESIRED_THRUST_L,DESIRED_THRUST_R,ALL_STOP
 
    // Optional inbound remap: WIRE_VAR:MOOS_VAR
-   in_map = NAV_SPEED:NAV_SPEED_GPS, NAV_LAT:NAV_LAT_GPS, NAV_LONG:NAV_LONG_GPS
+   // Backseat-side EKF / uBBBundler is the source of truth for
+   // helm-facing NAV_*; leave empty unless you need a passthrough.
+   // in_map =
 
    debug = false
 }

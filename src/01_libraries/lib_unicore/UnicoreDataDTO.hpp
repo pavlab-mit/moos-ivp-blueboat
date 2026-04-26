@@ -45,9 +45,6 @@ public:
     std::string sol_status;    // SOL_COMPUTED, etc.
     uint8_t num_tracked;
     uint8_t num_used;
-    double nav_x;              // local X (m)
-    double nav_y;              // local Y (m)
-    bool has_local_coords;
     double epoch_time;         // GPS-derived epoch time
 
     UnicorePositionDTO() {
@@ -65,9 +62,6 @@ public:
         sol_status = "NONE";
         num_tracked = 0;
         num_used = 0;
-        nav_x = 0.0;
-        nav_y = 0.0;
-        has_local_coords = false;
         epoch_time = 0.0;
     }
 
@@ -80,9 +74,6 @@ public:
         ss << "Sats=" << static_cast<int>(num_used) << "/" << static_cast<int>(num_tracked) << ", ";
         ss << "Pos=(" << latitude << ", " << longitude << ", " << altitude << "m), ";
         ss << "Acc=(H:" << h_acc << "m, V:" << v_acc << "m)";
-        if (has_local_coords) {
-            ss << ", Local=(" << nav_x << ", " << nav_y << ")";
-        }
         return ss.str();
     }
 
@@ -94,7 +85,6 @@ public:
            << v_acc << "," << lat_sigma << "," << lon_sigma << ","
            << hgt_sigma << "," << fix_type << "," << sol_status << ","
            << static_cast<int>(num_tracked) << "," << static_cast<int>(num_used) << ","
-           << nav_x << "," << nav_y << "," << (has_local_coords ? "1" : "0") << ","
            << epoch_time;
         return ss.str();
     }
@@ -102,7 +92,7 @@ public:
     static std::string get_headers() {
         return "timestamp_epoch,latitude,longitude,altitude,undulation,h_acc,"
                "v_acc,lat_sigma,lon_sigma,hgt_sigma,fix_type,sol_status,"
-               "num_tracked,num_used,nav_x,nav_y,has_local_coords,epoch_time";
+               "num_tracked,num_used,epoch_time";
     }
 
     std::string to_moos_string() const {
@@ -117,9 +107,6 @@ public:
            << ",SOL=" << sol_status
            << ",SAT=" << static_cast<int>(num_used)
            << ",TS=" << std::setprecision(3) << timestamp_epoch;
-        if (has_local_coords) {
-            ss << std::setprecision(3) << ",X=" << nav_x << ",Y=" << nav_y;
-        }
         return ss.str();
     }
 };
