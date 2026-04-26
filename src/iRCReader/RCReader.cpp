@@ -203,7 +203,7 @@ bool RCReader::Iterate()
   AppCastingMOOSApp::Iterate();
 
   // Check if RC is connected
-  m_rc_connected = m_sbus.isControllerConnected();
+  m_rc_connected != m_sbus.isFrameLost();
 
   // if (connected != m_rc_connected) {
   // m_rc_connected = connected;
