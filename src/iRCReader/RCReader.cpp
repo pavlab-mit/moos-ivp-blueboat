@@ -203,7 +203,7 @@ bool RCReader::Iterate()
   AppCastingMOOSApp::Iterate();
 
   // Check if RC is connected
-  m_rc_connected = !m_sbus.isFrameLost();
+  m_rc_connected = m_sbus.isControllerConnected();
 
   // if (connected != m_rc_connected) {
   // m_rc_connected = connected;
@@ -213,7 +213,8 @@ bool RCReader::Iterate()
   // Publish connection status
   Notify("RC_CONNECTED", m_rc_connected ? "true" : "false");
 
-  if (m_rc_connected) {
+  if (m_rc_connected && !m_sbus.isFrameLost())
+  {
     // Lock mutex to safely access shared data
     std::lock_guard<std::mutex> lock(m_mutex);
 
