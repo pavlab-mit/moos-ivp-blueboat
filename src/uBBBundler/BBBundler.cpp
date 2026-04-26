@@ -18,6 +18,18 @@ BBBundler::BBBundler() {}
 
 BBBundler::~BBBundler() {}
 
+//---------------------------------------------------------
+// Procedure: outName()
+// Append "_<m_pub_suffix>" to a base name. Empty suffix
+// publishes bare names (helm-facing default).
+
+std::string BBBundler::outName(const std::string &base) const
+{
+  if (m_pub_suffix.empty())
+    return base;
+  return base + "_" + m_pub_suffix;
+}
+
 bool BBBundler::OnNewMail(MOOSMSG_LIST &NewMail) {
   AppCastingMOOSApp::OnNewMail(NewMail);
 
@@ -43,7 +55,7 @@ bool BBBundler::OnNewMail(MOOSMSG_LIST &NewMail) {
 
       auto map_it = m_output_map.find(key);
       if (map_it != m_output_map.end()) {
-        Notify(map_it->second, dval);
+        Notify(outName(map_it->second), dval);
         m_forwarded_count++;
       }
     } else {
@@ -51,7 +63,7 @@ bool BBBundler::OnNewMail(MOOSMSG_LIST &NewMail) {
       m_latest_string[key] = sval;
       auto map_it = m_output_map.find(key);
       if (map_it != m_output_map.end()) {
-        Notify(map_it->second, sval);
+        Notify(outName(map_it->second), sval);
         m_forwarded_count++;
       }
     }
@@ -91,8 +103,8 @@ bool BBBundler::Iterate() {
     if (m_geodesy.LatLong2LocalGrid(m_latest_lat, m_latest_lon, nav_y, nav_x)) {
       m_latest_x = nav_x;
       m_latest_y = nav_y;
-      Notify(m_nav_x_out_var, nav_x);
-      Notify(m_nav_y_out_var, nav_y);
+      Notify(outName(m_nav_x_out_base), nav_x);
+      Notify(outName(m_nav_y_out_base), nav_y);
       m_geodesy_publish_count++;
     }
   }
@@ -124,9 +136,15 @@ bool BBBundler::OnStartUp() {
   m_app_name = GetAppName();
   m_subscriptions.insert(m_lat_var);
   m_subscriptions.insert(m_lon_var);
-  m_output_map["GPS_HEADING"] = "NAV_HEADING";
-  m_output_map["NAV_SPEED"] = "NAV_SPEED";
-  m_output_map["NAV_COG"] = "NAV_COG";
+  // Default forwards: take suffixed sensor publications and emit
+  // helm-facing names. Outputs go through outName() so they pick up
+  // the configured pub_suffix at publish time.
+  m_output_map["GPS_HEADING_DGNSS"] = "NAV_HEADING";
+  m_output_map["NAV_SPEED_DGNSS"]   = "NAV_SPEED";
+  m_output_map["NAV_COG_DGNSS"]     = "NAV_COG";
+  m_subscriptions.insert("GPS_HEADING_DGNSS");
+  m_subscriptions.insert("NAV_SPEED_DGNSS");
+  m_subscriptions.insert("NAV_COG_DGNSS");
 
   STRING_LIST sParams;
   m_MissionReader.EnableVerbatimQuoting(false);
@@ -152,11 +170,14 @@ bool BBBundler::OnStartUp() {
       m_lon_var = value;
       m_subscriptions.insert(value);
       handled = true;
-    } else if (param == "nav_x_out_var") {
-      m_nav_x_out_var = value;
+    } else if (param == "nav_x_out_base" || param == "nav_x_out_var") {
+      m_nav_x_out_base = value;
       handled = true;
-    } else if (param == "nav_y_out_var") {
-      m_nav_y_out_var = value;
+    } else if (param == "nav_y_out_base" || param == "nav_y_out_var") {
+      m_nav_y_out_base = value;
+      handled = true;
+    } else if (param == "pub_suffix") {
+      m_pub_suffix = value;
       handled = true;
     } else if ((param == "nav_x_bs_out_var") || (param == "nav_y_bs_out_var") ||
                (param == "publish_backseat_xy")) {

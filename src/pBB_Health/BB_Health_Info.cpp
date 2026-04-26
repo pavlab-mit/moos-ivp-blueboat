@@ -124,7 +124,7 @@ void showInterfaceAndExit()
   blk("  RPI_TEMP              - Raspberry Pi temperature (C)          ");
   blk("  NVGTR_IT_C            - Internal enclosure temperature (C)    ");
   blk("  EKF_STATUS            - EKF health status string              ");
-  blk("  GPS_STATE             - Bundled GPS data from iUnicoreGPS     ");
+  blk("  FIX_STATE_DGNSS       - Time-bundled GNSS fix from iUnicore   ");
   blk("  RC_CONNECTED          - RC transmitter connection status      ");
   blk("  RC_CH6                - RC channel 6 value (2.0 = RC mode)    ");
   blk("  NAV_X                 - Vehicle X position (for visuals)      ");

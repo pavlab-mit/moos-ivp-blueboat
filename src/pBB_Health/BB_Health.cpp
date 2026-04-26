@@ -125,8 +125,8 @@ bool BB_Health::OnNewMail(MOOSMSG_LIST &NewMail)
       m_ekf_status = sval;
       m_ekf_status_time = mtime;
     }
-    // GPS state bundle
-    else if(key == "GPS_STATE") {
+    // GPS state bundle (time-bundled fix state from iUnicore)
+    else if(key == "FIX_STATE_DGNSS") {
       parseGPSState(sval);
       m_gps_state_time = mtime;
     }
@@ -156,7 +156,7 @@ bool BB_Health::OnNewMail(MOOSMSG_LIST &NewMail)
 
 //---------------------------------------------------------
 // Procedure: parseGPSState()
-// Parse GPS_STATE string for quality metrics
+// Parse FIX_STATE_DGNSS string for quality metrics
 
 bool BB_Health::parseGPSState(const string &sval)
 {
@@ -407,7 +407,7 @@ void BB_Health::registerVariables()
   Register("EKF_STATUS", 0);
 
   // GPS state bundle
-  Register("GPS_STATE", 0);
+  Register("FIX_STATE_DGNSS", 0);
 
   // RC from iRCReader
   Register("RC_CONNECTED", 0);

@@ -112,10 +112,13 @@ void showInterfaceAndExit()
   blk("                                                                ");
   blk("PUBLICATIONS:                                                   ");
   blk("------------------------------------                            ");
-  blk("  NAV_ROLL, NAV_PITCH, NAV_YAW, NAV_HEADING - AHRS output       ");
-  blk("  NAV_GYRO_X, NAV_GYRO_Y, NAV_GYRO_Z, NAV_YAW_RATE              ");
-  blk("  NVGR_VOLTAGE, NVGR_CURRENT, NVGR_ROLLING_POWER                ");
-  blk("  NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT                           ");
+  blk("  AHRS group (suffix=<ahrs_pub_suffix>, default AHRS):           ");
+  blk("    NAV_ROLL, NAV_PITCH, NAV_YAW, NAV_HEADING                    ");
+  blk("  IMU group  (suffix=<imu_pub_suffix>,  default IMU):            ");
+  blk("    GYRO_X, GYRO_Y, GYRO_Z, GYRO_Z_LVL                           ");
+  blk("  Power/health (unsuffixed):                                     ");
+  blk("    NVGR_VOLTAGE, NVGR_CURRENT, NVGR_ROLLING_POWER               ");
+  blk("    NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT                          ");
   blk("                                                                ");
   exit(0);
 }

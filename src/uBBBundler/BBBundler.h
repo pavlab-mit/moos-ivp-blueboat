@@ -4,11 +4,12 @@
       File: uBBBundler/BBBundler.h
    Last Ed:  2026-03-20
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Variable forwarder + geodesic helper. Subscribes to
+        configurable lat/lon and a forward_map of source->dest
+        pairs, runs a single LatLong->local-grid conversion,
+        and republishes helm-facing names (NAV_X / NAV_Y plus
+        forwarded vars). Optional pub_suffix namespaces all
+        outputs.
 *************************************************************/
 
 #ifndef BBBundler_HEADER
@@ -39,6 +40,7 @@ class BBBundler : public AppCastingMOOSApp {
   void registerVariables();
   bool dbg_print(const char *format, ...);
   bool setupGeodesy();
+  std::string outName(const std::string &base) const;
 
  private:
   bool m_debug = false;
@@ -47,10 +49,15 @@ class BBBundler : public AppCastingMOOSApp {
   std::string m_app_name;
   char m_fname[m_fname_buff_size];
 
-  std::string m_lat_var = "NAV_LAT";
-  std::string m_lon_var = "NAV_LONG";
-  std::string m_nav_x_out_var = "NAV_X";
-  std::string m_nav_y_out_var = "NAV_Y";
+  std::string m_lat_var = "NAV_LAT_DGNSS";
+  std::string m_lon_var = "NAV_LONG_DGNSS";
+  std::string m_nav_x_out_base = "NAV_X";
+  std::string m_nav_y_out_base = "NAV_Y";
+
+  // Output suffix - empty (default) yields helm-facing bare names.
+  // When set, all forwarded and geodesic outputs are namespaced as
+  // <base>_<pub_suffix>.
+  std::string m_pub_suffix = "";
 
   std::map<std::string, std::string> m_output_map;
   std::set<std::string> m_subscriptions;

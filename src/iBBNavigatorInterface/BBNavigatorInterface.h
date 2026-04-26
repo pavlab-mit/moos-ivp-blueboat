@@ -104,6 +104,10 @@ protected:
   void registerVariables();
   bool dbg_print(const char *format, ...);
 
+  // Compose published variable name with the appropriate suffix.
+  std::string ahrsName(const std::string &base) const;
+  std::string imuName(const std::string &base) const;
+
   void manageModulation();
   
   // New method for RC thrust calculation
@@ -167,8 +171,11 @@ private: // State variables
   // desired states from mail
   double m_desired_thrust_left;
   double m_desired_thrust_right;
-  double m_latest_set_thrust_left;
-  double m_latest_set_thrust_right;
+  // Written by Iterate() (main thread), read by manageModulation
+  // (PWM thread). Atomic so cross-thread loads/stores are
+  // tear-free under the C++ memory model.
+  std::atomic<double> m_latest_set_thrust_left;
+  std::atomic<double> m_latest_set_thrust_right;
   bool m_all_stop;
 
   double m_latest_set_thrust_left_pw;
@@ -263,15 +270,15 @@ private: // State variables
   double m_yaw_rate;
   double m_qw, m_qx, m_qy, m_qz;
 
-  // AHRS output variable names (configurable)
-  std::string m_roll_var;
-  std::string m_pitch_var;
-  std::string m_yaw_var;
-  std::string m_heading_var;
-  std::string m_gyro_x_var;
-  std::string m_gyro_y_var;
-  std::string m_gyro_z_var;
-  std::string m_yaw_rate_var;
+  // Publication suffixes for the two source categories.
+  //   ahrs suffix - Madgwick-fused orientation outputs
+  //                 (NAV_ROLL, NAV_PITCH, NAV_YAW, NAV_HEADING)
+  //   imu  suffix - raw gyro / level-compensated outputs
+  //                 (GYRO_X, GYRO_Y, GYRO_Z, GYRO_Z_LVL)
+  // Each is appended as "_<suffix>" to the base name. Empty
+  // suffix publishes the base name bare.
+  std::string m_ahrs_pub_suffix;
+  std::string m_imu_pub_suffix;
 };
 
 #endif

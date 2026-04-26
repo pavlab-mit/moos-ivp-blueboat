@@ -126,9 +126,24 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_left_thruster_invert = 1;
   m_right_thruster_invert = 1;
 
-  // RGBW LED placeholders
+  // RGBW LED placeholders. All four-element vectors are sized
+  // here so the rgbw_color config parser cannot land on an empty
+  // vector (writing into [0..3] of an empty std::vector is UB).
   m_port_side = {0, 255, 0, 0};
   m_starboard_side = {255, 0, 0, 0};
+  m_led_color_quad = {0, 0, 0, 0};
+  m_active_color_quad = {0, 0, 0, 0};
+
+  // Initialize thrust LPF outputs (the modulation thread reads
+  // these atomically; default-initialize to zero so the first
+  // PWM write before any Iterate() runs is centered/off).
+  m_latest_set_thrust_left = 0.0;
+  m_latest_set_thrust_right = 0.0;
+
+  // First Iterate() computes dt = MOOSTime() - m_last_update;
+  // initializing here keeps the first dt close to zero rather
+  // than something near-MOOSTime.
+  m_last_update = 0.0;
 
   // ADC chip
   m_current_scale = 37.8788;
@@ -168,15 +183,28 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_yaw_rate = 0.0;
   m_qw = 1.0; m_qx = 0.0; m_qy = 0.0; m_qz = 0.0;
 
-  // AHRS output variable names (default)
-  m_roll_var = "NAV_ROLL";
-  m_pitch_var = "NAV_PITCH";
-  m_yaw_var = "NAV_YAW";
-  m_heading_var = "NAV_HEADING";
-  m_gyro_x_var = "NAV_GYRO_X";
-  m_gyro_y_var = "NAV_GYRO_Y";
-  m_gyro_z_var = "NAV_GYRO_Z";
-  m_yaw_rate_var = "NAV_YAW_RATE";
+  // Publication suffix defaults. AHRS for fused orientation
+  // outputs, IMU for raw gyro / level-compensated outputs.
+  m_ahrs_pub_suffix = "AHRS";
+  m_imu_pub_suffix = "IMU";
+}
+
+//---------------------------------------------------------
+// Procedure: ahrsName() / imuName()
+// Append the configured suffix (if any) to a base var name.
+
+string BBNavigatorInterface::ahrsName(const string &base) const
+{
+  if (m_ahrs_pub_suffix.empty())
+    return base;
+  return base + "_" + m_ahrs_pub_suffix;
+}
+
+string BBNavigatorInterface::imuName(const string &base) const
+{
+  if (m_imu_pub_suffix.empty())
+    return base;
+  return base + "_" + m_imu_pub_suffix;
 }
 
 //---------------------------------------------------------
@@ -383,8 +411,8 @@ void BBNavigatorInterface::manageModulation()
     // If thrusters are enabled, set them to the desired speed
     if (m_thruster_enabled)
     {
-      setPinPulseWidth(m_left_thruster_pin, m_latest_set_thrust_left);
-      setPinPulseWidth(m_right_thruster_pin, m_latest_set_thrust_right);
+      setPinPulseWidth(m_left_thruster_pin, m_latest_set_thrust_left.load());
+      setPinPulseWidth(m_right_thruster_pin, m_latest_set_thrust_right.load());
     }
     else
     {
@@ -539,17 +567,24 @@ bool BBNavigatorInterface::Iterate()
   rclamp(m_desired_thrust_left, m_min_thrust, m_max_thrust);
   rclamp(m_desired_thrust_right, m_min_thrust, m_max_thrust);
 
-  // Update thruster values with LPF
-  m_latest_set_thrust_left = m_virtualThrusterLeft.update(m_desired_thrust_left, dt);
-  m_latest_set_thrust_right = m_virtualThrusterRight.update(m_desired_thrust_right, dt);
+  // Update thruster values with LPF. Compute first into locals
+  // so the variadic dbg_print / Notify calls below see plain
+  // doubles, not std::atomic<double> (which would be UB through
+  // varargs).
+  const double new_thrust_left =
+      m_virtualThrusterLeft.update(m_desired_thrust_left, dt);
+  const double new_thrust_right =
+      m_virtualThrusterRight.update(m_desired_thrust_right, dt);
+  m_latest_set_thrust_left.store(new_thrust_left);
+  m_latest_set_thrust_right.store(new_thrust_right);
 
   dbg_print("%0.2f - Desired left thruster: %0.2f - set %0.2f\n",
-            MOOSTime(), m_desired_thrust_left, m_latest_set_thrust_left);
+            MOOSTime(), m_desired_thrust_left, new_thrust_left);
   dbg_print("%0.2f - Desired right thruster: %0.2f - set %0.2f\n",
-            MOOSTime(), m_desired_thrust_right, m_latest_set_thrust_right);
+            MOOSTime(), m_desired_thrust_right, new_thrust_right);
 
-  Notify("THRUST_SET_LEFT", m_latest_set_thrust_left);
-  Notify("THRUST_SET_RIGHT", m_latest_set_thrust_right);
+  Notify("THRUST_SET_LEFT", new_thrust_left);
+  Notify("THRUST_SET_RIGHT", new_thrust_right);
 
   m_last_update = MOOSTime();
 
@@ -592,8 +627,8 @@ bool BBNavigatorInterface::Iterate()
   Notify("NVGR_ROLLING_POWER", m_rolling_power);
 
   // Publish current thrust values
-  Notify("NVGR_THRUST_LEFT", m_latest_set_thrust_left);
-  Notify("NVGR_THRUST_RIGHT", m_latest_set_thrust_right);
+  Notify("NVGR_THRUST_LEFT", new_thrust_left);
+  Notify("NVGR_THRUST_RIGHT", new_thrust_right);
 
   // Publish RC control status
   Notify("NVGR_RC_MODE", m_rc_mode ? "true" : "false");
@@ -625,14 +660,14 @@ bool BBNavigatorInterface::Iterate()
     yaw_rate = m_yaw_rate;
   }
 
-  Notify(m_roll_var, roll);
-  Notify(m_pitch_var, pitch);
-  Notify(m_yaw_var, yaw);
-  Notify(m_heading_var, heading);
-  Notify(m_gyro_x_var, gyro_x);
-  Notify(m_gyro_y_var, gyro_y);
-  Notify(m_gyro_z_var, gyro_z);
-  Notify(m_yaw_rate_var, yaw_rate);
+  Notify(ahrsName("NAV_ROLL"), roll);
+  Notify(ahrsName("NAV_PITCH"), pitch);
+  Notify(ahrsName("NAV_YAW"), yaw);
+  Notify(ahrsName("NAV_HEADING"), heading);
+  Notify(imuName("GYRO_X"), gyro_x);
+  Notify(imuName("GYRO_Y"), gyro_y);
+  Notify(imuName("GYRO_Z"), gyro_z);
+  Notify(imuName("GYRO_Z_LVL"), yaw_rate);
 
   AppCastingMOOSApp::PostReport();
   return (true);
@@ -688,6 +723,14 @@ bool BBNavigatorInterface::OnStartUp()
       if (m_num_batteries < 1 || m_num_batteries > 8) {
         reportConfigWarning("nbats must be between 1 and 8, using default of 4");
         m_num_batteries = 4;
+      }
+      // BATTERY_CALIBRATIONS only has a real entry for 4 packs;
+      // the others use placeholder values copied from the 1-pack
+      // cal. Surface this so it doesn't silently mis-report current.
+      if (m_num_batteries != 4) {
+        reportConfigWarning("nbats=" + std::to_string(m_num_batteries) +
+                            " uses placeholder current calibration; "
+                            "only nbats=4 has a measured cal.");
       }
       handled = true;
     }
@@ -855,44 +898,14 @@ bool BBNavigatorInterface::OnStartUp()
       m_declination_deg = stod(value);
       handled = true;
     }
-    else if (param == "roll_var")
+    else if (param == "ahrs_pub_suffix")
     {
-      m_roll_var = value;
+      m_ahrs_pub_suffix = value;
       handled = true;
     }
-    else if (param == "pitch_var")
+    else if (param == "imu_pub_suffix")
     {
-      m_pitch_var = value;
-      handled = true;
-    }
-    else if (param == "yaw_var")
-    {
-      m_yaw_var = value;
-      handled = true;
-    }
-    else if (param == "heading_var")
-    {
-      m_heading_var = value;
-      handled = true;
-    }
-    else if (param == "gyro_x_var")
-    {
-      m_gyro_x_var = value;
-      handled = true;
-    }
-    else if (param == "gyro_y_var")
-    {
-      m_gyro_y_var = value;
-      handled = true;
-    }
-    else if (param == "gyro_z_var")
-    {
-      m_gyro_z_var = value;
-      handled = true;
-    }
-    else if (param == "yaw_rate_var")
-    {
-      m_yaw_rate_var = value;
+      m_imu_pub_suffix = value;
       handled = true;
     }
 
@@ -915,8 +928,9 @@ bool BBNavigatorInterface::OnStartUp()
     dbg_print("ESC initialization skipped (disabled in config)\n");
   }
 
+  // Keep the worker threads joinable so the destructor can drive
+  // a clean shutdown via m_running / m_ahrs_running flags.
   m_modulation_thread = std::thread(&BBNavigatorInterface::manageModulation, this);
-  m_modulation_thread.detach();
 
   // Reinitialize AHRS with configured parameters
   m_ahrs = Madgwick(m_beta, m_sample_frequency);
@@ -924,7 +938,6 @@ bool BBNavigatorInterface::OnStartUp()
   // Start the AHRS sensor sampling thread
   m_ahrs_running = true;
   m_sensor_thread = std::thread(&BBNavigatorInterface::sensorSamplingThread, this);
-  m_sensor_thread.detach();
   dbg_print("AHRS sensor thread started at %.1f Hz\n", m_sample_frequency);
 
   dbg_print("Left thruster pin: %d\n", m_left_thruster_pin);
@@ -986,11 +999,15 @@ bool BBNavigatorInterface::buildReport()
   m_msgs << "File:                                       " << endl;
   m_msgs << "============================================" << endl;
 
+  // Snapshot atomic thrust state once for the whole report.
+  const double thrust_left_snap = m_latest_set_thrust_left.load();
+  const double thrust_right_snap = m_latest_set_thrust_right.load();
+
   ACTable actab(2);
   actab << "Thruster States | Values";
   actab.addHeaderLines();
-  actab << "Current Left Thruster:" << m_latest_set_thrust_left;
-  actab << "Current Right Thruster:" << m_latest_set_thrust_right;
+  actab << "Current Left Thruster:" << thrust_left_snap;
+  actab << "Current Right Thruster:" << thrust_right_snap;
   actab << "Thruster Dead Band:" << m_thruster_dead_band;
   actab << "Thruster Enabled:" << (m_thruster_enabled ? "true" : "false");
   actab << "ESC Enabled:" << (m_initialize_esc ? "true" : "false");
@@ -1013,8 +1030,8 @@ bool BBNavigatorInterface::buildReport()
 
   actab << "Desired Left Thrust:" << m_desired_thrust_left;
   actab << "Desired Right Thrust:" << m_desired_thrust_right;
-  actab << "Filtered Left (PWM Out):" << m_latest_set_thrust_left;
-  actab << "Filtered Right (PWM Out):" << m_latest_set_thrust_right;
+  actab << "Filtered Left (PWM Out):" << thrust_left_snap;
+  actab << "Filtered Right (PWM Out):" << thrust_right_snap;
 
   m_msgs << actab.getFormattedString();
   m_msgs << "\n";

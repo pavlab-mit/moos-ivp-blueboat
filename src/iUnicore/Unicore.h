@@ -1,20 +1,20 @@
 /*************************************************************
       Name: Jeremy Wenger
       Orgn: MIT, Cambridge MA
-      File: iUnicoreGPS/UnicoreGPS.h
-   Last Ed: 2026-03-04
+      File: iUnicore/Unicore.h
+   Last Ed: 2026-04-26
      Brief:
         MOOS interface for Unicore UM982 dual-antenna GNSS
         receiver. Reads position, velocity, heading, and DOP
-        data via serial and publishes to MOOSDB with
-        configurable publish groups.
+        data via serial and publishes to MOOSDB. All published
+        names are appended with "_<pub_suffix>" (default DGNSS).
+        No geodesic conversion - lat/lon only.
 *************************************************************/
 
-#ifndef UnicoreGPS_HEADER
-#define UnicoreGPS_HEADER
+#ifndef Unicore_HEADER
+#define Unicore_HEADER
 
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
-#include "MOOS/libMOOSGeodesy/MOOSGeodesy.h"
 #include "UnicoreParser.h"
 #include "UnicoreDataDTO.hpp"
 
@@ -24,11 +24,11 @@
 #include <thread>
 #include <atomic>
 
-class UnicoreGPS : public AppCastingMOOSApp
+class Unicore : public AppCastingMOOSApp
 {
  public:
-   UnicoreGPS();
-   ~UnicoreGPS();
+   Unicore();
+   ~Unicore();
 
  protected: // Standard MOOSApp functions to overload
    bool OnNewMail(MOOSMSG_LIST &NewMail);
@@ -44,10 +44,10 @@ class UnicoreGPS : public AppCastingMOOSApp
    bool dbg_print(const char *format, ...);
 
  private: // Initialization helpers
-   bool GeodesySetup();
    bool initializeGPS();
    void gpsReaderThread();
    std::string buildStateString();
+   std::string pubName(const std::string &base) const;
 
  private: // Configuration variables
    bool m_debug;
@@ -60,10 +60,8 @@ class UnicoreGPS : public AppCastingMOOSApp
    std::string m_port_name;
    int m_baud_rate;
 
-   // Navigation config
-   std::string m_nav_suffix;
-   bool m_enable_geodesic;
-   bool m_geodesy_initialized;
+   // Publication suffix
+   std::string m_pub_suffix;
 
    // Publish group flags
    bool m_publish_position;
@@ -76,9 +74,6 @@ class UnicoreGPS : public AppCastingMOOSApp
    bool m_publish_dto;
 
  private: // State variables
-
-   // Geodesy
-   CMOOSGeodesy m_geodesy;
 
    // Parser
    UnicoreParser *m_parser;
@@ -98,7 +93,6 @@ class UnicoreGPS : public AppCastingMOOSApp
   double m_last_quality_warn_moos_time;
 
    // Position data (from BESTNAVA)
-   double m_nav_x, m_nav_y;
    double m_nav_lat, m_nav_lon;
    double m_nav_alt;
    double m_h_acc, m_v_acc;

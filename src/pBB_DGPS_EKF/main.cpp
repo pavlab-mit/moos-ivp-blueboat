@@ -4,11 +4,8 @@
       File: pBB_DGPS_EKF/main.cpp
    Last Ed:  2026-03-25
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Launcher for pBB_DGPS_EKF: parses CLI args (-h, -e, -i,
+        -v, --alias=) and runs the EKF MOOS app.
 *************************************************************/
 
 #include <string>
