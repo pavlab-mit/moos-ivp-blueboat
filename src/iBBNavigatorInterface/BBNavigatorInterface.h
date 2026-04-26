@@ -151,6 +151,17 @@ private: // Configuration variables
   double m_rc_channels[16];  // Store RC channel values
   bool m_rc_mode;            // Mode switch: false = MOOS control, true = RC control
 
+  // RC deadman watchdog. When enabled, the vehicle is safed
+  // (thrust zeroed) if the RC link has been bad for longer than
+  // m_rc_deadman_timeout seconds. Default-on; can be disabled at
+  // config time (rc_deadman_enabled = false) or at runtime via the
+  // RC_DEADMAN_ENABLED MOOS message - intended for over-the-horizon
+  // missions where operating outside RC range is acceptable.
+  bool m_rc_deadman_enabled;
+  double m_rc_deadman_timeout;
+  double m_last_rc_good_time;  // last RC_CONNECTED=true or RC_CH* mail
+  bool m_rc_deadman_active;
+
 private: // State variables
   // Pulse width range, microseconds
   std::atomic<bool> m_running{true};

@@ -109,6 +109,7 @@ void showInterfaceAndExit()
   blk("  DESIRED_THRUST_L, DESIRED_THRUST_R - Thrust commands          ");
   blk("  ALL_STOP, MISSION_COMPLETE - Control signals                  ");
   blk("  RC_CONNECTED, RC_CH1-16 - RC controller input                 ");
+  blk("  RC_DEADMAN_ENABLED - Runtime override for RC deadman watchdog ");
   blk("                                                                ");
   blk("PUBLICATIONS:                                                   ");
   blk("------------------------------------                            ");
@@ -119,6 +120,8 @@ void showInterfaceAndExit()
   blk("  Power/health (unsuffixed):                                     ");
   blk("    NVGR_VOLTAGE, NVGR_CURRENT, NVGR_ROLLING_POWER               ");
   blk("    NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT                          ");
+  blk("    NVGR_THRUST_TIMEOUT - autonomous-mode command timeout        ");
+  blk("    NVGR_RC_DEADMAN_ACTIVE - RC deadman state                    ");
   blk("                                                                ");
   exit(0);
 }

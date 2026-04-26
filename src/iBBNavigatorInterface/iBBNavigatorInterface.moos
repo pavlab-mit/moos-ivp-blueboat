@@ -46,6 +46,16 @@ ProcessConfig = iBBNavigatorInterface
   // Set to 0 or negative to disable
   thrust_command_timeout = 2.0
 
+  // RC deadman watchdog. When enabled, the vehicle is safed
+  // (thrust zeroed) if the RC link has been bad for longer than
+  // rc_deadman_timeout seconds. Active in BOTH RC and autonomous
+  // mode - treats the RC link as a vehicle-side deadman. The boat
+  // boots SAFED (last-good-time starts at 0) until the first RC
+  // mail arrives. Override at runtime via the RC_DEADMAN_ENABLED
+  // MOOS variable (set to "false" for over-the-horizon missions).
+  rc_deadman_enabled = true
+  rc_deadman_timeout = 2.0
+
   //=========================================================
   // RC CONTROL CONFIGURATION
   //=========================================================
@@ -136,12 +146,13 @@ ProcessConfig = iBBNavigatorInterface
 //----------------------------------------------------------
 // SUBSCRIPTIONS (inputs to iBBNavigatorInterface)
 //----------------------------------------------------------
-// DESIRED_THRUST_L  - Left thruster command (-100 to 100)
-// DESIRED_THRUST_R  - Right thruster command (-100 to 100)
-// ALL_STOP          - Emergency stop ("true"/"false")
-// MISSION_COMPLETE  - Clean shutdown trigger ("true")
-// RC_CONNECTED      - RC controller connection status
-// RC_CH1 - RC_CH16  - RC channel values
+// DESIRED_THRUST_L     - Left thruster command (-100 to 100)
+// DESIRED_THRUST_R     - Right thruster command (-100 to 100)
+// ALL_STOP             - Emergency stop ("true"/"false")
+// MISSION_COMPLETE     - Clean shutdown trigger ("true")
+// RC_CONNECTED         - RC controller connection status
+// RC_CH1 - RC_CH16     - RC channel values
+// RC_DEADMAN_ENABLED   - Runtime override for the RC deadman ("true"/"false")
 
 //----------------------------------------------------------
 // PUBLICATIONS (outputs from iBBNavigatorInterface)
@@ -149,8 +160,9 @@ ProcessConfig = iBBNavigatorInterface
 // Thrust:
 //   THRUST_SET_LEFT, THRUST_SET_RIGHT - Actual thrust applied
 //   NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT - Same as above
-//   NVGR_THRUST_TIMEOUT - Timeout status ("true"/"false")
+//   NVGR_THRUST_TIMEOUT - Autonomous-mode command timeout ("true"/"false")
 //   NVGR_RC_MODE, NVGR_RC_CONNECTED - RC control status
+//   NVGR_RC_DEADMAN_ACTIVE - RC deadman tripped ("true"/"false")
 //
 // AHRS (suffixed with _<ahrs_pub_suffix>, default _AHRS):
 //   NAV_ROLL, NAV_PITCH, NAV_YAW - Euler angles (degrees)
