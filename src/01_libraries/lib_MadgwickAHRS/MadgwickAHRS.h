@@ -39,7 +39,8 @@ private:
 //-------------------------------------------------------------------------------------------
 // Function declarations
 public:
-    Madgwick();
+    // Single constructor with defaults; serves both no-arg
+    // default-init (m_ahrs;) and explicit reconstruction.
     Madgwick(double _beta = 0.2, double _sampleFreq = 150.0);
     void begin(float sampleFrequency) { invSampleFreq = 1.0f / sampleFrequency; }
     void update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz);
