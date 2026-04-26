@@ -13,7 +13,8 @@ ProcessConfig = ANTLER
   Run = MOOSDB                 @ NewConsole = false
   Run = uProcessWatch          @ NewConsole = false
   Run = iRCReader              @ NewConsole = false
-  Run = iUnicore            @ NewConsole = false
+  Run = iUnicore               @ NewConsole = false
+  Run = iBBNavigatorInterface  @ NewConsole = false
   Run = iFrontSeatBroker       @ NewConsole = false
 
   #ifdef DEBUG true
@@ -27,6 +28,7 @@ ProcessConfig = ANTLER
 #include plugs/blueboat_fs/plug_iFrontSeatBroker.moos
 #include plugs/blueboat_fs/plug_iUnicore.moos
 #include plugs/blueboat_fs/plug_iRCReader.moos
+#include plugs/blueboat_fs/plug_iBBNavigatorInterface.moos
 #include plugs/blueboat_fs/plug_uProcessWatch.moos
 
 #ifdef DEBUG true

@@ -1,0 +1,112 @@
+//----------------------------------------------------------
+// iBBNavigatorInterface config block
+//
+// Combined Navigator Interface for Blueboat ASV. Owns:
+//   - Dual-thruster PWM (left/right ESCs)
+//   - AHRS (Madgwick fusion of IMU + magnetometer)
+//   - Raw IMU / level-frame gyro publication
+//   - ADC power monitoring (battery V / I)
+//   - Internal pressure / temperature
+//   - Navigator-board RGBW LEDs
+//   - RC-mode thrust mixing (when CH6 == 2)
+//----------------------------------------------------------
+
+ProcessConfig = iBBNavigatorInterface
+{
+  AppTick   = 10
+  CommsTick = 10
+
+  //=========================================================
+  // THRUST CONTROL
+  //=========================================================
+  // Pin assignments are 1-indexed (Navigator board PWM channels).
+  left_thruster_pin   = 15
+  right_thruster_pin  = 17
+
+  max_thrust          = 100
+  min_thrust          = -100
+  thruster_dead_band  = 5
+
+  // Flip if a thruster spins the wrong direction
+  left_thruster_invert  = false
+  right_thruster_invert = false
+
+  thruster_enabled    = true
+  thruster_alpha      = 0.1     // LPF: alpha = dt/(tau+dt)
+
+  // Send min/max/neutral sequence on startup so ESCs arm.
+  initialize_esc      = true
+
+  // Zero thrust if no DESIRED_THRUST_L/R for this many seconds
+  // (autonomous mode only; RC mode is excluded).
+  thrust_command_timeout = 2.0
+
+  //=========================================================
+  // RC DEADMAN WATCHDOG
+  //=========================================================
+  // Vehicle-side deadman on the RC link. Active in BOTH RC and
+  // autonomous mode. The boat boots SAFED until the first RC mail
+  // arrives. Disable for over-the-horizon missions where running
+  // outside RC range is acceptable, either at config time
+  // (rc_deadman_enabled = false) or at runtime by publishing
+  // RC_DEADMAN_ENABLED = "false" to the MOOSDB.
+  rc_deadman_enabled = true
+  rc_deadman_timeout = 2.0
+
+  //=========================================================
+  // RC THRUST MIXER (engaged when RC_CH6 == 2)
+  //=========================================================
+  theta_b     = 90.0    // bank-angle limit (deg) for turn mix
+  turn_scale  = 100     // turn sensitivity (percent)
+
+  //=========================================================
+  // POWER MONITORING
+  //=========================================================
+  // Only nbats=4 has measured calibration; others use placeholders
+  // and will trigger a config warning at startup.
+  nbats = 4
+
+  voltage_scale  = 11.132
+  voltage_offset = 0.0
+
+  rolling_window_period = 2.0
+
+  //=========================================================
+  // AHRS / IMU
+  //=========================================================
+  sample_rate = 150       // Hz, IMU + Madgwick rate
+  ahrs_gain   = 0.2       // Madgwick beta
+
+  // Per-vehicle magnetometer calibration. File expected at:
+  //   b = bx,by,bz
+  //   A = a11,a12,a13,a21,a22,a23,a31,a32,a33
+  mag_ak_cal_file = /home/pi/mag_cal/$(VNAME)/mag/mag_cal_nav.dat
+
+  // Optional IMU bias file:
+  //   gyro_bias  = gx,gy,gz
+  //   accel_bias = ax,ay,az
+  // imu_cal_file = /home/pi/mag_cal/$(VNAME)/imu/imu_cal.txt
+
+  // Sensor mounting offsets (rotate sensor frame to body frame)
+  roll_offset  = 0.0
+  pitch_offset = 0.0
+  yaw_offset   = 0.0
+
+  declination_deg          = -14.058   // local magnetic declination
+  operating_heading_offset = 0.0       // mission-specific heading bias
+
+  //=========================================================
+  // PUBLICATION SUFFIXES
+  //=========================================================
+  // AHRS suffix -> NAV_ROLL_AHRS, NAV_PITCH_AHRS, NAV_YAW_AHRS,
+  //                NAV_HEADING_AHRS
+  // IMU  suffix -> GYRO_X_IMU, GYRO_Y_IMU, GYRO_Z_IMU,
+  //                GYRO_Z_LVL_IMU
+  ahrs_pub_suffix = AHRS
+  imu_pub_suffix  = IMU
+
+  //=========================================================
+  // DEBUG
+  //=========================================================
+  debug = $(LOG)
+}
