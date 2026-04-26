@@ -22,7 +22,6 @@
 #include <mutex>
 #include <armadillo>
 #include "MadgwickAHRS.h"
-#include "rpi_utils.h"
 
 class LPF
 {

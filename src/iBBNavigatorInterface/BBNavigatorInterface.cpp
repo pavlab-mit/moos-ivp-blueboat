@@ -692,7 +692,20 @@ bool BBNavigatorInterface::Iterate()
   // Read temperature and pressure values
   m_nav_temp = read_temp();
   m_nav_pressure = read_pressure();
-  m_rpi_temp = rpi_utils::getCPUTemperature();
+
+  // Read Pi CPU temperature directly from sysfs. Inlined to keep
+  // iBBNavigatorInterface free of an external rpi_utils dependency
+  // (only used here for this one reading). On non-Pi systems the
+  // file is absent and m_rpi_temp stays 0.
+  m_rpi_temp = 0.0;
+  {
+    std::ifstream temp_file("/sys/class/thermal/thermal_zone0/temp");
+    if (temp_file.is_open()) {
+      int milli_c = 0;
+      temp_file >> milli_c;
+      m_rpi_temp = milli_c / 1000.0;
+    }
+  }
 
   // Publish the values
   Notify("NVGTR_IT_C", m_nav_temp);

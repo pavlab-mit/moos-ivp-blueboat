@@ -28,7 +28,6 @@ if(ARMA_AVAIL)
     ${NAVIGATOR_LIB}
     ${ARMA_LIBS}
     MadgwickAHRS
-    rpi_utils
     apputil
     mbutil
     m
