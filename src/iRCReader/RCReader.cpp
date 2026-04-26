@@ -203,11 +203,12 @@ bool RCReader::Iterate()
   AppCastingMOOSApp::Iterate();
 
   // Check if RC is connected
-  bool connected = IsRCConnected();
-  if (connected != m_rc_connected) {
-    m_rc_connected = connected;
-    dbg_print("RC connection status changed to: %s\n", m_rc_connected ? "connected" : "disconnected");
-  }
+  m_rc_connected = m_sbus.isControllerConnected();
+
+  // if (connected != m_rc_connected) {
+  // m_rc_connected = connected;
+  // dbg_print("RC connection status changed to: %s\n", m_rc_connected ? "connected" : "disconnected");
+  //}
 
   // Publish connection status
   Notify("RC_CONNECTED", m_rc_connected ? "true" : "false");
