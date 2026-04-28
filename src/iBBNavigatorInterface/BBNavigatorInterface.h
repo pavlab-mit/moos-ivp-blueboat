@@ -145,8 +145,16 @@ private: // Configuration variables
 
   bool m_thruster_enabled;
 
-  // RC controller variables
+  // RC controller variables.
+  //   m_rc_connected   - debounced link state (subscribed from
+  //                      RC_CONNECTED). Use for state-machine /
+  //                      mode logic.
+  //   m_rc_frame_valid - per-frame validity (subscribed from
+  //                      RC_FRAME_VALID). Use to gate per-cycle
+  //                      thrust output - sharper than m_rc_connected
+  //                      and drops on a single bad SBUS frame.
   bool m_rc_connected;       // Indicates if RC controller is connected
+  bool m_rc_frame_valid;     // Latest RC frame trustworthy?
   double m_rc_channels[16];  // Store RC channel values
   bool m_rc_mode;            // Mode switch: false = MOOS control, true = RC control
 
