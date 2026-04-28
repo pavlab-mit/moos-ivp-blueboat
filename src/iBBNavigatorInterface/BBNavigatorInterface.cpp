@@ -109,7 +109,8 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_all_stop = false;
 
   // Initialize RC controller variables
-  m_rc_connected = false;
+  m_rc_connected   = false;
+  m_rc_frame_valid = false;  // boots untrusting; flips true on first good frame
   for (int i = 0; i < 16; i++)
   {
     m_rc_channels[i] = 0.0;
@@ -359,6 +360,17 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
         m_last_rc_good_time = MOOSTime();
       dbg_print("RC connected: %s\n", m_rc_connected ? "true" : "false");
     }
+    else if (key == "RC_FRAME_VALID")
+    {
+      // Per-frame validity flag from iRCReader. Used as the
+      // primary thrust gate so a single bad SBUS frame drops
+      // commanded thrust to zero immediately, without waiting on
+      // the m_rc_connected hysteresis. See calculateRCThrust()
+      // and the Iterate() RC-mode branch.
+      m_rc_frame_valid = (msg.GetString() == "true");
+      dbg_print("RC frame valid: %s\n",
+                m_rc_frame_valid ? "true" : "false");
+    }
     else if (key.substr(0, 5) == "RC_CH" && key.length() > 5)
     {
       // Extract channel number from key (e.g., "RC_CH1" -> 1)
@@ -366,11 +378,20 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
       if (channel >= 0 && channel < 16)
       {
         m_rc_channels[channel] = msg.GetDouble();
-        // iRCReader only publishes RC_CH* when it considers RC
-        // connected, so any RC_CH* mail counts as a "good" RC tick.
-        m_last_rc_good_time = MOOSTime();
 
-        // Check mode switch (Channel 6)
+        // NOTE: deadman timestamp (m_last_rc_good_time) is
+        // refreshed ONLY on RC_CONNECTED=true (handler above).
+        // iRCReader publishes safe-default RC_CH* values when its
+        // link is bad (joystick=0, switches=1, raw=mid), so
+        // RC_CH* mail must NOT count as a "good" RC tick;
+        // otherwise the disconnected-fallback publishes would
+        // silently defeat the watchdog.
+
+        // Check mode switch (Channel 6). iRCReader's safe-default
+        // for CH6 on disconnect is 1, so this automatically
+        // transitions m_rc_mode -> false when the RC link drops,
+        // routing thrust through the autonomy/MOOS path rather
+        // than the RC mixer.
         if (channel == 5) // Channel 6 (zero-indexed as 5)
         {
           m_rc_mode = (m_rc_channels[channel] == 2.0);
@@ -487,8 +508,12 @@ double BBNavigatorInterface::calculateHeadingMixer(double desired_heading, doubl
 
 void BBNavigatorInterface::calculateRCThrust()
 {
-  // Only calculate RC thrust if RC is connected and in RC mode
-  if (m_rc_connected && m_rc_mode)
+  // Gate on per-frame validity (sharper than m_rc_connected) AND
+  // RC mode. Using m_rc_frame_valid means a single bad SBUS frame
+  // drops thrust to zero immediately, without waiting for the
+  // hysteresis on m_rc_connected to flip. The m_rc_mode check is
+  // unchanged - mode latching uses m_rc_connected via CH6 mail.
+  if (m_rc_frame_valid && m_rc_mode)
   {
 
     double forward_thrust = m_rc_channels[2]; // Already in [-100, 100]
@@ -564,17 +589,25 @@ bool BBNavigatorInterface::Iterate()
     dbg_print("ALL_STOP active - setting autonomous thrusts to zero\n");
   }
 
-  // If in RC mode and RC is connected, calculate thrust from RC inputs
-  if (m_rc_mode && m_rc_connected)
+  // RC thrust path. We gate on m_rc_frame_valid (per-frame, no
+  // debounce) rather than m_rc_connected so that a single bad
+  // SBUS frame zeros thrust immediately. m_rc_connected is the
+  // debounced state and is used for mode-related logic only.
+  //
+  //   m_rc_mode &&  m_rc_frame_valid -> drive thrust from RC sticks
+  //   m_rc_mode && !m_rc_frame_valid -> zero thrust this cycle
+  //                                     (link bad or single bad frame)
+  //  !m_rc_mode                       -> autonomy / MOOS path drives thrust
+  //                                     (no action here)
+  if (m_rc_mode && m_rc_frame_valid)
   {
     calculateRCThrust();
   }
-  // If RC mode but controller disconnected, set thrusts to zero
-  else if (m_rc_mode && !m_rc_connected)
+  else if (m_rc_mode && !m_rc_frame_valid)
   {
     m_desired_thrust_left = 0;
     m_desired_thrust_right = 0;
-    dbg_print("RC disconnected - setting thrusts to zero\n");
+    dbg_print("RC frame invalid - setting thrusts to zero\n");
   }
 
   // RC deadman watchdog (final override). When enabled, requires
@@ -1059,8 +1092,15 @@ void BBNavigatorInterface::registerVariables()
   Register("MISSION_COMPLETE", 0);
   Register("ALL_STOP", 0);
 
-  // Register for RC controller messages
-  Register("RC_CONNECTED", 0);
+  // Register for RC controller messages.
+  //   RC_CONNECTED   - debounced link state (mode/UI logic).
+  //   RC_FRAME_VALID - per-frame validity. Sharper gate for
+  //                    safety-critical thrust output: drops on
+  //                    a single bad SBUS frame, recovers on the
+  //                    next clean one without waiting for the
+  //                    debounce hysteresis to release.
+  Register("RC_CONNECTED",   0);
+  Register("RC_FRAME_VALID", 0);
 
   // Register for all RC channels
   for (int i = 1; i <= 16; i++)
@@ -1104,7 +1144,8 @@ bool BBNavigatorInterface::buildReport()
 
   // Add ALL_STOP and RC control information to the report
   actab << "ALL_STOP Active:" << (m_all_stop ? "true" : "false");
-  actab << "RC Connected:" << (m_rc_connected ? "true" : "false");
+  actab << "RC Frame Valid (per-frame):" << (m_rc_frame_valid ? "true" : "false");
+  actab << "RC Connected (debounced):" << (m_rc_connected ? "true" : "false");
   actab << "RC Mode Active:" << (m_rc_mode ? "true" : "false");
   actab << "RC Deadman Enabled:" << (m_rc_deadman_enabled ? "true" : "false");
   actab << "RC Deadman Timeout (sec):" << m_rc_deadman_timeout;
