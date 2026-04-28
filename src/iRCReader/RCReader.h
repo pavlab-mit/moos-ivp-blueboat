@@ -55,10 +55,12 @@ class RCReader : public AppCastingMOOSApp
   std::atomic<bool> m_running;
   std::mutex m_mutex;
 
-  // Connection parameters
-  double m_connection_timeout;
+  // Connection parameters.
+  // m_last_update_time is retained for diagnostics in buildReport();
+  // it no longer gates the connection decision (SbusHandler owns that).
   double m_last_update_time;
   bool m_rc_connected;
+  bool m_frame_valid;     // mirror of m_sbus.isFrameValid()
 
   // Channel data
   uint16_t m_channels[SBUS_NUM_CHANNELS];
@@ -72,7 +74,6 @@ class RCReader : public AppCastingMOOSApp
 
   // Helper functions
   void SbusThreadFunction();
-  bool IsRCConnected();
   double ScaleJoystick(uint16_t value);
   int MapSwitch(uint16_t value, int num_states);
 };
