@@ -24,7 +24,6 @@ RCReader::RCReader()
   m_running = true;
   m_debug = false;
   m_last_update_time = 0;
-  m_connection_timeout = 0.05; // 50ms timeout for connection
 
   // Initialize channel values
   for (int i = 0; i < SBUS_NUM_CHANNELS; i++) {
@@ -34,6 +33,7 @@ RCReader::RCReader()
 
   // Set initial connection status
   m_rc_connected = false;
+  m_frame_valid  = false;
 }
 
 //---------------------------------------------------------
@@ -138,26 +138,6 @@ void RCReader::SbusThreadFunction()
 }
 
 //---------------------------------------------------------
-// Check if RC is connected based on last update time
-bool RCReader::IsRCConnected()
-{
-  std::lock_guard<std::mutex> lock(m_mutex);
-
-  // Use the enhanced connection detection from SBUS handler
-  // This checks the failsafe flag which properly indicates disconnection
-  // even when the R9DS receiver continues to send frames
-  bool controller_connected = m_sbus.isControllerConnected();
-
-  // Also check timing as a fallback
-  double now = MOOSTime();
-  double time_since_last_update = now - m_last_update_time;
-  bool timing_ok = (time_since_last_update < m_connection_timeout && m_last_update_time > 0);
-
-  // Return disconnected if either method indicates disconnection
-  return controller_connected && timing_ok;
-}
-
-//---------------------------------------------------------
 // Scale joystick value from SBUS range to -100 to 100
 double RCReader::ScaleJoystick(uint16_t value)
 {
@@ -202,16 +182,17 @@ bool RCReader::Iterate()
 {
   AppCastingMOOSApp::Iterate();
 
-  // Check if RC is connected
-  m_rc_connected = IsRCConnected();
+  // Query SBUS state directly. SbusHandler is the single owner of
+  // the connection decision. Two flags with distinct semantics:
+  //   m_frame_valid  - per-frame, instantaneous (safety gate)
+  //   m_rc_connected - debounced (mode/UI/logging)
+  // Downstream consumers can subscribe to either depending on
+  // whether they want sharp per-frame response or debounced state.
+  m_frame_valid  = m_sbus.isFrameValid();
+  m_rc_connected = m_sbus.isControllerConnected();
 
-  // if (connected != m_rc_connected) {
-  // m_rc_connected = connected;
-  // dbg_print("RC connection status changed to: %s\n", m_rc_connected ? "connected" : "disconnected");
-  //}
-
-  // Publish connection status
-  Notify("RC_CONNECTED", m_rc_connected ? "true" : "false");
+  Notify("RC_FRAME_VALID", m_frame_valid  ? "true" : "false");
+  Notify("RC_CONNECTED",   m_rc_connected ? "true" : "false");
 
   if (m_rc_connected)
   {
@@ -261,10 +242,41 @@ bool RCReader::Iterate()
   }
   else
   {
+    // === Disconnected fallback: publish safe defaults for ALL
+    // === channels.
+    //
+    // Joystick channels CH1-4 -> 0 (zero thrust commanded).
+    // Switch channels   CH5-9 -> 1 (lowest position).
+    //   * iBBNavigatorInterface treats CH6 == 2 as "RC mode";
+    //     publishing 1 here forces m_rc_mode -> false on
+    //     disconnect, which routes thrust through the
+    //     autonomy/MOOS path (or thrust_command_timeout) rather
+    //     than the RC mixer. This is the desired fail-safe for
+    //     scenarios 1 and 2.
+    //   * Any consumer that needs to LATCH operator state across
+    //     dropouts (e.g. a future mode arbiter that should keep
+    //     a vehicle in AUTONOMY across an intentional RC dropout)
+    //     MUST gate its reads on RC_CONNECTED instead of trusting
+    //     RC_CHx as fresh operator input. The values below are
+    //     "operator unavailable" tokens, not commanded positions.
+    // Aux/raw channels CH10-16 -> SBUS_MID_VALUE (no command bias).
+    //
+    // The RC_DEADMAN watchdog in iBBNavigatorInterface refreshes
+    // its freshness timestamp ONLY on RC_CONNECTED=true (post-fix
+    // to BBNavigatorInterface.cpp), so these RC_CH* publishes do
+    // NOT defeat the watchdog.
     Notify("RC_CH1", 0.0);
     Notify("RC_CH2", 0.0);
     Notify("RC_CH3", 0.0);
     Notify("RC_CH4", 0.0);
+    Notify("RC_CH5", 1.0);
+    Notify("RC_CH6", 1.0);
+    Notify("RC_CH7", 1.0);
+    Notify("RC_CH8", 1.0);
+    Notify("RC_CH9", 1.0);
+    for (int i = 9; i < SBUS_NUM_CHANNELS; i++) {
+      Notify("RC_CH" + intToString(i+1), (double)SBUS_MID_VALUE);
+    }
   }
 
   AppCastingMOOSApp::PostReport();
@@ -350,10 +362,12 @@ bool RCReader::buildReport()
   m_msgs << "RC Controller Status" << endl;
   m_msgs << "============================================" << endl;
 
-  m_msgs << "Connected: " << (m_rc_connected ? "YES" : "NO") << endl << endl;
-  m_msgs << "Failsafe Active: " << (m_failsafe ? "YES" : "NO") << endl;
-  m_msgs << "Time Since Last Frame: " << doubleToStringX(m_sbus.getTimeSinceLastFrame() / 1000.0, 1) << " ms" << endl;
-  m_msgs << "Consecutive Frame Losses: " << m_sbus.getConsecutiveFrameLosses() << endl;
+  m_msgs << "Frame Valid (per-frame):    " << (m_frame_valid  ? "YES" : "NO")  << endl;
+  m_msgs << "RC Connected (debounced):   " << (m_rc_connected ? "YES" : "NO")  << endl << endl;
+  m_msgs << "Failsafe Active: "             << (m_failsafe     ? "YES" : "NO")  << endl;
+  m_msgs << "Time Since Last Frame: "       << doubleToStringX(m_sbus.getTimeSinceLastFrame() / 1000.0, 1) << " ms" << endl;
+  m_msgs << "Consecutive Frame Losses:   " << m_sbus.getConsecutiveFrameLosses() << endl;
+  m_msgs << "Consecutive Good Frames:    " << m_sbus.getConsecutiveGoodFrames() << endl;
 
   ACTable actab(4);
   actab << "Channel | Description | Raw Value | Mapped Value";
