@@ -37,6 +37,8 @@
      , frame_errors_(0)
      , consecutive_frame_losses_(0)
      , controller_connected_(false)
+     , frame_valid_(false)
+     , consecutive_good_frames_(0)
      , fd_(-1)
      , initialized_(false)
      , device_(device)
@@ -199,7 +201,21 @@
      if (frame_[SBUS_HEADER_OFFSET] != SBUS_START_BYTE) {
          return false;
      }
-     
+
+     // Validate frame footer.
+     //  - 0x00 is the normal SBUS end byte.
+     //  - SBUS2 receivers use 0x04, 0x14, 0x24, 0x34 to mark which
+     //    inter-frame telemetry slot follows; the low nibble is 0x04
+     //    in all four cases.
+     // Any other value here means the frame is misaligned or
+     // corrupted and should be rejected.
+     {
+         uint8_t footer = frame_[SBUS_FOOTER_OFFSET];
+         if (footer != SBUS_END_BYTE && (footer & 0x0F) != 0x04) {
+             return false;
+         }
+     }
+
      // Extract the 16 channels (11 bits each)
      // Optimized bit-shifting logic for RadioLink AT9S Pro
      uint16_t new_channels[SBUS_NUM_CHANNELS];
@@ -228,34 +244,60 @@
      bool new_frame_lost = (flags & SBUS_FLAG_FRAME_LOST) != 0;
      bool new_failsafe = (flags & SBUS_FLAG_FAILSAFE) != 0;
      
-     // Validate and update channel values
+     // Validate and update channel values.
+     // Decoded channel values are already 11-bit (& 0x07FF), so the
+     // raw range is guaranteed to be [0, 2047]. We additionally
+     // require each channel to fall within the canonical Futaba SBUS
+     // range [SBUS_MIN_VALUE, SBUS_MAX_VALUE] = [172, 1812], which
+     // corresponds to ~880-2120 us PWM. Anything outside this band
+     // is assumed to be the result of a misaligned/corrupted frame
+     // (the previous looser check of [100, 2100] caught only values
+     // 0-99, since the upper bound was unreachable after the mask).
+     // If a future radio is configured for extended endpoints
+     // (>125%), widen SBUS_MIN_VALUE / SBUS_MAX_VALUE in the header.
      bool valid_frame = true;
      for (int i = 0; i < SBUS_NUM_CHANNELS; i++) {
-         // Ensure values are within reasonable range
-         if (new_channels[i] < 100 || new_channels[i] > 2100) {
+         if (new_channels[i] < SBUS_MIN_VALUE ||
+             new_channels[i] > SBUS_MAX_VALUE) {
              valid_frame = false;
              break;
          }
      }
      
-     // If the frame is valid, update all values atomically
+     // If the frame decoded cleanly, update all values atomically.
      if (valid_frame) {
          std::lock_guard<std::mutex> lock(mutex_);
-         
+
          for (int i = 0; i < SBUS_NUM_CHANNELS; i++) {
              channels_[i] = new_channels[i];
          }
-         
+
          channel_17_ = new_channel_17;
          channel_18_ = new_channel_18;
          frame_lost_ = new_frame_lost;
-         failsafe_ = new_failsafe;
-         
-         // Reset consecutive frame loss counter on valid frame
+         failsafe_   = new_failsafe;
+
+         // Reset wire-level error counter on a clean decode.
          consecutive_frame_losses_ = 0;
-         
-         // Update last valid frame time
-         last_valid_frame_time_ = micros();
+         last_valid_frame_time_    = micros();
+
+         // === Per-frame validity + asymmetric hysteresis ===
+         // A frame is "valid" only if the receiver also flagged it
+         // as a fresh transmitter frame (no failsafe, no frame_lost).
+         //   - frame_valid_ flips per frame, no debounce.
+         //   - controller_connected_ flips false on a single bad
+         //     frame, but requires SBUS_HYSTERESIS_GOOD_FRAMES
+         //     consecutive valid frames to flip back to true.
+         frame_valid_ = !new_frame_lost && !new_failsafe;
+         if (frame_valid_) {
+             consecutive_good_frames_++;
+             if (consecutive_good_frames_ >= SBUS_HYSTERESIS_GOOD_FRAMES) {
+                 controller_connected_ = true;
+             }
+         } else {
+             consecutive_good_frames_ = 0;
+             controller_connected_    = false;
+         }
      }
      
      return valid_frame;
@@ -319,6 +361,17 @@
                          } else {
                              frame_errors_++;
                              consecutive_frame_losses_++;
+                             // A failed decode means the latest frame
+                             // is not trustworthy. Drop frame_valid_
+                             // immediately and reset the hysteresis
+                             // counter; updateConnectionStatus() will
+                             // decide whether the accumulated losses
+                             // warrant flipping controller_connected_.
+                             {
+                                 std::lock_guard<std::mutex> lock(mutex_);
+                                 frame_valid_ = false;
+                                 consecutive_good_frames_ = 0;
+                             }
                          }
                          
                          // Reset for next frame
@@ -360,21 +413,30 @@
   */
  void SbusHandler::updateConnectionStatus() {
      std::lock_guard<std::mutex> lock(mutex_);
-     
+
      uint64_t now = micros();
      uint64_t time_since_last_frame = now - last_valid_frame_time_;
-     
-     // Consider controller disconnected if:
-     // 1. No valid frames received for SBUS_SIGNAL_LOSS_TIMEOUT_MS
-     // 2. More than SBUS_MAX_CONSECUTIVE_LOSS consecutive frames lost
-     // 3. Failsafe flag is set
-     
-     if (time_since_last_frame > (SBUS_SIGNAL_LOSS_TIMEOUT_MS * 1000) || 
-         consecutive_frame_losses_ > SBUS_MAX_CONSECUTIVE_LOSS ||
-         failsafe_) {
-         controller_connected_ = false;
-     } else {
-         controller_connected_ = true;
+
+     // The per-frame state (frame_valid_, controller_connected_,
+     // consecutive_good_frames_) is updated atomically inside
+     // decodeFrame() each time a fresh frame arrives.
+     //
+     // This function runs every call to update() - including calls
+     // where no fresh frame was decoded - and is only responsible
+     // for the staleness backstop. If too much wall time has
+     // elapsed, or too many consecutive wire-level errors have
+     // piled up since the last good frame, the cached channel data
+     // is no longer trustworthy and we invalidate everything
+     // regardless of what flags the last decoded frame happened to
+     // carry.
+     bool stale =
+         (time_since_last_frame > (SBUS_SIGNAL_LOSS_TIMEOUT_MS * 1000)) ||
+         (consecutive_frame_losses_ > SBUS_MAX_CONSECUTIVE_LOSS);
+
+     if (stale) {
+         frame_valid_             = false;
+         controller_connected_    = false;
+         consecutive_good_frames_ = 0;
      }
  }
  
@@ -473,11 +535,32 @@
  }
  
  /**
-  * Check if the RC controller is still connected
+  * Check if the RC controller is still connected (debounced).
+  * True only after SBUS_HYSTERESIS_GOOD_FRAMES consecutive valid
+  * frames since the last bad event.
   */
  bool SbusHandler::isControllerConnected() const {
      std::lock_guard<std::mutex> lock(mutex_);
      return controller_connected_;
+ }
+
+ /**
+  * Per-frame validity. True iff the most recent decoded frame had
+  * no failsafe / no frame_lost AND the link is not stale, with no
+  * debounce. Use this to gate per-cycle outputs (e.g. RC thrust).
+  */
+ bool SbusHandler::isFrameValid() const {
+     std::lock_guard<std::mutex> lock(mutex_);
+     return frame_valid_;
+ }
+
+ /**
+  * Count of consecutive valid frames since the last bad frame.
+  * Useful for diagnostics and the appcast.
+  */
+ unsigned long SbusHandler::getConsecutiveGoodFrames() const {
+     std::lock_guard<std::mutex> lock(mutex_);
+     return consecutive_good_frames_;
  }
  
  /**
