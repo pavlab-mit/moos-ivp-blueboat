@@ -41,6 +41,12 @@
  #define SBUS_SIGNAL_LOSS_TIMEOUT_MS 500     // Signal considered lost after 500ms without frames
  #define SBUS_MAX_CONSECUTIVE_LOSS   20      // Max consecutive frames lost before signal is considered lost
 
+ // Number of consecutive valid frames required to flip
+ // controller_connected_ from false->true. A single bad frame flips
+ // it back to false (asymmetric hysteresis: fast disconnect, slow
+ // reconnect). At ~70 Hz framing, 3 ~= 42 ms.
+ #define SBUS_HYSTERESIS_GOOD_FRAMES  3
+
  class SbusHandler {
  public:
      // Constructor and destructor
@@ -69,10 +75,27 @@
      unsigned long getFrameErrors() const;
      float getFrameRate() const;
 
-     // NEW: Signal quality and connection detection methods
-     bool isControllerConnected() const;                // Check if RC controller is still connected
-     uint64_t getTimeSinceLastFrame() const;           // Time since last valid frame in microseconds
-     unsigned long getConsecutiveFrameLosses() const;   // Get count of consecutive lost frames
+     // Connection state - two distinct booleans for two distinct uses.
+     //
+     //   isFrameValid()         - per-frame, instantaneous. True iff
+     //                            the most recent SBUS frame was free
+     //                            of failsafe / frame_lost flags AND
+     //                            the link is not stale. Use this to
+     //                            gate per-cycle commands such as RC
+     //                            thrust output.
+     //
+     //   isControllerConnected() - debounced. Becomes true only after
+     //                            SBUS_HYSTERESIS_GOOD_FRAMES
+     //                            consecutive valid frames since the
+     //                            last bad one; becomes false on a
+     //                            single bad event. Use this for
+     //                            mode switching, UI, and event
+     //                            logging.
+     bool isFrameValid() const;
+     bool isControllerConnected() const;
+     uint64_t getTimeSinceLastFrame() const;
+     unsigned long getConsecutiveFrameLosses() const;
+     unsigned long getConsecutiveGoodFrames() const;
 
      // TODO: Methods for sending data back to RC receiver
      bool initializeTx(const std::string& device = SBUS_UART_DEV);
@@ -100,6 +123,10 @@
      unsigned long frame_errors_;
      unsigned long consecutive_frame_losses_; // NEW: Track consecutive losses
      bool controller_connected_; // NEW: Controller connection status
+
+     // Hysteresis state for the split-API connection model.
+     bool frame_valid_;                       // per-frame snapshot
+     unsigned long consecutive_good_frames_;  // resets to 0 on any bad frame
 
      // UART file descriptor
      int fd_;
