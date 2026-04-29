@@ -803,7 +803,7 @@ bool BBNavigatorInterface::OnStartUp()
     string orig = *p;
     string line = *p;
     string param = tolower(biteStringX(line, '='));
-    string value = line;
+    string value = stripBlankEnds(line);
 
     bool handled = false;
     if (param == "left_thruster_pin")
