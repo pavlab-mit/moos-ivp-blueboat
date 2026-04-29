@@ -29,7 +29,7 @@ ProcessConfig = iBBNavigatorInterface
 
   // Flip if a thruster spins the wrong direction
   left_thruster_invert  = false
-  right_thruster_invert = false
+  right_thruster_invert = true
 
   thruster_enabled    = true
   thruster_alpha      = 0.9     // LPF: alpha = dt/(tau+dt)
