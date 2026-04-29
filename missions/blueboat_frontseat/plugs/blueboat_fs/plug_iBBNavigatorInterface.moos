@@ -20,8 +20,8 @@ ProcessConfig = iBBNavigatorInterface
   // THRUST CONTROL
   //=========================================================
   // Pin assignments are 1-indexed (Navigator board PWM channels).
-  left_thruster_pin   = 15
-  right_thruster_pin  = 17
+  left_thruster_pin   = 14
+  right_thruster_pin  = 16
 
   max_thrust          = 100
   min_thrust          = -100
