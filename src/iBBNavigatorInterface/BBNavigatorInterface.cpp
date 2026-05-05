@@ -387,12 +387,23 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
         // otherwise the disconnected-fallback publishes would
         // silently defeat the watchdog.
 
-        // Check mode switch (Channel 6). iRCReader's safe-default
-        // for CH6 on disconnect is 1, so this automatically
-        // transitions m_rc_mode -> false when the RC link drops,
-        // routing thrust through the autonomy/MOOS path rather
-        // than the RC mixer.
-        if (channel == 5) // Channel 6 (zero-indexed as 5)
+        // Mode switch (Channel 6) — latch operator-selected mode.
+        // Only update on RC_CHx mail received while the link is
+        // connected; iRCReader publishes safe-default CH6=1 during
+        // disconnect, and trusting it would auto-flip the boat to
+        // autonomy on signal loss. Preserving the last-known mode
+        // across dropouts gives the desired behavior in both deadman
+        // states:
+        //   deadman enabled  + last-mode RC   -> stays RC; deadman
+        //                                        trips and zeros
+        //                                        thrust (boat safed).
+        //   deadman disabled + last-mode auto -> stays auto; autonomy
+        //                                        continues (over-the-
+        //                                        horizon use case).
+        // iRCReader publishes RC_CONNECTED before the safe-default
+        // RC_CHx values within an iterate, so the gate sees the
+        // updated m_rc_connected before evaluating CH6.
+        if (channel == 5 && m_rc_connected) // Channel 6 (zero-indexed as 5)
         {
           m_rc_mode = (m_rc_channels[channel] == 2.0);
           dbg_print("RC mode: %s\n", m_rc_mode ? "true" : "false");

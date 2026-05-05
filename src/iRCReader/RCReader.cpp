@@ -247,24 +247,22 @@ bool RCReader::Iterate()
     //
     // Joystick channels CH1-4 -> 0 (zero thrust commanded).
     // Switch channels   CH5-9 -> 1 (lowest position).
-    //   * iBBNavigatorInterface treats CH6 == 2 as "RC mode";
-    //     publishing 1 here forces m_rc_mode -> false on
-    //     disconnect, which routes thrust through the
-    //     autonomy/MOOS path (or thrust_command_timeout) rather
-    //     than the RC mixer. This is the desired fail-safe for
-    //     scenarios 1 and 2.
-    //   * Any consumer that needs to LATCH operator state across
-    //     dropouts (e.g. a future mode arbiter that should keep
-    //     a vehicle in AUTONOMY across an intentional RC dropout)
-    //     MUST gate its reads on RC_CONNECTED instead of trusting
-    //     RC_CHx as fresh operator input. The values below are
-    //     "operator unavailable" tokens, not commanded positions.
-    // Aux/raw channels CH10-16 -> SBUS_MID_VALUE (no command bias).
+    // Aux/raw channels  CH10-16 -> SBUS_MID_VALUE (no command bias).
+    //
+    // These are "operator unavailable" tokens, not commanded
+    // positions. Any consumer that needs to LATCH operator state
+    // across dropouts MUST gate its reads on RC_CONNECTED rather
+    // than trusting RC_CHx as fresh operator input.
+    // iBBNavigatorInterface follows this rule for the CH6 mode
+    // switch: it ignores RC_CH6 mail when RC_CONNECTED=false, so
+    // the safe-default CH6=1 published here does NOT auto-flip the
+    // vehicle out of RC mode on signal loss. The mode latch is
+    // preserved across the dropout; thrust safety is handled by
+    // RC_FRAME_VALID gating and the deadman watchdog.
     //
     // The RC_DEADMAN watchdog in iBBNavigatorInterface refreshes
-    // its freshness timestamp ONLY on RC_CONNECTED=true (post-fix
-    // to BBNavigatorInterface.cpp), so these RC_CH* publishes do
-    // NOT defeat the watchdog.
+    // its freshness timestamp ONLY on RC_CONNECTED=true, so these
+    // RC_CH* publishes do NOT defeat the watchdog.
     Notify("RC_CH1", 0.0);
     Notify("RC_CH2", 0.0);
     Notify("RC_CH3", 0.0);
