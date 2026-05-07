@@ -53,7 +53,7 @@ public:
     double sigma_gps_spd = 0.1;     // GPS speed noise (m/s)
   };
 
-  // GPS measurement bundle (parsed from GPS_STATE)
+  // GPS measurement bundle (parsed from FIX_STATE_DGNSS)
   struct GPSMeasurement
   {
     double timestamp = 0.0;

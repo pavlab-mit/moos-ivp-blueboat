@@ -7,7 +7,7 @@
         Extended Kalman Filter for BlueBat navigation using
         dual-antenna GPS (DGPS) heading and level-frame gyroscope.
 
-        Fuses GPS_STATE measurements (position, heading, speed, COG)
+        Fuses FIX_STATE_DGNSS measurements (position, heading, speed, COG)
         with gyroscope for smooth heading estimation.
 *************************************************************/
 
@@ -28,18 +28,11 @@ using namespace std;
 BB_DGPS_EKF::BB_DGPS_EKF()
   : m_debug(false),
     m_debug_stream(nullptr),
-    m_input_gps_state("GPS_STATE"),
-    m_input_gyro_z("GYRO_LVL_Z"),
+    m_input_gps_state("FIX_STATE_DGNSS"),
+    m_input_gyro_z("GYRO_Z_LVL_IMU"),
     m_input_thrust_l("DESIRED_THRUST_L"),
     m_input_thrust_r("DESIRED_THRUST_R"),
-    m_output_nav_x("NAV_X"),
-    m_output_nav_y("NAV_Y"),
-    m_output_nav_lat("NAV_LAT"),
-    m_output_nav_long("NAV_LONG"),
-    m_output_nav_heading("NAV_HEADING"),
-    m_output_nav_speed("NAV_SPEED"),
-    m_output_nav_cog("NAV_COG"),
-    m_output_nav_state("NAV_STATE"),
+    m_pub_suffix(""),
     m_speed_threshold(0.3),
     m_data_freshness_threshold(5.0),
     m_drift_decay_period(20.0),
@@ -75,6 +68,18 @@ BB_DGPS_EKF::~BB_DGPS_EKF()
 }
 
 //---------------------------------------------------------
+// Procedure: outName()
+// Append "_<m_pub_suffix>" to a base output name. Empty suffix
+// publishes the bare helm-facing name.
+
+std::string BB_DGPS_EKF::outName(const std::string &base) const
+{
+  if (m_pub_suffix.empty())
+    return base;
+  return base + "_" + m_pub_suffix;
+}
+
+//---------------------------------------------------------
 // Procedure: OnNewMail()
 
 bool BB_DGPS_EKF::OnNewMail(MOOSMSG_LIST &NewMail)
@@ -94,7 +99,7 @@ bool BB_DGPS_EKF::OnNewMail(MOOSMSG_LIST &NewMail)
         m_gps_ready = true;
         m_gps_update_count++;
 
-        dbg_print("[%.3f] GPS_STATE: x=%.2f y=%.2f spd=%.2f hdg=%.1f cog=%.1f h_acc=%.2f hdop=%.2f hdg_valid=%d\n",
+        dbg_print("[%.3f] FIX_STATE_DGNSS: x=%.2f y=%.2f spd=%.2f hdg=%.1f cog=%.1f h_acc=%.2f hdop=%.2f hdg_valid=%d\n",
                   mtime, m_latest_gps.nav_x, m_latest_gps.nav_y,
                   m_latest_gps.speed, m_latest_gps.heading, m_latest_gps.cog,
                   m_latest_gps.h_acc, m_latest_gps.hdop, m_latest_gps.heading_valid);
@@ -123,7 +128,7 @@ bool BB_DGPS_EKF::OnNewMail(MOOSMSG_LIST &NewMail)
 
 //---------------------------------------------------------
 // Procedure: parseGPSState()
-// Parse the GPS_STATE string from iUnicoreGPS
+// Parse the FIX_STATE_DGNSS string from iUnicore
 
 bool BB_DGPS_EKF::parseGPSState(const string &sval, BB_DGPS_EKF_Model::GPSMeasurement &gps)
 {
@@ -310,17 +315,17 @@ bool BB_DGPS_EKF::Iterate()
     double nav_cog = m_ekf.getCOGCompass();
     double nav_lat = 0.0, nav_lon = 0.0;
 
-    Notify(m_output_nav_x, nav_x);
-    Notify(m_output_nav_y, nav_y);
-    Notify(m_output_nav_heading, nav_heading);
-    Notify(m_output_nav_speed, nav_speed);
-    Notify(m_output_nav_cog, nav_cog);
+    Notify(outName("NAV_X"), nav_x);
+    Notify(outName("NAV_Y"), nav_y);
+    Notify(outName("NAV_HEADING"), nav_heading);
+    Notify(outName("NAV_SPEED"), nav_speed);
+    Notify(outName("NAV_COG"), nav_cog);
 
     // Convert filtered x/y back to lat/lon via reverse geodesy
     if (m_geodesy_initialized) {
       if (m_geodesy.LocalGrid2LatLong(nav_x, nav_y, nav_lat, nav_lon)) {
-        Notify(m_output_nav_lat, nav_lat);
-        Notify(m_output_nav_long, nav_lon);
+        Notify(outName("NAV_LAT"), nav_lat);
+        Notify(outName("NAV_LONG"), nav_lon);
       }
     }
 
@@ -341,7 +346,7 @@ bool BB_DGPS_EKF::Iterate()
              m_latest_gps.h_acc, m_latest_gps.hdop,
              m_latest_gps.heading_valid ? "true" : "false",
              m_latest_gps.heading, m_latest_gps.heading_acc);
-    Notify(m_output_nav_state, string(buf));
+    Notify(outName("NAV_STATE"), string(buf));
 
     m_nav_published = true;
   }
@@ -474,36 +479,8 @@ bool BB_DGPS_EKF::OnStartUp()
       m_input_gyro_z = value;
       handled = true;
     }
-    else if (param == "output_nav_x") {
-      m_output_nav_x = value;
-      handled = true;
-    }
-    else if (param == "output_nav_y") {
-      m_output_nav_y = value;
-      handled = true;
-    }
-    else if (param == "output_nav_lat") {
-      m_output_nav_lat = value;
-      handled = true;
-    }
-    else if (param == "output_nav_long") {
-      m_output_nav_long = value;
-      handled = true;
-    }
-    else if (param == "output_nav_heading") {
-      m_output_nav_heading = value;
-      handled = true;
-    }
-    else if (param == "output_nav_speed") {
-      m_output_nav_speed = value;
-      handled = true;
-    }
-    else if (param == "output_nav_cog") {
-      m_output_nav_cog = value;
-      handled = true;
-    }
-    else if (param == "output_nav_state") {
-      m_output_nav_state = value;
+    else if (param == "pub_suffix") {
+      m_pub_suffix = value;
       handled = true;
     }
 

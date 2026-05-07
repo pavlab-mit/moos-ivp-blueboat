@@ -17,7 +17,7 @@ ProcessConfig = iFrontSeatBroker
    tx_port = 9200
 
    // MOOS vars sent every Iterate tick if available
-   tx_vars = NAV_X_GPS,NAV_Y_GPS,GPS_HEADING,NAV_SPEED
+   tx_vars = NAV_LAT_DGNSS,NAV_LONG_DGNSS,GPS_HEADING_DGNSS,NAV_SPEED_DGNSS
 
    // Optional inbound remap: WIRE_VAR:MOOS_VAR
    in_map = DESIRED_THRUST_L:DESIRED_THRUST_L,DESIRED_THRUST_R:DESIRED_THRUST_R

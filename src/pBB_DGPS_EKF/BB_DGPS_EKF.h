@@ -17,10 +17,12 @@
         When thrusters are off for a configurable period, the drift
         estimator runs to capture current velocities [v_x, v_y].
 
-        Subscribes to GPS_STATE (iUnicoreGPS bundle), GYRO_LVL_Z,
-        and DESIRED_THRUST_L/R for drift detection.
-        Publishes NAV_X, NAV_Y, NAV_HEADING, NAV_SPEED, NAV_COG,
-        and drift estimates (DRIFT_VX, DRIFT_VY, etc.).
+        Subscribes to FIX_STATE_DGNSS (iUnicore time-bundled fix
+        state), GYRO_Z_LVL_IMU, and DESIRED_THRUST_L/R for drift
+        detection. Publishes NAV_X, NAV_Y, NAV_HEADING, NAV_SPEED,
+        NAV_COG, and drift estimates (DRIFT_VX, DRIFT_VY, etc.).
+        All output names take an optional pub_suffix appended as
+        "_<suffix>"; default empty publishes helm-facing bare names.
 *************************************************************/
 
 #ifndef BB_DGPS_EKF_HEADER
@@ -51,6 +53,7 @@ class BB_DGPS_EKF : public AppCastingMOOSApp
    void registerVariables();
    bool dbg_print(const char *format, ...);
    bool parseGPSState(const std::string &sval, BB_DGPS_EKF_Model::GPSMeasurement &gps);
+   std::string outName(const std::string &base) const;
 
  private: // Configuration variables
    bool m_debug;
@@ -60,20 +63,15 @@ class BB_DGPS_EKF : public AppCastingMOOSApp
    char m_fname[m_fname_buff_size];
 
    // Input variable names
-   std::string m_input_gps_state;     // GPS_STATE from iUnicoreGPS
-   std::string m_input_gyro_z;        // GYRO_LVL_Z from AHRS/navigator
+   std::string m_input_gps_state;     // FIX_STATE_DGNSS from iUnicore
+   std::string m_input_gyro_z;        // GYRO_Z_LVL_IMU from navigator
    std::string m_input_thrust_l;      // DESIRED_THRUST_L
    std::string m_input_thrust_r;      // DESIRED_THRUST_R
 
-   // Output variable names
-   std::string m_output_nav_x;
-   std::string m_output_nav_y;
-   std::string m_output_nav_lat;
-   std::string m_output_nav_long;
-   std::string m_output_nav_heading;
-   std::string m_output_nav_speed;
-   std::string m_output_nav_cog;
-   std::string m_output_nav_state;
+   // Output suffix - empty (default) yields bare NAV_X / NAV_Y /
+   // NAV_HEADING / etc. for the helm. Set non-empty when running
+   // multiple state sources side-by-side.
+   std::string m_pub_suffix;
 
    // Speed threshold for COG updates
    double m_speed_threshold;

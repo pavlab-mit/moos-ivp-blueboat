@@ -26,7 +26,7 @@ void showSynopsis()
   blk("  The uRTCMBroker application connects to an NTRIP caster      ");
   blk("  and streams RTCM corrections as binary MOOS messages.        ");
   blk("  Designed to run shoreside and distribute corrections to       ");
-  blk("  vehicle communities running iUnicoreGPS via pShare.          ");
+  blk("  vehicle communities running iUnicore via pShare.             ");
 }
 
 //----------------------------------------------------------------

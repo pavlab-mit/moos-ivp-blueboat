@@ -1,5 +1,5 @@
 //------------------------------------------
-ProcessConfig = iUnicoreGPS
+ProcessConfig = iUnicore
 {
   AppTick   = 10
   CommsTick = 10
@@ -7,7 +7,8 @@ ProcessConfig = iUnicoreGPS
   port      = /dev/ttyUSB0
   baud_rate = 230400
 
-  enable_geodesic  = false
+  // All published vars are appended with "_DGNSS" by default.
+  pub_suffix = DGNSS
 
   publish_position = true
   publish_velocity = true

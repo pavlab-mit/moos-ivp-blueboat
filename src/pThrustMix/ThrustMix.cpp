@@ -37,7 +37,7 @@ ThrustMix::ThrustMix()
   m_desired_thrust_var = "DESIRED_THRUST";
   m_desired_rudder_var = "DESIRED_RUDDER";
   m_feedback_speed_var = "NAV_SPEED";
-  m_feedback_yaw_var = "NAV_YAW_RATE";
+  m_feedback_yaw_var = "GYRO_Z_LVL_IMU";
   m_feedback_heading_var = "NAV_HEADING";
   m_desired_heading_var = "DESIRED_HEADING";
   m_desired_thrust_l_var = "DESIRED_THRUST_L";
@@ -480,7 +480,7 @@ bool ThrustMix::buildReport()
   intab << "NAV_SPEED" << doubleToString(m_nav_speed, 2);
   if (m_enable_yaw_feedback)
   {
-    intab << "NAV_YAW_RATE" << doubleToString(m_nav_yaw_rate, 2);
+    intab << m_feedback_yaw_var << doubleToString(m_nav_yaw_rate, 2);
     intab << "NAV_HEADING" << doubleToString(m_nav_heading, 2);
     intab << "DESIRED_HEADING" << doubleToString(m_desired_heading, 2);
   }

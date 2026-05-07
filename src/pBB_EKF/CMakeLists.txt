@@ -23,6 +23,7 @@ if(ARMA_AVAIL)
   TARGET_LINK_LIBRARIES(pBB_EKF
     ${ARMA_LIBS}
     ${MOOS_LIBRARIES}
+    ${MOOSGeodesy_LIBRARIES}
     apputil
     mbutil
     m

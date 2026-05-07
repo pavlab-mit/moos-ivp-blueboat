@@ -16,20 +16,22 @@ ProcessConfig = iFrontSeatBroker
    tx_ip   = $(BSEAT_IP)
    tx_port = 9445
 
-   // MOOS vars sent every Iterate tick if available
-   tx_vars = NAV_LAT, NAV_LONG, GPS_HEADING, NAV_SPEED, NAV_COG
-   tx_vars = NAV_ROLL_NAVIGATOR, NAV_PITCH_NAVIGATOR, NAV_HEADING_NAVIGATOR
-   tx_vars = NVGR_RC_MODE, NVGR_RC_CONNECTED
+   // GNSS state (from iUnicore, suffixed _DGNSS)
+   tx_vars = NAV_LAT_DGNSS, NAV_LONG_DGNSS, NAV_SPEED_DGNSS, NAV_COG_DGNSS
+   tx_vars = GPS_HEADING_DGNSS, GPS_HEADING_ACC_DGNSS, GPS_HEADING_VALID_DGNSS
+   tx_vars = GPS_FIX_TYPE_DGNSS, GPS_NUM_SATS_DGNSS, GPS_CORR_AGE_DGNSS
+   tx_vars = HDOP_DGNSS, VDOP_DGNSS, PDOP_DGNSS
+   tx_vars = FIX_STATE_DGNSS
 
-   // GPS quality metrics
-   tx_vars = GPS_FIX_TYPE, GPS_NUM_SATS, HDOP, VDOP, PDOP, GPS_CORR_AGE, GPS_HEADING_VALID, GPS_HEADING_ACC, GPS_STATE
-   // Navigator gyro
-   tx_vars = GYRO_LVL_Z
-   
-   // Battery/current from iBBThrustCtrl
+   // AHRS / IMU (from iBBNavigatorInterface)
+   tx_vars = NAV_ROLL_AHRS, NAV_PITCH_AHRS, NAV_HEADING_AHRS
+   tx_vars = GYRO_Z_LVL_IMU
+
+   // Navigator-board health and RC mode status
+   tx_vars = NVGR_RC_MODE, NVGR_RC_CONNECTED
    tx_vars = NVGR_ROLLING_CURRENT, NVGR_ROLLING_VOLTAGE, NVGTR_IT_C, NVGTR_IP_KPA, RPI_TEMP
 
-   //RC variables
+   // RC variables (no suffix - iRCReader leaves these bare)
    tx_vars = RC_CONNECTED, RC_CH6, RC_CH7, RC_CH8, RC_CH9
    
 

@@ -27,12 +27,16 @@ if(ARMA_AVAIL)
     ${SYSTEM_LIBS}
     ${NAVIGATOR_LIB}
     ${ARMA_LIBS}
-    MadgwickAHRS
-    rpi_utils
+    madgwicks
     apputil
     mbutil
     m
-    pthread)
+    pthread
+    # libatomic: armv7l lacks native 64-bit atomic ops, so
+    # std::atomic<double> on m_latest_set_thrust_* lowers to
+    # __atomic_load_8 / __atomic_store_8 helper calls in libatomic.
+    # x86_64 / aarch64 builds also accept this link with no harm.
+    atomic)
 else()
   message(WARNING "Armadillo dependencies not found - Not Building <iBBNavigatorInterface>")
 endif()

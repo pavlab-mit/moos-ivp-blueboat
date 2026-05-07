@@ -1,21 +1,18 @@
 /*************************************************************
-      Name: 
+      Name: Raymond Turrisi
       Orgn: MIT, Cambridge MA
-      File: iUnicoreGPS/main.cpp
-   Last Ed:  2026-03-04
+      File: iRCReader/main.cpp
+   Last Ed:  2025-03-20
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Launcher for iRCReader: handles CLI args (-h, -e, -i,
+        -v, --alias=) and runs the RCReader MOOS app.
 *************************************************************/
 
 #include <string>
 #include "MBUtils.h"
 #include "ColorParse.h"
-#include "UnicoreGPS.h"
-#include "UnicoreGPS_Info.h"
+#include "RCReader.h"
+#include "RCReader_Info.h"
 
 using namespace std;
 
@@ -41,18 +38,17 @@ int main(int argc, char *argv[])
     else if(i==2)
       run_command = argi;
   }
-  
+
   if(mission_file == "")
     showHelpAndExit();
 
   cout << termColor("green");
-  cout << "iUnicoreGPS launching as " << run_command << endl;
+  cout << "iRCReader launching as " << run_command << endl;
   cout << termColor() << endl;
 
-  UnicoreGPS UnicoreGPS;
+  RCReader RCReader;
 
-  UnicoreGPS.Run(run_command.c_str(), mission_file.c_str());
-  
+  RCReader.Run(run_command.c_str(), mission_file.c_str());
+
   return(0);
 }
-
