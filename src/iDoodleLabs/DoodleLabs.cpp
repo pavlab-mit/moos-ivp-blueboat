@@ -5,11 +5,9 @@
       File: iDoodleLabs/DoodleLabs.cpp
    Last Ed:  2025-07-21
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Doodle Labs radio interface. Polls the radio JSON HTTP
+        API for link metrics (RSSI, SNR, throughput, peer state)
+        and publishes them to the MOOSDB.
 *************************************************************/
 
 #include <iterator>

@@ -5,11 +5,11 @@
       File: pBB_EKF/BB_EKF.cpp
    Last Ed:  2025-11-25
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Extended Kalman Filter for blueboat navigation. Fuses
+        GNSS position/speed/heading, AHRS magnetic heading, and
+        level-frame gyro into helm-facing state. Lat/lon inputs
+        are converted to the local grid via an internal geodesy
+        seeded by LatOrigin/LongOrigin in the mission file.
 *************************************************************/
 
 #include <iterator>
@@ -45,19 +45,61 @@ BB_EKF::BB_EKF()
   m_bias_meas_stddev = 1.0;    // degrees
   
   // Default variable name mappings
-  m_input_gps_x = "NAV_X_GPS";
-  m_input_gps_y = "NAV_Y_GPS";
-  m_input_gps_speed = "NAV_SPEED_GPS";
-  m_input_gps_heading = "NAV_HEADING_GPS";
-  m_input_mag_heading = "NAV_HEADING_MAG";
-  m_input_gyro_z = "GYRO_Z_LVL";
-  
-  m_output_nav_x = "NAV_X";
-  m_output_nav_y = "NAV_Y";
-  m_output_nav_speed = "NAV_SPEED";
-  m_output_nav_heading = "NAV_HEADING";
-  
+  m_input_gps_lat = "NAV_LAT_DGNSS";
+  m_input_gps_lon = "NAV_LONG_DGNSS";
+  m_input_gps_speed = "NAV_SPEED_DGNSS";
+  m_input_gps_heading = "GPS_HEADING_DGNSS";
+  m_input_mag_heading = "NAV_HEADING_AHRS";
+  m_input_gyro_z = "GYRO_Z_LVL_IMU";
+
+  // Lat/lon staging
+  m_latest_lat = 0.0;
+  m_latest_lon = 0.0;
+  m_have_lat = false;
+  m_have_lon = false;
+
+  // Output suffix (empty = helm-facing bare names)
+  m_pub_suffix = "";
+  m_geodesy_ok = false;
+
   m_last_mag_heading_cart = 0.0;
+}
+
+//---------------------------------------------------------
+// Procedure: outName()
+// Append "_<m_pub_suffix>" to a base output name. Empty
+// suffix -> bare name (default for helm-facing publications).
+
+std::string BB_EKF::outName(const std::string &base) const
+{
+  if (m_pub_suffix.empty())
+    return base;
+  return base + "_" + m_pub_suffix;
+}
+
+//---------------------------------------------------------
+// Procedure: setupGeodesy()
+// Pulls LatOrigin / LongOrigin from the mission file and
+// initializes m_geodesy. Required for the lat/lon -> local
+// grid conversion in OnNewMail.
+
+bool BB_EKF::setupGeodesy()
+{
+  double lat_origin = 0.0;
+  double lon_origin = 0.0;
+  if (!m_MissionReader.GetValue("LatOrigin", lat_origin)) {
+    reportConfigWarning("pBB_EKF missing LatOrigin");
+    return false;
+  }
+  if (!m_MissionReader.GetValue("LongOrigin", lon_origin)) {
+    reportConfigWarning("pBB_EKF missing LongOrigin");
+    return false;
+  }
+  if (!m_geodesy.Initialise(lat_origin, lon_origin)) {
+    reportConfigWarning("pBB_EKF geodesy initialize failed");
+    return false;
+  }
+  return true;
 }
 
 //---------------------------------------------------------
@@ -80,16 +122,35 @@ bool BB_EKF::OnNewMail(MOOSMSG_LIST &NewMail)
     string key    = msg.GetKey();
     double mtime = msg.GetTime();
 
-    // GNSS Position
-    if(key == m_input_gps_x) {
-      m_nav_pos_gnss.x = msg.GetDouble();
-      m_nav_pos_gnss.x_new = true;
-      m_nav_pos_gnss.timestamp = mtime;
+    // GNSS Position - lat/lon arrive separately. Convert to local
+    // grid as soon as both are available (geodesic owned here).
+    if(key == m_input_gps_lat) {
+      m_latest_lat = msg.GetDouble();
+      m_have_lat = true;
+      if (m_have_lon && m_geodesy_ok) {
+        double x = 0.0, y = 0.0;
+        if (m_geodesy.LatLong2LocalGrid(m_latest_lat, m_latest_lon, y, x)) {
+          m_nav_pos_gnss.x = x;
+          m_nav_pos_gnss.y = y;
+          m_nav_pos_gnss.x_new = true;
+          m_nav_pos_gnss.y_new = true;
+          m_nav_pos_gnss.timestamp = mtime;
+        }
+      }
     }
-    else if(key == m_input_gps_y) {
-      m_nav_pos_gnss.y = msg.GetDouble();
-      m_nav_pos_gnss.y_new = true;
-      m_nav_pos_gnss.timestamp = mtime;
+    else if(key == m_input_gps_lon) {
+      m_latest_lon = msg.GetDouble();
+      m_have_lon = true;
+      if (m_have_lat && m_geodesy_ok) {
+        double x = 0.0, y = 0.0;
+        if (m_geodesy.LatLong2LocalGrid(m_latest_lat, m_latest_lon, y, x)) {
+          m_nav_pos_gnss.x = x;
+          m_nav_pos_gnss.y = y;
+          m_nav_pos_gnss.x_new = true;
+          m_nav_pos_gnss.y_new = true;
+          m_nav_pos_gnss.timestamp = mtime;
+        }
+      }
     }
     // GNSS Speed
     else if(key == m_input_gps_speed) {
@@ -292,12 +353,12 @@ bool BB_EKF::Iterate()
   
   // ============= PUBLISH OUTPUTS =============
   // Position
-  Notify(m_output_nav_x, m_ekf.getX());
-  Notify(m_output_nav_y, m_ekf.getY());
-  
+  Notify(outName("NAV_X"), m_ekf.getX());
+  Notify(outName("NAV_Y"), m_ekf.getY());
+
   // Speed
-  Notify(m_output_nav_speed, m_ekf.getSpeed());
-  
+  Notify(outName("NAV_SPEED"), m_ekf.getSpeed());
+
   // Heading - use smart output that switches based on speed
   // Use last known mag heading for low-speed operation
   double output_heading_cart = m_ekf.getOutputHeading(m_last_mag_heading_cart);
@@ -306,7 +367,7 @@ bool BB_EKF::Iterate()
   if (output_heading_compass < 0) {
     output_heading_compass += 360.0;
   }
-  Notify(m_output_nav_heading, output_heading_compass);
+  Notify(outName("NAV_HEADING"), output_heading_compass);
   
   // Debug outputs
   Notify("EKF_BIAS_DEG", m_ekf.getBias() * 180.0 / M_PI);
@@ -396,12 +457,12 @@ bool BB_EKF::OnStartUp()
       handled = true;
     }
     // Input variable mappings
-    else if(param == "input_gps_x") {
-      m_input_gps_x = value;
+    else if(param == "input_gps_lat") {
+      m_input_gps_lat = value;
       handled = true;
     }
-    else if(param == "input_gps_y") {
-      m_input_gps_y = value;
+    else if(param == "input_gps_lon") {
+      m_input_gps_lon = value;
       handled = true;
     }
     else if(param == "input_gps_speed") {
@@ -420,21 +481,9 @@ bool BB_EKF::OnStartUp()
       m_input_gyro_z = value;
       handled = true;
     }
-    // Output variable mappings
-    else if(param == "output_nav_x") {
-      m_output_nav_x = value;
-      handled = true;
-    }
-    else if(param == "output_nav_y") {
-      m_output_nav_y = value;
-      handled = true;
-    }
-    else if(param == "output_nav_speed") {
-      m_output_nav_speed = value;
-      handled = true;
-    }
-    else if(param == "output_nav_heading") {
-      m_output_nav_heading = value;
+    // Output suffix (empty = bare NAV_X/Y/SPEED/HEADING for the helm)
+    else if(param == "pub_suffix") {
+      m_pub_suffix = value;
       handled = true;
     }
     else if (param == "debug")
@@ -462,14 +511,21 @@ bool BB_EKF::OnStartUp()
   }
   
   // Configure the EKF with loaded parameters
-  m_ekf.setProcessNoise(m_pos_process_variance, m_speed_process_variance, 
+  m_ekf.setProcessNoise(m_pos_process_variance, m_speed_process_variance,
                         m_heading_process_variance, m_bias_process_variance);
-  m_ekf.setMeasurementNoise(m_gps_pos_stddev, m_gps_speed_stddev, 
-                            m_mag_meas_stddev * M_PI / 180.0, 
+  m_ekf.setMeasurementNoise(m_gps_pos_stddev, m_gps_speed_stddev,
+                            m_mag_meas_stddev * M_PI / 180.0,
                             m_bias_meas_stddev * M_PI / 180.0);
   m_ekf.setSpeedThreshold(m_speed_threshold);
-  
-  registerVariables();	
+
+  // Geodesy is required - lat/lon comes in, x/y goes out.
+  m_geodesy_ok = setupGeodesy();
+  if (!m_geodesy_ok) {
+    reportConfigWarning("pBB_EKF: geodesy not initialized; "
+                        "position updates will be ignored.");
+  }
+
+  registerVariables();
   return(true);
 }
 
@@ -479,10 +535,10 @@ bool BB_EKF::OnStartUp()
 void BB_EKF::registerVariables()
 {
   AppCastingMOOSApp::RegisterVariables();
-  
+
   // Input variables
-  Register(m_input_gps_x, 0);
-  Register(m_input_gps_y, 0);
+  Register(m_input_gps_lat, 0);
+  Register(m_input_gps_lon, 0);
   Register(m_input_gps_speed, 0);
   Register(m_input_gps_heading, 0);
   Register(m_input_mag_heading, 0);

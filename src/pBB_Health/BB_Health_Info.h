@@ -5,11 +5,8 @@
       File: pBB_Health/BB_Health_Info.h
    Last Ed:  2026-03-25
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Help, example config, and interface text forward
+        declarations for pBB_Health.
 *************************************************************/
 
 #ifndef BB_Health_INFO_HEADER

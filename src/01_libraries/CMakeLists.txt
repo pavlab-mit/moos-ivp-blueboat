@@ -7,6 +7,9 @@
 # Madgwick AHRS filter
 ADD_SUBDIRECTORY(lib_MadgwickAHRS)
 
+# SBUS protocol parser for RC receivers
+ADD_SUBDIRECTORY(lib_sbus)
+
 # Unicore GNSS parser
 ADD_SUBDIRECTORY(lib_unicore)
 
@@ -16,7 +19,8 @@ IF(${DOODLE_RADIO_AVAIL})
 ENDIF(${DOODLE_RADIO_AVAIL})
 
 # lib_broker_v2 is header-only, no build needed
-# lib_nb_utils is header-only, no build needed
+# lib_nb_utils  is header-only, no build needed
+# lib_filters   is header-only, no build needed (LPF / LPFSmoother)
 
 ##############################################################################
 #                           END of CMakeLists.txt

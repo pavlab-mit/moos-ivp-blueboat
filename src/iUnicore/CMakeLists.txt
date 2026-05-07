@@ -1,19 +1,18 @@
 #--------------------------------------------------------
-# The CMakeLists.txt for:                       iUnicoreGPS
+# The CMakeLists.txt for:                          iUnicore
 # Author(s):                              Jeremy Wenger
 #--------------------------------------------------------
 
 SET(SRC
-  UnicoreGPS.cpp
-  UnicoreGPS_Info.cpp
+  Unicore.cpp
+  Unicore_Info.cpp
   main.cpp
 )
 
-ADD_EXECUTABLE(iUnicoreGPS ${SRC})
+ADD_EXECUTABLE(iUnicore ${SRC})
 
-TARGET_LINK_LIBRARIES(iUnicoreGPS
+TARGET_LINK_LIBRARIES(iUnicore
    ${MOOS_LIBRARIES}
-   ${MOOSGeodesy_LIBRARIES}
    apputil
    mbutil
    unicore

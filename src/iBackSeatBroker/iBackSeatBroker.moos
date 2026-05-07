@@ -20,7 +20,11 @@ ProcessConfig = iBackSeatBroker
    tx_vars = DESIRED_THRUST_L,DESIRED_THRUST_R,ALL_STOP
 
    // Optional inbound remap: WIRE_VAR:MOOS_VAR
-   in_map = GPS_HEADING:NAV_HEADING,NAV_X_GPS:NAV_X,NAV_Y_GPS:NAV_Y
+   // If a backseat-side EKF / uBBBundler produces NAV_X / NAV_Y /
+   // NAV_HEADING, leave this empty. Otherwise remap directly from
+   // the suffixed sensor wire vars, e.g.:
+   //   in_map = GPS_HEADING_DGNSS:NAV_HEADING
+   // in_map =
 
    // Number of outgoing frames carrying BS_BROKER_STARTUP_ID.
    // Set >0 so front-seat can reliably observe startup/reset over UDP.

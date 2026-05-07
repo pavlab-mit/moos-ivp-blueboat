@@ -109,12 +109,21 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_all_stop = false;
 
   // Initialize RC controller variables
-  m_rc_connected = false;
+  m_rc_connected   = false;
+  m_rc_frame_valid = false;  // boots untrusting; flips true on first good frame
   for (int i = 0; i < 16; i++)
   {
     m_rc_channels[i] = 0.0;
   }
   m_rc_mode = false; // Default to MOOS control mode
+
+  // RC deadman defaults: ON, 2-second timeout. Last-good-time is
+  // initialized to 0 so the deadman fires immediately at startup
+  // until the first RC mail arrives - vehicle starts SAFED.
+  m_rc_deadman_enabled = true;
+  m_rc_deadman_timeout = 2.0;
+  m_last_rc_good_time = 0.0;
+  m_rc_deadman_active = false;
 
   set_rgb_led_strip_size(24);
   init();
@@ -126,9 +135,24 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_left_thruster_invert = 1;
   m_right_thruster_invert = 1;
 
-  // RGBW LED placeholders
+  // RGBW LED placeholders. All four-element vectors are sized
+  // here so the rgbw_color config parser cannot land on an empty
+  // vector (writing into [0..3] of an empty std::vector is UB).
   m_port_side = {0, 255, 0, 0};
   m_starboard_side = {255, 0, 0, 0};
+  m_led_color_quad = {0, 0, 0, 0};
+  m_active_color_quad = {0, 0, 0, 0};
+
+  // Initialize thrust LPF outputs (the modulation thread reads
+  // these atomically; default-initialize to zero so the first
+  // PWM write before any Iterate() runs is centered/off).
+  m_latest_set_thrust_left = 0.0;
+  m_latest_set_thrust_right = 0.0;
+
+  // First Iterate() computes dt = MOOSTime() - m_last_update;
+  // initializing here keeps the first dt close to zero rather
+  // than something near-MOOSTime.
+  m_last_update = 0.0;
 
   // ADC chip
   m_current_scale = 37.8788;
@@ -168,15 +192,28 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_yaw_rate = 0.0;
   m_qw = 1.0; m_qx = 0.0; m_qy = 0.0; m_qz = 0.0;
 
-  // AHRS output variable names (default)
-  m_roll_var = "NAV_ROLL";
-  m_pitch_var = "NAV_PITCH";
-  m_yaw_var = "NAV_YAW";
-  m_heading_var = "NAV_HEADING";
-  m_gyro_x_var = "NAV_GYRO_X";
-  m_gyro_y_var = "NAV_GYRO_Y";
-  m_gyro_z_var = "NAV_GYRO_Z";
-  m_yaw_rate_var = "NAV_YAW_RATE";
+  // Publication suffix defaults. AHRS for fused orientation
+  // outputs, IMU for raw gyro / level-compensated outputs.
+  m_ahrs_pub_suffix = "AHRS";
+  m_imu_pub_suffix = "IMU";
+}
+
+//---------------------------------------------------------
+// Procedure: ahrsName() / imuName()
+// Append the configured suffix (if any) to a base var name.
+
+string BBNavigatorInterface::ahrsName(const string &base) const
+{
+  if (m_ahrs_pub_suffix.empty())
+    return base;
+  return base + "_" + m_ahrs_pub_suffix;
+}
+
+string BBNavigatorInterface::imuName(const string &base) const
+{
+  if (m_imu_pub_suffix.empty())
+    return base;
+  return base + "_" + m_imu_pub_suffix;
 }
 
 //---------------------------------------------------------
@@ -316,7 +353,23 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
     else if (key == "RC_CONNECTED")
     {
       m_rc_connected = (msg.GetString() == "true");
+      // Only refresh the deadman timestamp on a "good" RC report.
+      // RC_CONNECTED=false leaves m_last_rc_good_time stale so the
+      // deadman timer can run out and safe the vehicle.
+      if (m_rc_connected)
+        m_last_rc_good_time = MOOSTime();
       dbg_print("RC connected: %s\n", m_rc_connected ? "true" : "false");
+    }
+    else if (key == "RC_FRAME_VALID")
+    {
+      // Per-frame validity flag from iRCReader. Used as the
+      // primary thrust gate so a single bad SBUS frame drops
+      // commanded thrust to zero immediately, without waiting on
+      // the m_rc_connected hysteresis. See calculateRCThrust()
+      // and the Iterate() RC-mode branch.
+      m_rc_frame_valid = (msg.GetString() == "true");
+      dbg_print("RC frame valid: %s\n",
+                m_rc_frame_valid ? "true" : "false");
     }
     else if (key.substr(0, 5) == "RC_CH" && key.length() > 5)
     {
@@ -326,8 +379,31 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
       {
         m_rc_channels[channel] = msg.GetDouble();
 
-        // Check mode switch (Channel 6)
-        if (channel == 5) // Channel 6 (zero-indexed as 5)
+        // NOTE: deadman timestamp (m_last_rc_good_time) is
+        // refreshed ONLY on RC_CONNECTED=true (handler above).
+        // iRCReader publishes safe-default RC_CH* values when its
+        // link is bad (joystick=0, switches=1, raw=mid), so
+        // RC_CH* mail must NOT count as a "good" RC tick;
+        // otherwise the disconnected-fallback publishes would
+        // silently defeat the watchdog.
+
+        // Mode switch (Channel 6) — latch operator-selected mode.
+        // Only update on RC_CHx mail received while the link is
+        // connected; iRCReader publishes safe-default CH6=1 during
+        // disconnect, and trusting it would auto-flip the boat to
+        // autonomy on signal loss. Preserving the last-known mode
+        // across dropouts gives the desired behavior in both deadman
+        // states:
+        //   deadman enabled  + last-mode RC   -> stays RC; deadman
+        //                                        trips and zeros
+        //                                        thrust (boat safed).
+        //   deadman disabled + last-mode auto -> stays auto; autonomy
+        //                                        continues (over-the-
+        //                                        horizon use case).
+        // iRCReader publishes RC_CONNECTED before the safe-default
+        // RC_CHx values within an iterate, so the gate sees the
+        // updated m_rc_connected before evaluating CH6.
+        if (channel == 5 && m_rc_connected) // Channel 6 (zero-indexed as 5)
         {
           m_rc_mode = (m_rc_channels[channel] == 2.0);
           dbg_print("RC mode: %s\n", m_rc_mode ? "true" : "false");
@@ -335,6 +411,15 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
 
         dbg_print("RC_CH%d: %0.2f\n", channel + 1, m_rc_channels[channel]);
       }
+    }
+    else if (key == "RC_DEADMAN_ENABLED")
+    {
+      m_rc_deadman_enabled = (msg.GetString() == "true");
+      reportEvent(std::string("RC deadman ") +
+                  (m_rc_deadman_enabled ? "ENABLED" : "DISABLED") +
+                  " via MOOS");
+      dbg_print("RC deadman %s via MOOS\n",
+                m_rc_deadman_enabled ? "ENABLED" : "DISABLED");
     }
     else if (key != "APPCAST_REQ") // handled by AppCastingMOOSApp
       reportRunWarning("Unhandled Mail: " + key);
@@ -383,8 +468,8 @@ void BBNavigatorInterface::manageModulation()
     // If thrusters are enabled, set them to the desired speed
     if (m_thruster_enabled)
     {
-      setPinPulseWidth(m_left_thruster_pin, m_latest_set_thrust_left);
-      setPinPulseWidth(m_right_thruster_pin, m_latest_set_thrust_right);
+      setPinPulseWidth(m_left_thruster_pin, m_latest_set_thrust_left.load());
+      setPinPulseWidth(m_right_thruster_pin, m_latest_set_thrust_right.load());
     }
     else
     {
@@ -434,8 +519,12 @@ double BBNavigatorInterface::calculateHeadingMixer(double desired_heading, doubl
 
 void BBNavigatorInterface::calculateRCThrust()
 {
-  // Only calculate RC thrust if RC is connected and in RC mode
-  if (m_rc_connected && m_rc_mode)
+  // Gate on per-frame validity (sharper than m_rc_connected) AND
+  // RC mode. Using m_rc_frame_valid means a single bad SBUS frame
+  // drops thrust to zero immediately, without waiting for the
+  // hysteresis on m_rc_connected to flip. The m_rc_mode check is
+  // unchanged - mode latching uses m_rc_connected via CH6 mail.
+  if (m_rc_frame_valid && m_rc_mode)
   {
 
     double forward_thrust = m_rc_channels[2]; // Already in [-100, 100]
@@ -511,18 +600,55 @@ bool BBNavigatorInterface::Iterate()
     dbg_print("ALL_STOP active - setting autonomous thrusts to zero\n");
   }
 
-  // If in RC mode and RC is connected, calculate thrust from RC inputs
-  if (m_rc_mode && m_rc_connected)
+  // RC thrust path. We gate on m_rc_frame_valid (per-frame, no
+  // debounce) rather than m_rc_connected so that a single bad
+  // SBUS frame zeros thrust immediately. m_rc_connected is the
+  // debounced state and is used for mode-related logic only.
+  //
+  //   m_rc_mode &&  m_rc_frame_valid -> drive thrust from RC sticks
+  //   m_rc_mode && !m_rc_frame_valid -> zero thrust this cycle
+  //                                     (link bad or single bad frame)
+  //  !m_rc_mode                       -> autonomy / MOOS path drives thrust
+  //                                     (no action here)
+  if (m_rc_mode && m_rc_frame_valid)
   {
     calculateRCThrust();
   }
-  // If RC mode but controller disconnected, set thrusts to zero
-  else if (m_rc_mode && !m_rc_connected)
+  else if (m_rc_mode && !m_rc_frame_valid)
   {
     m_desired_thrust_left = 0;
     m_desired_thrust_right = 0;
-    dbg_print("RC disconnected - setting thrusts to zero\n");
+    dbg_print("RC frame invalid - setting thrusts to zero\n");
   }
+
+  // RC deadman watchdog (final override). When enabled, requires
+  // a "good" RC tick (RC_CONNECTED=true or any RC_CH* mail) within
+  // m_rc_deadman_timeout seconds. Triggers in BOTH RC and autonomous
+  // mode - treats the RC link as a vehicle-side deadman. Disable via
+  // rc_deadman_enabled=false (config) or RC_DEADMAN_ENABLED=false
+  // (runtime) for over-the-horizon missions where RC range loss is
+  // expected.
+  bool deadman_was_active = m_rc_deadman_active;
+  m_rc_deadman_active = false;
+  if (m_rc_deadman_enabled)
+  {
+    double rc_age = MOOSTime() - m_last_rc_good_time;
+    if (rc_age > m_rc_deadman_timeout)
+    {
+      m_rc_deadman_active = true;
+      m_desired_thrust_left = 0;
+      m_desired_thrust_right = 0;
+      if (!deadman_was_active)
+        reportRunWarning("RC deadman tripped (no RC for " +
+                         doubleToString(rc_age, 1) + "s)");
+      dbg_print("RC deadman ACTIVE: rc_age=%.2fs > timeout=%.2fs\n",
+                rc_age, m_rc_deadman_timeout);
+    }
+  }
+  if (deadman_was_active && !m_rc_deadman_active)
+    reportEvent("RC deadman cleared");
+  Notify("NVGR_RC_DEADMAN_ACTIVE",
+         m_rc_deadman_active ? "true" : "false");
 
   // Apply dead band to thrusters
   if (fabs(m_desired_thrust_left) < m_thruster_dead_band)
@@ -539,17 +665,24 @@ bool BBNavigatorInterface::Iterate()
   rclamp(m_desired_thrust_left, m_min_thrust, m_max_thrust);
   rclamp(m_desired_thrust_right, m_min_thrust, m_max_thrust);
 
-  // Update thruster values with LPF
-  m_latest_set_thrust_left = m_virtualThrusterLeft.update(m_desired_thrust_left, dt);
-  m_latest_set_thrust_right = m_virtualThrusterRight.update(m_desired_thrust_right, dt);
+  // Update thruster values with LPF. Compute first into locals
+  // so the variadic dbg_print / Notify calls below see plain
+  // doubles, not std::atomic<double> (which would be UB through
+  // varargs).
+  const double new_thrust_left =
+      m_virtualThrusterLeft.update(m_desired_thrust_left, dt);
+  const double new_thrust_right =
+      m_virtualThrusterRight.update(m_desired_thrust_right, dt);
+  m_latest_set_thrust_left.store(new_thrust_left);
+  m_latest_set_thrust_right.store(new_thrust_right);
 
   dbg_print("%0.2f - Desired left thruster: %0.2f - set %0.2f\n",
-            MOOSTime(), m_desired_thrust_left, m_latest_set_thrust_left);
+            MOOSTime(), m_desired_thrust_left, new_thrust_left);
   dbg_print("%0.2f - Desired right thruster: %0.2f - set %0.2f\n",
-            MOOSTime(), m_desired_thrust_right, m_latest_set_thrust_right);
+            MOOSTime(), m_desired_thrust_right, new_thrust_right);
 
-  Notify("THRUST_SET_LEFT", m_latest_set_thrust_left);
-  Notify("THRUST_SET_RIGHT", m_latest_set_thrust_right);
+  Notify("THRUST_SET_LEFT", new_thrust_left);
+  Notify("THRUST_SET_RIGHT", new_thrust_right);
 
   m_last_update = MOOSTime();
 
@@ -592,8 +725,8 @@ bool BBNavigatorInterface::Iterate()
   Notify("NVGR_ROLLING_POWER", m_rolling_power);
 
   // Publish current thrust values
-  Notify("NVGR_THRUST_LEFT", m_latest_set_thrust_left);
-  Notify("NVGR_THRUST_RIGHT", m_latest_set_thrust_right);
+  Notify("NVGR_THRUST_LEFT", new_thrust_left);
+  Notify("NVGR_THRUST_RIGHT", new_thrust_right);
 
   // Publish RC control status
   Notify("NVGR_RC_MODE", m_rc_mode ? "true" : "false");
@@ -603,7 +736,20 @@ bool BBNavigatorInterface::Iterate()
   // Read temperature and pressure values
   m_nav_temp = read_temp();
   m_nav_pressure = read_pressure();
-  m_rpi_temp = rpi_utils::getCPUTemperature();
+
+  // Read Pi CPU temperature directly from sysfs. Inlined to keep
+  // iBBNavigatorInterface free of an external rpi_utils dependency
+  // (only used here for this one reading). On non-Pi systems the
+  // file is absent and m_rpi_temp stays 0.
+  m_rpi_temp = 0.0;
+  {
+    std::ifstream temp_file("/sys/class/thermal/thermal_zone0/temp");
+    if (temp_file.is_open()) {
+      int milli_c = 0;
+      temp_file >> milli_c;
+      m_rpi_temp = milli_c / 1000.0;
+    }
+  }
 
   // Publish the values
   Notify("NVGTR_IT_C", m_nav_temp);
@@ -625,14 +771,14 @@ bool BBNavigatorInterface::Iterate()
     yaw_rate = m_yaw_rate;
   }
 
-  Notify(m_roll_var, roll);
-  Notify(m_pitch_var, pitch);
-  Notify(m_yaw_var, yaw);
-  Notify(m_heading_var, heading);
-  Notify(m_gyro_x_var, gyro_x);
-  Notify(m_gyro_y_var, gyro_y);
-  Notify(m_gyro_z_var, gyro_z);
-  Notify(m_yaw_rate_var, yaw_rate);
+  Notify(ahrsName("NAV_ROLL"), roll);
+  Notify(ahrsName("NAV_PITCH"), pitch);
+  Notify(ahrsName("NAV_YAW"), yaw);
+  Notify(ahrsName("NAV_HEADING"), heading);
+  Notify(imuName("GYRO_X"), gyro_x);
+  Notify(imuName("GYRO_Y"), gyro_y);
+  Notify(imuName("GYRO_Z"), gyro_z);
+  Notify(imuName("GYRO_Z_LVL"), yaw_rate);
 
   AppCastingMOOSApp::PostReport();
   return (true);
@@ -668,7 +814,7 @@ bool BBNavigatorInterface::OnStartUp()
     string orig = *p;
     string line = *p;
     string param = tolower(biteStringX(line, '='));
-    string value = line;
+    string value = stripBlankEnds(line);
 
     bool handled = false;
     if (param == "left_thruster_pin")
@@ -688,6 +834,14 @@ bool BBNavigatorInterface::OnStartUp()
       if (m_num_batteries < 1 || m_num_batteries > 8) {
         reportConfigWarning("nbats must be between 1 and 8, using default of 4");
         m_num_batteries = 4;
+      }
+      // BATTERY_CALIBRATIONS only has a real entry for 4 packs;
+      // the others use placeholder values copied from the 1-pack
+      // cal. Surface this so it doesn't silently mis-report current.
+      if (m_num_batteries != 4) {
+        reportConfigWarning("nbats=" + std::to_string(m_num_batteries) +
+                            " uses placeholder current calibration; "
+                            "only nbats=4 has a measured cal.");
       }
       handled = true;
     }
@@ -733,6 +887,18 @@ bool BBNavigatorInterface::OnStartUp()
     {
       m_thrust_command_timeout = stod(value);
       m_thrust_timeout_enabled = (m_thrust_command_timeout > 0);
+      handled = true;
+    }
+    else if (param == "rc_deadman_enabled")
+    {
+      m_rc_deadman_enabled = (tolower(value) == "true");
+      handled = true;
+    }
+    else if (param == "rc_deadman_timeout")
+    {
+      m_rc_deadman_timeout = stod(value);
+      if (m_rc_deadman_timeout < 0.1)
+        m_rc_deadman_timeout = 0.1;
       handled = true;
     }
     else if (param == "theta_b")
@@ -855,44 +1021,14 @@ bool BBNavigatorInterface::OnStartUp()
       m_declination_deg = stod(value);
       handled = true;
     }
-    else if (param == "roll_var")
+    else if (param == "ahrs_pub_suffix")
     {
-      m_roll_var = value;
+      m_ahrs_pub_suffix = value;
       handled = true;
     }
-    else if (param == "pitch_var")
+    else if (param == "imu_pub_suffix")
     {
-      m_pitch_var = value;
-      handled = true;
-    }
-    else if (param == "yaw_var")
-    {
-      m_yaw_var = value;
-      handled = true;
-    }
-    else if (param == "heading_var")
-    {
-      m_heading_var = value;
-      handled = true;
-    }
-    else if (param == "gyro_x_var")
-    {
-      m_gyro_x_var = value;
-      handled = true;
-    }
-    else if (param == "gyro_y_var")
-    {
-      m_gyro_y_var = value;
-      handled = true;
-    }
-    else if (param == "gyro_z_var")
-    {
-      m_gyro_z_var = value;
-      handled = true;
-    }
-    else if (param == "yaw_rate_var")
-    {
-      m_yaw_rate_var = value;
+      m_imu_pub_suffix = value;
       handled = true;
     }
 
@@ -915,8 +1051,9 @@ bool BBNavigatorInterface::OnStartUp()
     dbg_print("ESC initialization skipped (disabled in config)\n");
   }
 
+  // Keep the worker threads joinable so the destructor can drive
+  // a clean shutdown via m_running / m_ahrs_running flags.
   m_modulation_thread = std::thread(&BBNavigatorInterface::manageModulation, this);
-  m_modulation_thread.detach();
 
   // Reinitialize AHRS with configured parameters
   m_ahrs = Madgwick(m_beta, m_sample_frequency);
@@ -924,7 +1061,6 @@ bool BBNavigatorInterface::OnStartUp()
   // Start the AHRS sensor sampling thread
   m_ahrs_running = true;
   m_sensor_thread = std::thread(&BBNavigatorInterface::sensorSamplingThread, this);
-  m_sensor_thread.detach();
   dbg_print("AHRS sensor thread started at %.1f Hz\n", m_sample_frequency);
 
   dbg_print("Left thruster pin: %d\n", m_left_thruster_pin);
@@ -967,14 +1103,26 @@ void BBNavigatorInterface::registerVariables()
   Register("MISSION_COMPLETE", 0);
   Register("ALL_STOP", 0);
 
-  // Register for RC controller messages
-  Register("RC_CONNECTED", 0);
+  // Register for RC controller messages.
+  //   RC_CONNECTED   - debounced link state (mode/UI logic).
+  //   RC_FRAME_VALID - per-frame validity. Sharper gate for
+  //                    safety-critical thrust output: drops on
+  //                    a single bad SBUS frame, recovers on the
+  //                    next clean one without waiting for the
+  //                    debounce hysteresis to release.
+  Register("RC_CONNECTED",   0);
+  Register("RC_FRAME_VALID", 0);
 
   // Register for all RC channels
   for (int i = 1; i <= 16; i++)
   {
     Register("RC_CH" + std::to_string(i), 0);
   }
+
+  // Runtime toggle for the RC deadman watchdog (default behavior
+  // set by rc_deadman_enabled config; this lets backseat or operator
+  // override at runtime, e.g. for over-the-horizon autonomy).
+  Register("RC_DEADMAN_ENABLED", 0);
 }
 
 //------------------------------------------------------------
@@ -986,11 +1134,15 @@ bool BBNavigatorInterface::buildReport()
   m_msgs << "File:                                       " << endl;
   m_msgs << "============================================" << endl;
 
+  // Snapshot atomic thrust state once for the whole report.
+  const double thrust_left_snap = m_latest_set_thrust_left.load();
+  const double thrust_right_snap = m_latest_set_thrust_right.load();
+
   ACTable actab(2);
   actab << "Thruster States | Values";
   actab.addHeaderLines();
-  actab << "Current Left Thruster:" << m_latest_set_thrust_left;
-  actab << "Current Right Thruster:" << m_latest_set_thrust_right;
+  actab << "Current Left Thruster:" << thrust_left_snap;
+  actab << "Current Right Thruster:" << thrust_right_snap;
   actab << "Thruster Dead Band:" << m_thruster_dead_band;
   actab << "Thruster Enabled:" << (m_thruster_enabled ? "true" : "false");
   actab << "ESC Enabled:" << (m_initialize_esc ? "true" : "false");
@@ -1003,8 +1155,14 @@ bool BBNavigatorInterface::buildReport()
 
   // Add ALL_STOP and RC control information to the report
   actab << "ALL_STOP Active:" << (m_all_stop ? "true" : "false");
-  actab << "RC Connected:" << (m_rc_connected ? "true" : "false");
+  actab << "RC Frame Valid (per-frame):" << (m_rc_frame_valid ? "true" : "false");
+  actab << "RC Connected (debounced):" << (m_rc_connected ? "true" : "false");
   actab << "RC Mode Active:" << (m_rc_mode ? "true" : "false");
+  actab << "RC Deadman Enabled:" << (m_rc_deadman_enabled ? "true" : "false");
+  actab << "RC Deadman Timeout (sec):" << m_rc_deadman_timeout;
+  double rc_age_now = MOOSTime() - m_last_rc_good_time;
+  actab << "RC Mail Age (sec):" << rc_age_now;
+  actab << "RC Deadman Tripped:" << (m_rc_deadman_active ? "true" : "false");
   actab << "RC Channel 1 (Turning):" << m_rc_channels[0];
   actab << "RC Channel 3 (Speed):" << m_rc_channels[2];
   actab << "RC Channel 6 (Mode Switch):" << m_rc_channels[5];
@@ -1013,8 +1171,8 @@ bool BBNavigatorInterface::buildReport()
 
   actab << "Desired Left Thrust:" << m_desired_thrust_left;
   actab << "Desired Right Thrust:" << m_desired_thrust_right;
-  actab << "Filtered Left (PWM Out):" << m_latest_set_thrust_left;
-  actab << "Filtered Right (PWM Out):" << m_latest_set_thrust_right;
+  actab << "Filtered Left (PWM Out):" << thrust_left_snap;
+  actab << "Filtered Right (PWM Out):" << thrust_right_snap;
 
   m_msgs << actab.getFormattedString();
   m_msgs << "\n";

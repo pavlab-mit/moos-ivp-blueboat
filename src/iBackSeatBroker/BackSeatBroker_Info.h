@@ -5,11 +5,8 @@
       File: iBackSeatBroker/BackSeatBroker_Info.h
    Last Ed:  2026-03-23
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Help, example config, and interface text forward
+        declarations for iBackSeatBroker.
 *************************************************************/
 
 #ifndef BackSeatBroker_INFO_HEADER

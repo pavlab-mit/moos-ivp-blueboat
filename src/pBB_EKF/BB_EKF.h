@@ -4,17 +4,18 @@
       File: pBB_EKF/BB_EKF.h
    Last Ed:  2025-11-25
      Brief:
-        Lorem ipsum dolor sit amet, consectetur adipiscing 
-        elit, sed do eiusmod tempor incididunt ut labore et 
-        dolore magna aliqua. Ut enim ad minim veniam, quis 
-        nostrud exercitation ullamco laboris nisi ut aliquip 
-        ex ea commodo consequat.
+        Extended Kalman Filter for blueboat navigation. Fuses
+        GNSS position/speed/heading, AHRS magnetic heading, and
+        level-frame gyro into helm-facing state. Lat/lon inputs
+        are converted to the local grid via an internal geodesy
+        seeded by LatOrigin/LongOrigin in the mission file.
 *************************************************************/
 
 #ifndef BB_EKF_HEADER
 #define BB_EKF_HEADER
 
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
+#include "MOOS/libMOOSGeodesy/MOOSGeodesy.h"
 #include <string>
 #include <cstdarg> //va_list, va_start, va_end
 #include "NavEKF.hpp"
@@ -38,6 +39,8 @@ class BB_EKF : public AppCastingMOOSApp
    void registerVariables();
    bool dbg_print(const char *format, ...);
    double wrapAngle(double angle);
+   bool setupGeodesy();
+   std::string outName(const std::string &base) const;
 
  private: // Configuration variables
 
@@ -141,19 +144,28 @@ class BB_EKF : public AppCastingMOOSApp
    double m_bias_meas_stddev;    // Bias measurement stddev (deg)
    
    // Variable name mappings
-   // Input variables
-   std::string m_input_gps_x;         // Default: NAV_X_GPS
-   std::string m_input_gps_y;         // Default: NAV_Y_GPS
-   std::string m_input_gps_speed;     // Default: NAV_SPEED_GPS
-   std::string m_input_gps_heading;   // Default: NAV_HEADING_GPS
-   std::string m_input_mag_heading;   // Default: NAV_HEADING_MAG
-   std::string m_input_gyro_z;        // Default: GYRO_Z_LVL
-   
-   // Output variables
-   std::string m_output_nav_x;        // Default: NAV_X
-   std::string m_output_nav_y;        // Default: NAV_Y
-   std::string m_output_nav_speed;    // Default: NAV_SPEED
-   std::string m_output_nav_heading;  // Default: NAV_HEADING
+   // Input variables (lat/lon - we do the geodesic conversion here)
+   std::string m_input_gps_lat;       // Default: NAV_LAT_DGNSS
+   std::string m_input_gps_lon;       // Default: NAV_LONG_DGNSS
+   std::string m_input_gps_speed;     // Default: NAV_SPEED_DGNSS
+   std::string m_input_gps_heading;   // Default: GPS_HEADING_DGNSS
+   std::string m_input_mag_heading;   // Default: NAV_HEADING_AHRS
+   std::string m_input_gyro_z;        // Default: GYRO_Z_LVL_IMU
+
+   // Latest lat/lon staging (so we only convert once both have arrived)
+   double m_latest_lat;
+   double m_latest_lon;
+   bool m_have_lat;
+   bool m_have_lon;
+
+   // Output bases (NAV_X, NAV_Y, NAV_SPEED, NAV_HEADING).
+   // Suffix m_pub_suffix is appended at publish time. Empty by
+   // default - bare names go to the helm.
+   std::string m_pub_suffix;
+
+   // Geodesy for lat/lon -> local grid conversion
+   CMOOSGeodesy m_geodesy;
+   bool m_geodesy_ok;
 };
 
 #endif 

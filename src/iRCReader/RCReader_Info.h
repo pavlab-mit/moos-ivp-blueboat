@@ -1,16 +1,16 @@
 
 /*************************************************************
-      Name: 
+      Name: Raymond Turrisi
       Orgn: MIT, Cambridge MA
-      File: uBBBundler/BBBundler_Info.h
-   Last Ed:  2026-03-20
+      File: iRCReader/RCReader_Info.h
+   Last Ed:  2025-03-20
      Brief:
         Help, example config, and interface text forward
-        declarations for uBBBundler.
+        declarations for iRCReader.
 *************************************************************/
 
-#ifndef BBBundler_INFO_HEADER
-#define BBBundler_INFO_HEADER
+#ifndef RCReader_INFO_HEADER
+#define RCReader_INFO_HEADER
 
 void showSynopsis();
 void showHelpAndExit();

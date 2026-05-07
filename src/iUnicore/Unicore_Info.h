@@ -1,16 +1,15 @@
-
 /*************************************************************
-      Name: 
+      Name: Jeremy Wenger
       Orgn: MIT, Cambridge MA
-      File: uBBBundler/BBBundler_Info.h
-   Last Ed:  2026-03-20
+      File: iUnicore/Unicore_Info.h
+   Last Ed:  2026-04-26
      Brief:
-        Help, example config, and interface text forward
-        declarations for uBBBundler.
+        Help and interface documentation forward declarations
+        for iUnicore.
 *************************************************************/
 
-#ifndef BBBundler_INFO_HEADER
-#define BBBundler_INFO_HEADER
+#ifndef Unicore_INFO_HEADER
+#define Unicore_INFO_HEADER
 
 void showSynopsis();
 void showHelpAndExit();
@@ -19,4 +18,3 @@ void showInterfaceAndExit();
 void showReleaseInfoAndExit();
 
 #endif
-

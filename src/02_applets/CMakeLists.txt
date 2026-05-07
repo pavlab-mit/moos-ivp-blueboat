@@ -18,7 +18,7 @@ IF(${ON_VEHICLE})
         ADD_SUBDIRECTORY(bb_attitude)
     ENDIF(${ARMA_AVAIL})
 
-    # test_gnss_heading requires UBX parser library
+    # test_gnss_heading uses the UM982 (Unicore) parser library
     ADD_SUBDIRECTORY(test_gnss_heading)
 ENDIF(${ON_VEHICLE})
 

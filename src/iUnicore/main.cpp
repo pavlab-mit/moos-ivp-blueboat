@@ -1,18 +1,18 @@
 /*************************************************************
-      Name: 
+      Name: Jeremy Wenger
       Orgn: MIT, Cambridge MA
-      File: iFrontSeatBroker/main.cpp
-   Last Ed:  2026-03-23
+      File: iUnicore/main.cpp
+   Last Ed:  2026-04-26
      Brief:
-        Launcher for iFrontSeatBroker: parses CLI args (-h, -e,
-        -i, -v, --alias=) and runs the broker MOOS app.
+        Launcher for iUnicore: handles CLI args (-h, -e, -i,
+        -v, --alias=) and runs the Unicore MOOS app.
 *************************************************************/
 
 #include <string>
 #include "MBUtils.h"
 #include "ColorParse.h"
-#include "FrontSeatBroker.h"
-#include "FrontSeatBroker_Info.h"
+#include "Unicore.h"
+#include "Unicore_Info.h"
 
 using namespace std;
 
@@ -38,18 +38,17 @@ int main(int argc, char *argv[])
     else if(i==2)
       run_command = argi;
   }
-  
+
   if(mission_file == "")
     showHelpAndExit();
 
   cout << termColor("green");
-  cout << "iFrontSeatBroker launching as " << run_command << endl;
+  cout << "iUnicore launching as " << run_command << endl;
   cout << termColor() << endl;
 
-  FrontSeatBroker FrontSeatBroker;
+  Unicore Unicore;
 
-  FrontSeatBroker.Run(run_command.c_str(), mission_file.c_str());
-  
+  Unicore.Run(run_command.c_str(), mission_file.c_str());
+
   return(0);
 }
-
