@@ -46,8 +46,12 @@ IF(${DOODLE_RADIO_AVAIL})
 ENDIF(${DOODLE_RADIO_AVAIL})
 
 # Vehicle-only components (require Navigator hardware and Armadillo)
-IF(${ON_VEHICLE} AND ${ARMA_AVAIL})
-    ADD_SUBDIRECTORY(iBBNavigatorInterface)
+IF(${ON_VEHICLE} AND ${ARMA_AVAIL} AND ${NAV_VERSION} STREQUAL "1")
+    message(STATUS "Building iBBNavigatorInterface_v1")
+    ADD_SUBDIRECTORY(iBBNavigatorInterface_v1)
+ELSEIF(${ON_VEHICLE} AND ${ARMA_AVAIL} AND ${NAV_VERSION} STREQUAL "2")
+    message(STATUS "Building iBBNavigatorInterface_v2")
+    ADD_SUBDIRECTORY(iBBNavigatorInterface_v2)
 ENDIF()
 
 ##############################################################################

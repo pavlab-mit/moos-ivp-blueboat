@@ -1,17 +1,17 @@
 /*************************************************************
       Name: Raymond Turrisi
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface/main.cpp
+      File: iBBNavigatorInterface_v2/main.cpp
    Last Ed:  2025-03-30
      Brief:
-        Combined Navigator Interface for Blueboat ASV.
+        Combined Navigator Interface for Blueboat ASV for Navigator version 0.1.2.
 *************************************************************/
 
 #include <string>
 #include "MBUtils.h"
 #include "ColorParse.h"
-#include "BBNavigatorInterface.h"
-#include "BBNavigatorInterface_Info.h"
+#include "BBNavigatorInterface_v2.h"
+#include "BBNavigatorInterface_v2_Info.h"
 
 using namespace std;
 

@@ -1,10 +1,10 @@
 /*************************************************************
       Name: Raymond Turrisi
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface/BBNavigatorInterface.cpp
+      File: iBBNavigatorInterface_v1/BBNavigatorInterface_v1.cpp
    Last Ed:  2025-03-30
      Brief:
-        Combined Navigator Interface for Blueboat ASV.
+        Combined Navigator Interface for Blueboat ASV for Navigator version 0.0.6.
         Handles dual thruster PWM control with safety features
         and AHRS using Madgwick filter.
 *************************************************************/
@@ -13,7 +13,7 @@
 #include <fstream>
 #include "MBUtils.h"
 #include "ACTable.h"
-#include "BBNavigatorInterface.h"
+#include "BBNavigatorInterface_v1.h"
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
