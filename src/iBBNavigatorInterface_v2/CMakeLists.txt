@@ -14,6 +14,10 @@ if(ARMA_AVAIL)
 
   add_dependencies(iBBNavigatorInterface navigator_lib)
 
+  if(RASPBERRY_PI_VERSION STREQUAL "5")
+    target_compile_definitions(iBBNavigatorInterface PRIVATE IBBNAV_RASPBERRY_PI5=1)
+  endif()
+
   add_definitions(-DARMA_DONT_USE_WRAPPER)
 
   TARGET_INCLUDE_DIRECTORIES(iBBNavigatorInterface PRIVATE
