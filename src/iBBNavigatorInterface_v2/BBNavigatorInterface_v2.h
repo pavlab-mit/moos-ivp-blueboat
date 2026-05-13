@@ -15,6 +15,7 @@
 
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
 #include <string>
+#include <cstdint>
 #include <cstdarg> //va_list, va_start, va_end
 #include "bindings.h"
 #include <thread>
@@ -71,9 +72,13 @@ public:
   static constexpr double PWM_MAX_US = 2200.0;      // Maximum pulse width (microseconds)
   static constexpr double PWM_CENTER_US = 1500.0;   // Neutral pulse width (microseconds)
 
-  // Convert normalized command [-100,100] to PCA9685 counts
-  // Works with any PWM frequency and pulse range
-  static void setPinPulseWidth(PwmChannel pin_num, double target)
+  // navigator-lib 0.1.2: PWM channels are 0-based indices (legacy ChN -> index N-1).
+  static constexpr uintptr_t kPwmIndexCh14 = 13;
+  static constexpr uintptr_t kPwmIndexCh16 = 15;
+
+  // Convert normalized command [-100,100] to duty cycle for navigator-lib 0.1.2
+  // (set_pwm_channel_duty_cycle expects 0.0..1.0 vs PWM period).
+  static void setPinPulseWidth(uintptr_t pin_num, double target)
   {
     // Map normalized command [-100,100] to pulse range
     double pulse_us_span = (PWM_MAX_US - PWM_MIN_US) / 2.0;
@@ -83,13 +88,12 @@ public:
     if (pulse_us < PWM_MIN_US) pulse_us = PWM_MIN_US;
     if (pulse_us > PWM_MAX_US) pulse_us = PWM_MAX_US;
 
-    // Convert microseconds to PCA9685 counts: counts = pulse_us * freq_hz * 4096 / 1e6
-    double counts = pulse_us * PWM_FREQ_HZ * 4096.0 / 1e6;
+    const double period_us = 1e6 / PWM_FREQ_HZ;
+    double duty = pulse_us / period_us;
+    if (duty < 0.0) duty = 0.0;
+    if (duty > 1.0) duty = 1.0;
 
-    if (counts < 0.0) counts = 0.0;
-    if (counts > 4095.0) counts = 4095.0;
-
-    set_pwm_channel_value(pin_num, static_cast<uint16_t>(counts));
+    set_pwm_channel_duty_cycle(pin_num, static_cast<float>(duty));
   }
 
 protected: // Standard MOOSApp functions to overload
@@ -113,13 +117,13 @@ protected:
   void calculateRCThrust();
 
   // Function to initialize multiple ESCs simultaneously
-  void initializeESCs(const std::vector<PwmChannel>& pins);
+  void initializeESCs(const std::vector<uintptr_t>& pins);
 
   // Helper function to compute heading error mixer similar to DiffThrustPID
   double calculateHeadingMixer(double desired_heading, double current_heading);
 
 
-  void initializeESC(PwmChannel pin);
+  void initializeESC(uintptr_t pin);
 
   std::thread m_modulation_thread;
   std::thread m_sensor_thread;
@@ -183,8 +187,8 @@ private: // State variables
 
   double m_last_update;
 
-  PwmChannel m_left_thruster_pin;
-  PwmChannel m_right_thruster_pin;
+  uintptr_t m_left_thruster_pin;
+  uintptr_t m_right_thruster_pin;
 
   // desired states from mail
   double m_desired_thrust_left;

@@ -41,8 +41,8 @@ void safePwmShutdown()
   // Run at 50 Hz sending zero signal for about 2 seconds
   for (int i = 0; i < 100; ++i)
   {
-    BBNavigatorInterface::setPinPulseWidth(PwmChannel::Ch14, 0);
-    BBNavigatorInterface::setPinPulseWidth(PwmChannel::Ch16, 0);
+    BBNavigatorInterface::setPinPulseWidth(BBNavigatorInterface::kPwmIndexCh14, 0);
+    BBNavigatorInterface::setPinPulseWidth(BBNavigatorInterface::kPwmIndexCh16, 0);
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
 
@@ -126,10 +126,17 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_rc_deadman_active = false;
 
   set_rgb_led_strip_size(24);
+  // navigator-lib 0.1.2: select hardware before init (see bindings.h).
+  set_navigator_version(NavigatorVersion::Version2);
+#if defined(IBBNAV_RASPBERRY_PI5) && IBBNAV_RASPBERRY_PI5
+  set_raspberry_pi_version(Raspberry::Pi5);
+#else
+  set_raspberry_pi_version(Raspberry::Pi4);
+#endif
   init();
 
-  m_left_thruster_pin = PwmChannel::Ch14;
-  m_right_thruster_pin = PwmChannel::Ch16;
+  m_left_thruster_pin = kPwmIndexCh14;
+  m_right_thruster_pin = kPwmIndexCh16;
 
   m_thruster_enabled = true;
   m_left_thruster_invert = 1;
@@ -255,7 +262,7 @@ BBNavigatorInterface::~BBNavigatorInterface()
 }
 
 // Initialize multiple ESCs simultaneously in parallel
-void BBNavigatorInterface::initializeESCs(const std::vector<PwmChannel> &pins)
+void BBNavigatorInterface::initializeESCs(const std::vector<uintptr_t> &pins)
 {
   if (pins.empty())
   {
@@ -286,7 +293,7 @@ void BBNavigatorInterface::initializeESCs(const std::vector<PwmChannel> &pins)
   dbg_print("Initialized %d ESCs in parallel\n", pins.size());
 }
 
-void BBNavigatorInterface::initializeESC(PwmChannel pin)
+void BBNavigatorInterface::initializeESC(uintptr_t pin)
 {
   // Set to Maximum Throttle
   setPinPulseWidth(pin, 100);                        // Assuming 100% corresponds to 2000 microseconds
@@ -688,12 +695,13 @@ bool BBNavigatorInterface::Iterate()
 
   // ADC chip
   // Read ADC values
-  ADCData adc = read_adc_all();
+  float adc_channels[4];
+  read_adc_all(adc_channels, 4);
 
-  m_adc_1 = adc.channel[0];
-  m_adc_2 = adc.channel[1];
-  m_adc_3 = adc.channel[2];
-  m_adc_4 = adc.channel[3];
+  m_adc_1 = adc_channels[0];
+  m_adc_2 = adc_channels[1];
+  m_adc_3 = adc_channels[2];
+  m_adc_4 = adc_channels[3];
   // ETHAN CHANGE #3 START
   // m_latest_current = (m_adc_3 - m_current_offset) * m_current_scale;
   CalibrationParams cal = BATTERY_CALIBRATIONS[m_num_batteries - 1];
@@ -819,12 +827,12 @@ bool BBNavigatorInterface::OnStartUp()
     bool handled = false;
     if (param == "left_thruster_pin")
     {
-      m_left_thruster_pin = PwmChannel(stoi(value) - 1);
+      m_left_thruster_pin = static_cast<uintptr_t>(stoi(value) - 1);
       handled = true;
     }
     else if (param == "right_thruster_pin")
     {
-      m_right_thruster_pin = PwmChannel(stoi(value) - 1);
+      m_right_thruster_pin = static_cast<uintptr_t>(stoi(value) - 1);
       handled = true;
     }
     //ETHAN CHANGE #2 STARTS
@@ -1063,8 +1071,8 @@ bool BBNavigatorInterface::OnStartUp()
   m_sensor_thread = std::thread(&BBNavigatorInterface::sensorSamplingThread, this);
   dbg_print("AHRS sensor thread started at %.1f Hz\n", m_sample_frequency);
 
-  dbg_print("Left thruster pin: %d\n", m_left_thruster_pin);
-  dbg_print("Right thruster pin: %d\n", m_right_thruster_pin);
+  dbg_print("Left thruster pin: %lu\n", static_cast<unsigned long>(m_left_thruster_pin));
+  dbg_print("Right thruster pin: %lu\n", static_cast<unsigned long>(m_right_thruster_pin));
   dbg_print("Left thruster invert: %d\n", m_left_thruster_invert);
   dbg_print("Right thruster invert: %d\n", m_right_thruster_invert);
   dbg_print("Thrust command timeout: %.2f seconds\n", m_thrust_command_timeout);

@@ -187,6 +187,12 @@ IF(${ON_VEHICLE})
       message(FATAL_ERROR "NAVOS_VERSION is not set, make sure the environment variable is set in PLACEHOLDER_PATH")
    endif()
 
+   if (DEFINED ENV{RASPBERRY_PI_VERSION})
+      set(RASPBERRY_PI_VERSION $ENV{RASPBERRY_PI_VERSION})
+   else()
+      message(FATAL_ERROR "RASPBERRY_PI_VERSION is not set, make sure the environment variable is set in PLACEHOLDER_PATH")
+   endif()
+
    IF (${NAVOS_VERSION} STREQUAL "1")
       set(NAVIGATOR_VERSION "0.0.6")
       message(STATUS "Downloading Navigator library version ${NAVIGATOR_VERSION}")
