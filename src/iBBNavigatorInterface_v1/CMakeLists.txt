@@ -5,8 +5,8 @@
 
 if(ARMA_AVAIL)
   SET(SRC
-    BBNavigatorInterface.cpp
-    BBNavigatorInterface_Info.cpp
+    BBNavigatorInterface_v1.cpp
+    BBNavigatorInterface_v1_Info.cpp
     main.cpp
   )
 

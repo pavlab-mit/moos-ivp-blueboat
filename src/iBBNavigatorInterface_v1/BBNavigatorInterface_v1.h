@@ -1,17 +1,17 @@
 /*************************************************************
       Name: Raymond Turrisi
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface/BBNavigatorInterface.h
+      File: iBBNavigatorInterface_v1/BBNavigatorInterface_v1.h
    Last Ed:  2025-03-30
      Brief:
-        Combined Navigator Interface for Blueboat ASV.
+        Combined Navigator Interface for Blueboat ASV for Navigator version 0.0.6.
         Handles dual thruster PWM control with safety features
         and AHRS (Attitude Heading Reference System) using
         Madgwick filter for IMU/magnetometer fusion.
 *************************************************************/
 
-#ifndef BBNavigatorInterface_HEADER
-#define BBNavigatorInterface_HEADER
+#ifndef BBNavigatorInterface_v1_HEADER
+#define BBNavigatorInterface_v1_HEADER
 
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
 #include <string>

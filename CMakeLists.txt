@@ -177,11 +177,31 @@ else()
       endif()
 endif()
 
+if (DEFINED ENV{NAVIGATOR_VERSION})
+   set(NAVIGATOR_VERSION $ENV{NAVIGATOR_VERSION})
+# else()
+   # message(FATAL_ERROR "NAVIGATOR_VERSION is not set, make sure the environment variable is set in PLACEHOLDER_PATH")
+endif()
+
+# Debugging
+set(NAV_VERSION "2")
+set(ON_VEHICLE TRUE)
+
 IF(${ON_VEHICLE})
    include(ExternalProject)
    # Navigator version and download URL
-   set(NAVIGATOR_VERSION "0.0.6")
-   set(ZIP_URL "https://github.com/bluerobotics/navigator-lib/releases/download/${NAVIGATOR_VERSION}/cpp.zip")
+
+   IF (${NAV_VERSION} STREQUAL "1")
+      set(NAVIGATOR_VERSION "0.0.6")
+      message(STATUS "Downloading Navigator library version ${NAVIGATOR_VERSION}")
+      set(ZIP_URL "https://github.com/bluerobotics/navigator-lib/releases/download/${NAVIGATOR_VERSION}/cpp.zip")
+   ELSEIF (${NAV_VERSION} STREQUAL "2")
+      set(NAVIGATOR_VERSION "0.1.2")
+      message(STATUS "Downloading Navigator library version ${NAVIGATOR_VERSION}")
+      set(ZIP_URL "https://github.com/bluerobotics/navigator-lib/releases/download/${NAVIGATOR_VERSION}/cpp.zip")
+   ELSE ()
+      message(FATAL_ERROR "Unsupported navigator version: ${NAV_VERSION}")
+   ENDIF()
 
    set(ZIP_UNPACK_DIR "${CMAKE_BINARY_DIR}/navigator_lib")
    message(STATUS "Identified system processor: ${CMAKE_SYSTEM_PROCESSOR}")
