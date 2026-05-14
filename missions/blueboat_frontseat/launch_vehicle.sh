@@ -113,49 +113,49 @@ case "${HOSTNAME}" in
             ;;
         "wes-bb")
             VNAME="wes"
-	    IP_ADDR="10.34.1.1"
+	        IP_ADDR="10.34.1.1"
             BSEAT_IP="10.34.1.100"
             BCAST_IP="10.34.1.100"
             ;;
         "via")
             VNAME="via"
-            IP_ADDR="192.168.35.1"
-            BSEAT_IP="192.168.35.100"
-            BCAST_IP="192.168.35.255"
+            IP_ADDR="10.35.1.1"
+            BSEAT_IP="10.35.1.100"
+            BCAST_IP="10.35.1.100"
             ;;
         "uma")
             VNAME="uma"
-            IP_ADDR="192.168.36.1"
-            BSEAT_IP="192.168.36.100"
-            BCAST_IP="192.168.36.255"
+            IP_ADDR="10.36.1.1"
+            BSEAT_IP="10.36.1.100"
+            BCAST_IP="10.36.1.100"
             ;;
         "t--")
             VNAME="t--"
-            IP_ADDR="192.168.37.1"
-            BSEAT_IP="192.168.37.100"
-            BCAST_IP="192.168.37.255"
+            IP_ADDR="10.37.1.1"
+            BSEAT_IP="10.37.1.100"
+            BCAST_IP="10.37.1.100"
             ;;
         "s--")
             VNAME="s--"
-            IP_ADDR="192.168.38.1"
-            BSEAT_IP="192.168.38.100"
-            BCAST_IP="192.168.38.255"
+            IP_ADDR="10.38.1.1"
+            BSEAT_IP="10.38.1.100"
+            BCAST_IP="10.38.1.100"
             ;;
         "r--")
             VNAME="r--"
-            IP_ADDR="192.168.39.1"
-            BSEAT_IP="192.168.39.100"
-            BCAST_IP="192.168.39.255"
+            IP_ADDR="10.39.1.1"
+            BSEAT_IP="10.39.1.100"
+            BCAST_IP="10.39.1.100"
             ;;
         "q--")
             VNAME="q--"
-            IP_ADDR="192.168.40.1"
-            BSEAT_IP="192.168.40.100"
-            BCAST_IP="192.168.40.255"
+            IP_ADDR="10.40.1.1"
+            BSEAT_IP="10.40.1.100"
+            BCAST_IP="10.40.1.100"
             ;;
         *)
             echo "$ME: Unknown hostname '${HOSTNAME}'. Exit Code 2"
-            echo "Valid hostnames: zoe, yan, xai, wil, via, uma, t--, s--, r--, q--"
+            echo "Valid hostnames: zoe, yan, xai, wes, via, uma, t--, s--, r--, q--"
             exit 2
             ;;
 esac
