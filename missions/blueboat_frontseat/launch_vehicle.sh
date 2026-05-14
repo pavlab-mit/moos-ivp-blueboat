@@ -113,9 +113,9 @@ case "${HOSTNAME}" in
             ;;
         "wes-bb")
             VNAME="wes"
-            IP_ADDR="192.168.34.1"
-            BSEAT_IP="192.168.34.100"
-            BCAST_IP="192.168.34.255"
+	    IP_ADDR="10.34.1.1"
+            BSEAT_IP="10.34.1.100"
+            BCAST_IP="10.34.1.100"
             ;;
         "via")
             VNAME="via"
