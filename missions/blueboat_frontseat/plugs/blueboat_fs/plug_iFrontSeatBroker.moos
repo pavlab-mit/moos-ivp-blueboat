@@ -22,6 +22,7 @@ ProcessConfig = iFrontSeatBroker
    tx_vars = GPS_FIX_TYPE_DGNSS, GPS_NUM_SATS_DGNSS, GPS_CORR_AGE_DGNSS
    tx_vars = HDOP_DGNSS, VDOP_DGNSS, PDOP_DGNSS
    tx_vars = FIX_STATE_DGNSS
+   tx_vars = GNSS_STATE
 
    // AHRS / IMU (from iBBNavigatorInterface)
    tx_vars = NAV_ROLL_AHRS, NAV_PITCH_AHRS, NAV_HEADING_AHRS
