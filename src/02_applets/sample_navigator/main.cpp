@@ -24,6 +24,7 @@
 #include <thread>
 #include <cmath>
 #include <cstring>
+#include <csignal>
 #include <string>
 #include <vector>
 #include <sys/stat.h>
@@ -32,8 +33,12 @@
 #include <armadillo>
 #include "bindings.h"
 #include "LPF.hpp"
+#include "networkbroker.hpp"
 
 using namespace std;
+
+volatile sig_atomic_t g_interrupted = 0;
+void signalHandler(int) { g_interrupted = 1; }
 
 // ---------------------------------------------------------------------------
 // Calibration file parsing
@@ -146,11 +151,17 @@ void showHelp() {
         "  --roll-offset <deg>       Mounting roll offset (default: 180, upside-down)\n"
         "  --pitch-offset <deg>      Mounting pitch offset (default: 0)\n"
         "  --yaw-offset <deg>        Mounting yaw offset (default: 0)\n"
+        "  --beta <val>              Madgwick filter gain (default: 0.1, lower=trust gyro more)\n"
+        "  --tau <val>               LPF smoothing time constant (default: 0.075)\n"
+        "  --mcc                     Broadcast MCC protocol over UDP (indefinite if no --duration)\n"
+        "  --mcc-addr <addr>         MCC UDP target address (default: 127.0.0.1)\n"
+        "  --mcc-port <port>         MCC UDP target port (default: 50100)\n"
         "  -v, --verbose             Verbose startup output\n\n"
         "Examples:\n"
         "  sample_navigator --duration 120\n"
         "  sample_navigator --duration 30 -o gyro_capture.csv\n"
         "  sample_navigator --gyro-cal ~/system_data/zoe-bb/nav/gyro_bias.dat --duration 180\n"
+        "  sample_navigator --mcc --mcc-addr 192.168.10.1\n"
     );
 }
 
@@ -158,7 +169,8 @@ void showHelp() {
 // Main
 // ---------------------------------------------------------------------------
 int main(int ac, char *av[]) {
-    double duration = 60.0;
+    double duration = -1.0;  // negative = use default or indefinite
+    bool duration_set = false;
     double rate = 150.0;
     double beta = 0.1;
     double tau = 0.075;
@@ -166,6 +178,9 @@ int main(int ac, char *av[]) {
     double pitch_offset_deg = 0.0;
     double yaw_offset_deg = 0.0;
     bool verbose = false;
+    bool do_mcc = false;
+    string mcc_addr = "127.0.0.1";
+    int mcc_port = 50100;
     string output_path = "";
     string gyro_cal_path = "";
     string mag_cal_path = "";
@@ -173,8 +188,8 @@ int main(int ac, char *av[]) {
     for (int i = 1; i < ac; i++) {
         string argi = av[i];
         if (argi == "-h" || argi == "--help") { showHelp(); return 0; }
-        else if (argi.find("--duration=") == 0) duration = stod(argi.substr(11));
-        else if (argi == "-d" || argi == "--duration") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } duration = stod(av[i]); }
+        else if (argi.find("--duration=") == 0) { duration = stod(argi.substr(11)); duration_set = true; }
+        else if (argi == "-d" || argi == "--duration") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } duration = stod(av[i]); duration_set = true; }
         else if (argi.find("--rate=") == 0) rate = stod(argi.substr(7));
         else if (argi == "-r" || argi == "--rate") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } rate = stod(av[i]); }
         else if (argi.find("--output_file=") == 0) output_path = argi.substr(14);
@@ -189,9 +204,36 @@ int main(int ac, char *av[]) {
         else if (argi == "--pitch-offset") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } pitch_offset_deg = stod(av[i]); }
         else if (argi.find("--yaw-offset=") == 0) yaw_offset_deg = stod(argi.substr(13));
         else if (argi == "--yaw-offset") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } yaw_offset_deg = stod(av[i]); }
+        else if (argi.find("--beta=") == 0) beta = stod(argi.substr(7));
+        else if (argi == "--beta") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } beta = stod(av[i]); }
+        else if (argi.find("--tau=") == 0) tau = stod(argi.substr(6));
+        else if (argi == "--tau") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } tau = stod(av[i]); }
         else if (argi == "-v" || argi == "--verbose") verbose = true;
+        else if (argi == "--mcc") do_mcc = true;
+        else if (argi.find("--mcc-addr=") == 0) mcc_addr = argi.substr(11);
+        else if (argi == "--mcc-addr") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } mcc_addr = av[i]; }
+        else if (argi.find("--mcc-port=") == 0) mcc_port = stoi(argi.substr(11));
+        else if (argi == "--mcc-port") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } mcc_port = stoi(av[i]); }
         else { cerr << "Unknown argument: " << argi << "\nUse --help for usage.\n"; return 1; }
     }
+
+    // Default duration: 60s, or indefinite if --mcc without explicit --duration
+    bool run_indefinite = false;
+    if (!duration_set) {
+        if (do_mcc) {
+            run_indefinite = true;
+            duration = 0;  // unused when indefinite
+        } else {
+            duration = 60.0;
+        }
+    }
+
+    // Signal handler for Ctrl-C
+    struct sigaction sa;
+    sa.sa_handler = signalHandler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, NULL);
 
     // Output path: current directory with timestamp, or user-specified
     string ts = getTimestamp();
@@ -218,7 +260,10 @@ int main(int ac, char *av[]) {
     string mag_path_used = mag_cal_path.empty() ? (default_cal_dir + "/mag_cal_nav.dat") : mag_cal_path;
 
     printf("sample_navigator — %s\n", output_path.c_str());
-    printf("  Duration: %.1f s, Rate: %.0f Hz\n", duration, rate);
+    if (run_indefinite)
+        printf("  Duration: indefinite (Ctrl-C to stop), Rate: %.0f Hz\n", rate);
+    else
+        printf("  Duration: %.1f s, Rate: %.0f Hz\n", duration, rate);
     if (gb.valid)
         printf("  Gyro cal: loaded (%s)\n", gyro_path_used.c_str());
     else
@@ -227,6 +272,8 @@ int main(int ac, char *av[]) {
         printf("  Mag cal:  loaded (%s)\n", mag_path_used.c_str());
     else
         printf("  Mag cal:  not found (%s) — using uncalibrated\n", mag_path_used.c_str());
+    if (do_mcc)
+        printf("  MCC broadcast: %s:%d\n", mcc_addr.c_str(), mcc_port);
     if (verbose)
         printf("  Mount offsets: R=%.1f° P=%.1f° Y=%.1f°\n",
                roll_offset_deg, pitch_offset_deg, yaw_offset_deg);
@@ -249,6 +296,18 @@ int main(int ac, char *av[]) {
     // Initialize Navigator hardware
     init();
 
+    // Setup MCC UDP broadcaster
+    SocketBroker *mcc_broker = nullptr;
+    if (do_mcc) {
+        mcc_broker = new SocketBroker(mcc_addr, mcc_port);
+        string err = mcc_broker->open();
+        if (!err.empty()) {
+            cerr << "Failed to open MCC UDP socket: " << err << endl;
+            delete mcc_broker;
+            return 1;
+        }
+    }
+
     // Open CSV
     FILE *csv = fopen(output_path.c_str(), "w");
     if (!csv) { cerr << "Failed to open: " << output_path << endl; return 1; }
@@ -269,10 +328,10 @@ int main(int ac, char *av[]) {
     int count = 0;
     double print_interval = 0.2;  // 5 Hz terminal output
 
-    while (true) {
+    while (!g_interrupted) {
         auto now = chrono::high_resolution_clock::now();
         double elapsed = chrono::duration<double>(now - start).count();
-        if (elapsed >= duration) break;
+        if (!run_indefinite && elapsed >= duration) break;
 
         double dt = chrono::duration<double>(now - prev).count();
         prev = now;
@@ -332,6 +391,22 @@ int main(int ac, char *av[]) {
                 gyro_cal[0], gyro_cal[1], gyro_cal[2],
                 roll_rad, pitch_rad, yaw_rad);
 
+        // MCC broadcast: |ts,ax,ay,az,gx,gy,gz,mx,my,mz,roll,pitch,yaw*
+        // ts is time since epoch per MCC protocol spec
+        if (mcc_broker) {
+            double epoch_ts = chrono::duration<double>(
+                chrono::system_clock::now().time_since_epoch()).count();
+            char mcc_buf[256];
+            int mcc_n = snprintf(mcc_buf, sizeof(mcc_buf),
+                "|%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f*",
+                epoch_ts,
+                acc_v[0], acc_v[1], acc_v[2],
+                gyro_cal[0], gyro_cal[1], gyro_cal[2],
+                mag_v[0], mag_v[1], mag_v[2],
+                roll_rad, pitch_rad, yaw_rad);
+            mcc_broker->send(string(mcc_buf, mcc_n));
+        }
+
         count++;
 
         // Terminal output at 5 Hz
@@ -340,7 +415,13 @@ int main(int ac, char *av[]) {
             last_print = now;
             double mag_mag = sqrt(mag_v[0]*mag_v[0] + mag_v[1]*mag_v[1] + mag_v[2]*mag_v[2]);
             double gyro_mag = sqrt(gyro_v[0]*gyro_v[0] + gyro_v[1]*gyro_v[1] + gyro_v[2]*gyro_v[2]);
-            printf("\r[%6.1f/%0.0fs] R:%6.1f P:%6.1f Y:%6.1f  |B|:%6.1f uT  |w|:%5.2f rad/s  (%d)",
+            if (run_indefinite)
+                printf("\r[%6.1fs] R:%6.1f P:%6.1f Y:%6.1f  |B|:%6.1f uT  |w|:%5.2f rad/s  (%d)",
+                   elapsed,
+                   roll_smoother.getNextState(), pitch_smoother.getNextState(), yaw_deg,
+                   mag_mag, gyro_mag, count);
+            else
+                printf("\r[%6.1f/%0.0fs] R:%6.1f P:%6.1f Y:%6.1f  |B|:%6.1f uT  |w|:%5.2f rad/s  (%d)",
                    elapsed, duration,
                    roll_smoother.getNextState(), pitch_smoother.getNextState(), yaw_deg,
                    mag_mag, gyro_mag, count);
@@ -351,6 +432,7 @@ int main(int ac, char *av[]) {
     }
 
     fclose(csv);
+    if (mcc_broker) delete mcc_broker;
     printf("\n%s (%d samples, %.1fs)\n", output_path.c_str(), count, duration);
 
     return 0;
