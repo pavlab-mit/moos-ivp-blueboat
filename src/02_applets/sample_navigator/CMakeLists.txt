@@ -22,6 +22,7 @@ if(ARMA_AVAIL)
    ${ARMADILLO_INCLUDE_DIR}
    ${CMAKE_SOURCE_DIR}/src/01_libraries/lib_MadgwickAHRS
    ${CMAKE_SOURCE_DIR}/src/01_libraries/lib_filters
+   ${CMAKE_SOURCE_DIR}/src/01_libraries/lib_nb_utils
    )
 
   TARGET_LINK_LIBRARIES(sample_navigator
