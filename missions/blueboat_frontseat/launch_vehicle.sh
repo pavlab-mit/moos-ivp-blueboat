@@ -4,8 +4,8 @@
 #   Script: launch_vehicle.sh
 #   Author: Raymond Turrisi
 #   LastEd: October 2024
-#    Brief: 
-#         Launches a single heron on the vehicle or in 
+#    Brief:
+#         Launches a single heron on the vehicle or in
 #         simulation
 #--------------------------------------------------------------
 #  Part 1: Declare global var defaults
@@ -113,9 +113,9 @@ case "${HOSTNAME}" in
             ;;
         "wes-bb")
             VNAME="wes"
-            IP_ADDR="192.168.34.1"
-            BSEAT_IP="192.168.34.100"
-            BCAST_IP="192.168.34.255"
+	    IP_ADDR="10.34.1.1"
+            BSEAT_IP="10.34.1.100"
+            BCAST_IP="10.34.1.100"
             ;;
         "via")
             VNAME="via"
