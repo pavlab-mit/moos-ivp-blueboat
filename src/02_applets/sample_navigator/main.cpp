@@ -151,6 +151,8 @@ void showHelp() {
         "  --roll-offset <deg>       Mounting roll offset (default: 180, upside-down)\n"
         "  --pitch-offset <deg>      Mounting pitch offset (default: 0)\n"
         "  --yaw-offset <deg>        Mounting yaw offset (default: 0)\n"
+        "  --use-mag                 Use magnetometer in Madgwick filter for heading (requires mag cal)\n"
+        "  --declination <deg>       Magnetic declination in degrees (default: 0)\n"
         "  --beta <val>              Madgwick filter gain (default: 0.1, lower=trust gyro more)\n"
         "  --tau <val>               LPF smoothing time constant (default: 0.075)\n"
         "  --mcc                     Broadcast MCC protocol over UDP (indefinite if no --duration)\n"
@@ -178,6 +180,8 @@ int main(int ac, char *av[]) {
     double pitch_offset_deg = 0.0;
     double yaw_offset_deg = 0.0;
     bool verbose = false;
+    bool use_mag = false;
+    double declination_deg = 0.0;
     bool do_mcc = false;
     string mcc_addr = "127.0.0.1";
     int mcc_port = 50100;
@@ -208,6 +212,9 @@ int main(int ac, char *av[]) {
         else if (argi == "--beta") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } beta = stod(av[i]); }
         else if (argi.find("--tau=") == 0) tau = stod(argi.substr(6));
         else if (argi == "--tau") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } tau = stod(av[i]); }
+        else if (argi == "--use-mag") use_mag = true;
+        else if (argi.find("--declination=") == 0) declination_deg = stod(argi.substr(14));
+        else if (argi == "--declination") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } declination_deg = stod(av[i]); }
         else if (argi == "-v" || argi == "--verbose") verbose = true;
         else if (argi == "--mcc") do_mcc = true;
         else if (argi.find("--mcc-addr=") == 0) mcc_addr = argi.substr(11);
@@ -272,6 +279,12 @@ int main(int ac, char *av[]) {
         printf("  Mag cal:  loaded (%s)\n", mag_path_used.c_str());
     else
         printf("  Mag cal:  not found (%s) — using uncalibrated\n", mag_path_used.c_str());
+    if (use_mag) {
+        if (mc.valid)
+            printf("  Mag heading: enabled (declination=%.1f°)\n", declination_deg);
+        else
+            printf("  Mag heading: --use-mag set but no mag cal loaded — using IMU-only\n");
+    }
     if (do_mcc)
         printf("  MCC broadcast: %s:%d\n", mcc_addr.c_str(), mcc_port);
     if (verbose)
@@ -360,13 +373,21 @@ int main(int ac, char *av[]) {
             mag_cal = mc.soft_iron * centered;
         }
 
-        // Madgwick update (IMU-only, using calibrated gyro + raw accel)
-        filter.updateIMU(gyro_cal[0], gyro_cal[1], gyro_cal[2],
-                         acc_v[0], acc_v[1], acc_v[2]);
+        // Madgwick update
+        if (use_mag && mc.valid) {
+            filter.update(gyro_cal[0], gyro_cal[1], gyro_cal[2],
+                          acc_v[0], acc_v[1], acc_v[2],
+                          mag_cal[0], mag_cal[1], mag_cal[2]);
+        } else {
+            filter.updateIMU(gyro_cal[0], gyro_cal[1], gyro_cal[2],
+                             acc_v[0], acc_v[1], acc_v[2]);
+        }
 
         double roll_deg = filter.getRoll();
         double pitch_deg = filter.getPitch();
         double yaw_deg = filter.getYaw();
+        if (use_mag && mc.valid)
+            yaw_deg = fmod(yaw_deg + declination_deg + 360.0, 360.0);
 
         roll_smoother.update180(roll_deg, dt);
         pitch_smoother.update180(pitch_deg, dt);
