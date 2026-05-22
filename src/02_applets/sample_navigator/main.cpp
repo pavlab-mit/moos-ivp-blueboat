@@ -153,6 +153,8 @@ void showHelp() {
         "  --yaw-offset <deg>        Mounting yaw offset (default: 0)\n"
         "  --use-mag                 Use magnetometer in Madgwick filter for heading (requires mag cal)\n"
         "  --declination <deg>       Magnetic declination in degrees (default: 0)\n"
+        "  --no-log                  Don't write CSV file\n"
+        "  --stream                  Print all calibrated sensor data to terminal\n"
         "  --beta <val>              Madgwick filter gain (default: 0.1, lower=trust gyro more)\n"
         "  --tau <val>               LPF smoothing time constant (default: 0.075)\n"
         "  --mcc                     Broadcast MCC protocol over UDP (indefinite if no --duration)\n"
@@ -181,6 +183,8 @@ int main(int ac, char *av[]) {
     double yaw_offset_deg = 0.0;
     bool verbose = false;
     bool use_mag = false;
+    bool no_log = false;
+    bool do_stream = false;
     double declination_deg = 0.0;
     bool do_mcc = false;
     string mcc_addr = "127.0.0.1";
@@ -213,6 +217,8 @@ int main(int ac, char *av[]) {
         else if (argi.find("--tau=") == 0) tau = stod(argi.substr(6));
         else if (argi == "--tau") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } tau = stod(av[i]); }
         else if (argi == "--use-mag") use_mag = true;
+        else if (argi == "--no-log") no_log = true;
+        else if (argi == "--stream") do_stream = true;
         else if (argi.find("--declination=") == 0) declination_deg = stod(argi.substr(14));
         else if (argi == "--declination") { if (++i >= ac) { cerr << argi << " requires a value\n"; return 1; } declination_deg = stod(av[i]); }
         else if (argi == "-v" || argi == "--verbose") verbose = true;
@@ -300,8 +306,10 @@ int main(int ac, char *av[]) {
     arma::mat R_yaw = {{cos(yr),-sin(yr),0},{sin(yr),cos(yr),0},{0,0,1}};
     arma::mat R_offset = R_yaw * R_pitch * R_roll;
 
-    // Madgwick filter (IMU-only, no mag in fusion)
-    Madgwick filter(beta, rate);
+    // Madgwick filter — beta ramps from 0.8 → target over 5s for fast convergence
+    double beta_start = 0.8;
+    double beta_ramp_time = 5.0;
+    Madgwick filter(beta_start, rate);
     filter.begin(rate);
     LPFSmoother roll_smoother(tau);
     LPFSmoother pitch_smoother(tau);
@@ -322,17 +330,19 @@ int main(int ac, char *av[]) {
     }
 
     // Open CSV
-    FILE *csv = fopen(output_path.c_str(), "w");
-    if (!csv) { cerr << "Failed to open: " << output_path << endl; return 1; }
-
-    fprintf(csv,
-        "timestamp_s,"
-        "nav_mag_x_ut,nav_mag_y_ut,nav_mag_z_ut,"
-        "nav_accel_x_ms2,nav_accel_y_ms2,nav_accel_z_ms2,"
-        "nav_gyro_x_rads,nav_gyro_y_rads,nav_gyro_z_rads,"
-        "nav_mag_cal_x_ut,nav_mag_cal_y_ut,nav_mag_cal_z_ut,"
-        "nav_gyro_cal_x_rads,nav_gyro_cal_y_rads,nav_gyro_cal_z_rads,"
-        "nav_roll_rad,nav_pitch_rad,nav_yaw_rad\n");
+    FILE *csv = nullptr;
+    if (!no_log) {
+        csv = fopen(output_path.c_str(), "w");
+        if (!csv) { cerr << "Failed to open: " << output_path << endl; return 1; }
+        fprintf(csv,
+            "timestamp_s,"
+            "nav_mag_x_ut,nav_mag_y_ut,nav_mag_z_ut,"
+            "nav_accel_x_ms2,nav_accel_y_ms2,nav_accel_z_ms2,"
+            "nav_gyro_x_rads,nav_gyro_y_rads,nav_gyro_z_rads,"
+            "nav_mag_cal_x_ut,nav_mag_cal_y_ut,nav_mag_cal_z_ut,"
+            "nav_gyro_cal_x_rads,nav_gyro_cal_y_rads,nav_gyro_cal_z_rads,"
+            "nav_roll_rad,nav_pitch_rad,nav_yaw_rad\n");
+    }
 
     auto start = chrono::high_resolution_clock::now();
     auto prev = start;
@@ -373,6 +383,12 @@ int main(int ac, char *av[]) {
             mag_cal = mc.soft_iron * centered;
         }
 
+        // Ramp beta: 0.8 → target over 5s
+        double current_beta = (elapsed < beta_ramp_time)
+            ? beta_start + (beta - beta_start) * (elapsed / beta_ramp_time)
+            : beta;
+        filter.beta = current_beta;
+
         // Madgwick update
         if (use_mag && mc.valid) {
             filter.update(gyro_cal[0], gyro_cal[1], gyro_cal[2],
@@ -397,20 +413,22 @@ int main(int ac, char *av[]) {
         double yaw_rad = yaw_deg * M_PI / 180.0;
 
         // Write CSV row
-        fprintf(csv, "%.6f,"
-                "%.6f,%.6f,%.6f,"
-                "%.6f,%.6f,%.6f,"
-                "%.6f,%.6f,%.6f,"
-                "%.6f,%.6f,%.6f,"
-                "%.6f,%.6f,%.6f,"
-                "%.6f,%.6f,%.6f\n",
-                elapsed,
-                mag_v[0], mag_v[1], mag_v[2],
-                acc_v[0], acc_v[1], acc_v[2],
-                gyro_v[0], gyro_v[1], gyro_v[2],
-                mag_cal[0], mag_cal[1], mag_cal[2],
-                gyro_cal[0], gyro_cal[1], gyro_cal[2],
-                roll_rad, pitch_rad, yaw_rad);
+        if (csv) {
+            fprintf(csv, "%.6f,"
+                    "%.6f,%.6f,%.6f,"
+                    "%.6f,%.6f,%.6f,"
+                    "%.6f,%.6f,%.6f,"
+                    "%.6f,%.6f,%.6f,"
+                    "%.6f,%.6f,%.6f,"
+                    "%.6f,%.6f,%.6f\n",
+                    elapsed,
+                    mag_v[0], mag_v[1], mag_v[2],
+                    acc_v[0], acc_v[1], acc_v[2],
+                    gyro_v[0], gyro_v[1], gyro_v[2],
+                    mag_cal[0], mag_cal[1], mag_cal[2],
+                    gyro_cal[0], gyro_cal[1], gyro_cal[2],
+                    roll_rad, pitch_rad, yaw_rad);
+        }
 
         // MCC broadcast: |ts,ax,ay,az,gx,gy,gz,mx,my,mz,roll,pitch,yaw*
         // ts is time since epoch per MCC protocol spec
@@ -434,27 +452,39 @@ int main(int ac, char *av[]) {
         double since_print = chrono::duration<double>(now - last_print).count();
         if (since_print >= print_interval) {
             last_print = now;
-            double mag_mag = sqrt(mag_v[0]*mag_v[0] + mag_v[1]*mag_v[1] + mag_v[2]*mag_v[2]);
-            double gyro_mag = sqrt(gyro_v[0]*gyro_v[0] + gyro_v[1]*gyro_v[1] + gyro_v[2]*gyro_v[2]);
-            if (run_indefinite)
+            double mag_mag = sqrt(mag_cal[0]*mag_cal[0] + mag_cal[1]*mag_cal[1] + mag_cal[2]*mag_cal[2]);
+            double gyro_mag_val = sqrt(gyro_cal[0]*gyro_cal[0] + gyro_cal[1]*gyro_cal[1] + gyro_cal[2]*gyro_cal[2]);
+            if (do_stream) {
+                printf("%.3f: R:%6.1f P:%6.1f Y:%6.1f  a:[%7.3f,%7.3f,%7.3f]  g:[%7.4f,%7.4f,%7.4f]  m:[%7.2f,%7.2f,%7.2f]  |B|:%6.1f\n",
+                       elapsed,
+                       roll_smoother.getNextState(), pitch_smoother.getNextState(), yaw_deg,
+                       acc_v[0], acc_v[1], acc_v[2],
+                       gyro_cal[0], gyro_cal[1], gyro_cal[2],
+                       mag_cal[0], mag_cal[1], mag_cal[2],
+                       mag_mag);
+            } else if (run_indefinite) {
                 printf("\r[%6.1fs] R:%6.1f P:%6.1f Y:%6.1f  |B|:%6.1f uT  |w|:%5.2f rad/s  (%d)",
                    elapsed,
                    roll_smoother.getNextState(), pitch_smoother.getNextState(), yaw_deg,
-                   mag_mag, gyro_mag, count);
-            else
+                   mag_mag, gyro_mag_val, count);
+            } else {
                 printf("\r[%6.1f/%0.0fs] R:%6.1f P:%6.1f Y:%6.1f  |B|:%6.1f uT  |w|:%5.2f rad/s  (%d)",
                    elapsed, duration,
                    roll_smoother.getNextState(), pitch_smoother.getNextState(), yaw_deg,
-                   mag_mag, gyro_mag, count);
+                   mag_mag, gyro_mag_val, count);
+            }
             fflush(stdout);
         }
 
         this_thread::sleep_for(chrono::microseconds(interval_us));
     }
 
-    fclose(csv);
+    if (csv) fclose(csv);
     if (mcc_broker) delete mcc_broker;
-    printf("\n%s (%d samples, %.1fs)\n", output_path.c_str(), count, duration);
+    if (!no_log)
+        printf("\n%s (%d samples, %.1fs)\n", output_path.c_str(), count, duration);
+    else
+        printf("\n%d samples, %.1fs\n", count, elapsed);
 
     return 0;
 }
