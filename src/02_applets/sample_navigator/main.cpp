@@ -387,7 +387,7 @@ int main(int ac, char *av[]) {
         double current_beta = (elapsed < beta_ramp_time)
             ? beta_start + (beta - beta_start) * (elapsed / beta_ramp_time)
             : beta;
-        filter.beta = current_beta;
+        filter.setBeta(current_beta);
 
         // Madgwick update
         if (use_mag && mc.valid) {
@@ -484,7 +484,7 @@ int main(int ac, char *av[]) {
     if (!no_log)
         printf("\n%s (%d samples, %.1fs)\n", output_path.c_str(), count, duration);
     else
-        printf("\n%d samples, %.1fs\n", count, elapsed);
+        printf("\n%d samples\n", count);
 
     return 0;
 }
