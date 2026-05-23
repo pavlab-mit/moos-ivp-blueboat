@@ -361,7 +361,7 @@ bool Unicore::Iterate()
       if (m_heading_valid)
         gs << ",HDG=" << std::setprecision(3) << m_gps_heading;
       gs << ",FIX=" << (m_gps_lock ? 3 : 0)
-         << ",NSATS=" << m_num_sats
+         << ",NSATS=" << static_cast<int>(m_num_sats)
          << ",HDOP=" << std::setprecision(2) << m_hdop
          << ",H_ACC=" << std::setprecision(3) << m_h_acc
          << ",TS=" << std::setprecision(3) << m_epoch_time;
