@@ -1385,7 +1385,10 @@ void BBNavigatorInterface::sensorSamplingThread()
     try
     {
       // Read sensor data from Navigator
-      AxisData mag_1 = read_mag();
+      //AxisData mag_1 = read_mag();
+      // MAG DISABLED — stubbed to avoid navigator-rs DataNotReady panic.
+      // Madgwick falls back to IMU-only fusion when mag input is zero.
+      AxisData mag_1; mag_1.x = 0.0f; mag_1.y = 0.0f; mag_1.z = 0.0f;
       AxisData imu = read_accel();
       AxisData gyro = read_gyro();
 
