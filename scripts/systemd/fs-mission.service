@@ -1,0 +1,29 @@
+# Reference unit -- the front-seat mission, started on demand by bb_init.sh
+# (via `systemctl start fs-mission.service`). You maintain the real copy of
+# this; it is included here so bb_init.sh's launch step is self-documenting.
+#
+# Install with:
+#     sudo cp scripts/systemd/fs-mission.service /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#   (Do NOT `enable` it -- bb_init.sh starts it only after the gates pass.)
+
+[Unit]
+Description=BlueBoat front-seat MOOS mission
+After=bb-init.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/moos-ivp-blueboat/missions/blueboat_frontseat
+# A systemd unit has a bare PATH; launch_vehicle.sh needs pAntler, nsplug,
+# mhash_gen, uMAC, and the repo's own binaries. List every dir they live in.
+Environment=PATH=/home/pi/moos-ivp-blueboat/bin:/home/pi/moos-ivp/bin:/home/pi/moos-ivp/scripts:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# -a makes launch_vehicle.sh exec pAntler in the foreground (no uMAC), so
+# systemd tracks pAntler directly; -nc skips the interactive confirm. exec
+# keeps the script from backgrounding under -a.
+ExecStart=/bin/bash -c 'exec ./launch_vehicle.sh -a -nc'
+# Start-once semantics: bb_init.sh decides when to (re)start; do not loop here.
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

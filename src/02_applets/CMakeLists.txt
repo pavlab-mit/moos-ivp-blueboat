@@ -13,6 +13,10 @@ ENDIF(${DOODLE_RADIO_AVAIL})
 IF(${ON_VEHICLE})
     ADD_SUBDIRECTORY(init_bb_pwm)
 
+    # Boot-script helpers (used by scripts/bb_init.sh)
+    ADD_SUBDIRECTORY(bb_adc)        # battery-voltage read (low-battery gate)
+    ADD_SUBDIRECTORY(bb_neopixel)   # optional LED-strip status (future hardware)
+
     # bb_attitude requires Armadillo
     IF(${ARMA_AVAIL})
         ADD_SUBDIRECTORY(bb_attitude)

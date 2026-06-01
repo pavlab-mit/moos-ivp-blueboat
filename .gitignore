@@ -58,3 +58,6 @@ lib/
 # Temp files (emacs, etc)
 *#
 *~
+
+.claude/
+.DS_Store

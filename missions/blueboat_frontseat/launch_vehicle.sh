@@ -184,9 +184,13 @@ fi
 #  Part 5: Create the .moos and .bhv files. 
 #--------------------------------------------------------------
 
+# Ensure the output dirs exist (a fresh checkout has neither; both are
+# .gitignored). Without these the auto-launch dies before nsplug runs.
+mkdir -p targs
+
 if [ "$MISSION_NAME" = "" ]; then
     MISSION_NAME=$(mhash_gen)
-    mkdir logs/$MISSION_NAME
+    mkdir -p logs/$MISSION_NAME
 fi
 
 NSFLAGS="-s -f"
