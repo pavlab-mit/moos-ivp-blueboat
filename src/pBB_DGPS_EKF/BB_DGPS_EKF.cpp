@@ -7,7 +7,7 @@
         Extended Kalman Filter for BlueBat navigation using
         dual-antenna GPS (DGPS) heading and level-frame gyroscope.
 
-        Fuses FIX_STATE_DGNSS measurements (position, heading, speed, COG)
+        Fuses GNSS_STATE measurements (position, heading, speed, COG)
         with gyroscope for smooth heading estimation.
 *************************************************************/
 
@@ -28,7 +28,7 @@ using namespace std;
 BB_DGPS_EKF::BB_DGPS_EKF()
   : m_debug(false),
     m_debug_stream(nullptr),
-    m_input_gps_state("FIX_STATE_DGNSS"),
+    m_input_gps_state("GNSS_STATE"),
     m_input_gyro_z("GYRO_Z_LVL_IMU"),
     m_input_thrust_l("DESIRED_THRUST_L"),
     m_input_thrust_r("DESIRED_THRUST_R"),
@@ -99,7 +99,7 @@ bool BB_DGPS_EKF::OnNewMail(MOOSMSG_LIST &NewMail)
         m_gps_ready = true;
         m_gps_update_count++;
 
-        dbg_print("[%.3f] FIX_STATE_DGNSS: x=%.2f y=%.2f spd=%.2f hdg=%.1f cog=%.1f h_acc=%.2f hdop=%.2f hdg_valid=%d\n",
+        dbg_print("[%.3f] GNSS_STATE: x=%.2f y=%.2f spd=%.2f hdg=%.1f cog=%.1f h_acc=%.2f hdop=%.2f hdg_valid=%d\n",
                   mtime, m_latest_gps.nav_x, m_latest_gps.nav_y,
                   m_latest_gps.speed, m_latest_gps.heading, m_latest_gps.cog,
                   m_latest_gps.h_acc, m_latest_gps.hdop, m_latest_gps.heading_valid);
@@ -128,7 +128,7 @@ bool BB_DGPS_EKF::OnNewMail(MOOSMSG_LIST &NewMail)
 
 //---------------------------------------------------------
 // Procedure: parseGPSState()
-// Parse the FIX_STATE_DGNSS string from iUnicore
+// Parse the GNSS_STATE string (platform-agnostic format)
 
 bool BB_DGPS_EKF::parseGPSState(const string &sval, BB_DGPS_EKF_Model::GPSMeasurement &gps)
 {
@@ -141,29 +141,35 @@ bool BB_DGPS_EKF::parseGPSState(const string &sval, BB_DGPS_EKF_Model::GPSMeasur
     string key = biteStringX(pair, '=');
     string value = stripBlankEnds(pair);
 
-    if (key == "MOOSTime") {
-      gps.timestamp = stod(value);
-    }
-    else if (key == "NAV_LAT") {
+    if (key == "LAT") {
       gps.nav_lat = stod(value);
     }
-    else if (key == "NAV_LONG") {
+    else if (key == "LON") {
       gps.nav_lon = stod(value);
     }
-    else if (key == "NAV_SPEED") {
+    else if (key == "ALT") {
+      // Available but not used by EKF
+    }
+    else if (key == "SPD") {
       gps.speed = stod(value);
     }
-    else if (key == "NAV_COG") {
+    else if (key == "COG") {
       gps.cog = stod(value);
     }
-    else if (key == "GPS_HEADING") {
+    else if (key == "HDG") {
       gps.heading = stod(value);
     }
-    else if (key == "GPS_HEADING_ACC") {
+    else if (key == "HDG_ACC") {
       gps.heading_acc = stod(value);
     }
-    else if (key == "GPS_HEADING_VALID") {
+    else if (key == "HDG_VALID") {
       gps.heading_valid = (value == "true");
+    }
+    else if (key == "FIX") {
+      gps.fix_type = stoi(value);
+    }
+    else if (key == "NSATS") {
+      // Available but not used by EKF
     }
     else if (key == "HDOP") {
       gps.hdop = stod(value);
@@ -171,13 +177,13 @@ bool BB_DGPS_EKF::parseGPSState(const string &sval, BB_DGPS_EKF_Model::GPSMeasur
     else if (key == "H_ACC") {
       gps.h_acc = stod(value);
     }
-    else if (key == "GPS_LOCK") {
-      gps.gps_lock = (value == "true");
-    }
-    else if (key == "FIX_TYPE") {
-      gps.fix_type = value;
+    else if (key == "TS") {
+      gps.timestamp = stod(value);
     }
   }
+
+  // Derive gps_lock from fix type (FIX >= 2 means at least 2D fix)
+  gps.gps_lock = (gps.fix_type >= 2);
 
   // Convert lat/lon to local x/y using geodesy
   if (m_geodesy_initialized && gps.nav_lat != 0.0 && gps.nav_lon != 0.0) {
@@ -260,8 +266,8 @@ bool BB_DGPS_EKF::Iterate()
     else if (!gps_currently_valid && m_gps_valid) {
       // Transitioning from valid to invalid
       Notify("MOOS_MANUAL_OVERRIDE", "true");
-      dbg_print("[%.3f] GPS invalid (stale=%d, lock=%d, fix=%s), MOOS_MANUAL_OVERRIDE=true\n",
-                current_time, gps_stale, m_latest_gps.gps_lock, m_latest_gps.fix_type.c_str());
+      dbg_print("[%.3f] GPS invalid (stale=%d, lock=%d, fix=%d), MOOS_MANUAL_OVERRIDE=true\n",
+                current_time, gps_stale, m_latest_gps.gps_lock, m_latest_gps.fix_type);
     }
     else if (!gps_currently_valid && !m_gps_valid && !m_nav_published) {
       // Still waiting for first valid GPS - keep override true
@@ -335,14 +341,14 @@ bool BB_DGPS_EKF::Iterate()
              "MOOSTime=%.6f,NAV_X=%.3f,NAV_Y=%.3f,NAV_LAT=%.9f,NAV_LONG=%.9f,"
              "NAV_HEADING=%.2f,NAV_SPEED=%.3f,NAV_COG=%.2f,"
              "STD_X=%.3f,STD_Y=%.3f,STD_HEADING=%.2f,STD_SPEED=%.3f,"
-             "GPS_LOCK=%s,FIX_TYPE=%s,H_ACC=%.3f,HDOP=%.2f,"
+             "GPS_LOCK=%s,FIX_TYPE=%d,H_ACC=%.3f,HDOP=%.2f,"
              "HEADING_VALID=%s,GPS_HEADING=%.2f,GPS_HEADING_ACC=%.2f",
              current_time, nav_x, nav_y, nav_lat, nav_lon,
              nav_heading, nav_speed, nav_cog,
              m_ekf.getStdX(), m_ekf.getStdY(),
              m_ekf.getStdPhi() * 180.0 / M_PI, m_ekf.getStdSpeed(),
              m_latest_gps.gps_lock ? "true" : "false",
-             m_latest_gps.fix_type.c_str(),
+             m_latest_gps.fix_type,
              m_latest_gps.h_acc, m_latest_gps.hdop,
              m_latest_gps.heading_valid ? "true" : "false",
              m_latest_gps.heading, m_latest_gps.heading_acc);
