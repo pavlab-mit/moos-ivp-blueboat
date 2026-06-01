@@ -73,6 +73,9 @@ class Unicore : public AppCastingMOOSApp
    bool m_publish_state;
    bool m_publish_dto;
 
+   // When true, GNSS_STATE includes HDG/HDG_ACC/HDG_VALID fields
+   bool m_differential_gnss;
+
  private: // State variables
 
    // Parser

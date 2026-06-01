@@ -38,6 +38,7 @@ Unicore::Unicore()
   m_publish_time = false;
   m_publish_state = true;
   m_publish_dto = false;
+  m_differential_gnss = false;
 
   m_parser = nullptr;
   m_thread_running = false;
@@ -358,8 +359,13 @@ bool Unicore::Iterate()
          << ",ALT=" << std::setprecision(3) << m_nav_alt
          << ",SPD=" << m_nav_speed
          << ",COG=" << std::setprecision(2) << m_track_over_ground;
-      if (m_heading_valid)
-        gs << ",HDG=" << std::setprecision(3) << m_gps_heading;
+      if (m_differential_gnss) {
+        if (m_heading_valid) {
+          gs << ",HDG=" << std::setprecision(3) << m_gps_heading;
+          gs << ",HDG_ACC=" << std::setprecision(3) << m_gps_heading_acc;
+        }
+        gs << ",HDG_VALID=" << (m_heading_valid ? "true" : "false");
+      }
       gs << ",FIX=" << (m_gps_lock ? 3 : 0)
          << ",NSATS=" << static_cast<int>(m_num_sats)
          << ",HDOP=" << std::setprecision(2) << m_hdop
@@ -509,6 +515,10 @@ bool Unicore::OnStartUp()
     }
     else if (param == "publish_dto") {
       m_publish_dto = (tolower(value) == "true");
+      handled = true;
+    }
+    else if (param == "differential_gnss") {
+      m_differential_gnss = (tolower(value) == "true");
       handled = true;
     }
     else if (param == "stale_data_timeout_sec" ||
