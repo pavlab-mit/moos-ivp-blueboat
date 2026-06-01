@@ -112,7 +112,22 @@ int main(int ac, char *av[]) {
     auto prev = start;
     double elapsed = 0.0;
 
-    // Initialize Navigator
+    // Initialize Navigator.
+    //
+    // navigator-lib 0.1.2 (NAVOS v2) requires explicit hardware selection
+    // BEFORE init(); without it, init() fails on V2 (BMP390) boards and no
+    // sensor reads succeed. v1 (0.0.6) does not expose these symbols, so the
+    // whole prelude is gated out at preprocess time. The build system defines
+    // IBBNAV_NAVOS_V2=1 (and optionally IBBNAV_RASPBERRY_PI5=1) when building
+    // against 0.1.2 -- see this applet's CMakeLists.txt.
+#if defined(IBBNAV_NAVOS_V2) && IBBNAV_NAVOS_V2
+    set_navigator_version(NavigatorVersion::Version2);
+  #if defined(IBBNAV_RASPBERRY_PI5) && IBBNAV_RASPBERRY_PI5
+    set_raspberry_pi_version(Raspberry::Pi5);
+  #else
+    set_raspberry_pi_version(Raspberry::Pi4);
+  #endif
+#endif
     init();
 
 
