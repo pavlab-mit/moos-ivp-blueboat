@@ -33,7 +33,7 @@ end="off"
 # heartbeat-mode tunables (idle "still alive" signal)
 intro=10        # intro slow-flash duration (s); 0 to skip
 intro_hz=1      # intro flash rate (Hz)
-period=60       # seconds between blink groups
+period=30       # seconds between blink groups
 pulses=2        # blinks per group (2 = double-blink)
 blink=0.12      # on-time per pulse (s)
 gap=0.18        # off-time between pulses (s)
@@ -51,7 +51,7 @@ Usage: bb_led.sh on|off|flash|heartbeat [options]
   heartbeat options:
       --intro <s>    intro slow-flash duration (default 10; 0 to skip)
       --intro-hz <f> intro flash rate Hz (default 1)
-      --period <s>   seconds between blink groups (default 60)
+      --period <s>   seconds between blink groups (default 30)
       --pulses <n>   blinks per group (default 2 = double-blink)
       --blink <s>    on-time per pulse (default 0.12)
       --gap <s>      off-time between pulses (default 0.18)

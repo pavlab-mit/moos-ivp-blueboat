@@ -39,8 +39,8 @@ RuntimeDirectoryMode=0755
 #Environment=BOAT_VOLT_MIN=14.2
 # Mission unit to start once the gates pass. Default fs-mission.service.
 #Environment=BOAT_MISSION_SERVICE=fs-mission.service
-# Pitch gate: |pitch| deg at/above which we stand by. Default 20.
-#Environment=BOAT_PITCH_LIMIT=20
+# Pitch gate: |pitch| deg at/above which we stand by. Default 15.
+#Environment=BOAT_PITCH_LIMIT=15
 # PWM0 status LED (Pi GPIO18). Override pin/polarity only if wired differently.
 #Environment=BOAT_LED_GPIO=18
 #Environment=BOAT_LED_ACTIVE_HIGH=true

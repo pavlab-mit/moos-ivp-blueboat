@@ -19,8 +19,8 @@ Description=BlueBoat idle status-LED heartbeat
 [Service]
 Type=simple
 User=root
-# 10 s slow intro flash, then a double-blink every 60 s, forever.
-ExecStart=/home/pi/moos-ivp-blueboat/scripts/bb_led.sh heartbeat --intro 10 --intro-hz 1 --period 60 --pulses 2
+# 10 s slow intro flash, then a double-blink every 30 s, forever.
+ExecStart=/home/pi/moos-ivp-blueboat/scripts/bb_led.sh heartbeat --intro 10 --intro-hz 1 --period 30 --pulses 2
 # When stopped (e.g. bb_init launches the mission) leave the LED off, so the
 # launch strobe -> solid takes over a clean pin.
 ExecStopPost=/home/pi/moos-ivp-blueboat/scripts/bb_led.sh off
