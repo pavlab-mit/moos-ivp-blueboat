@@ -100,7 +100,7 @@ PULL_RETRY_DELAY="${BOAT_PULL_RETRY_DELAY:-5}"  # seconds between attempts
 BUILD_TIMEOUT="${BOAT_BUILD_TIMEOUT:-600}"
 
 # Gates (tunables)
-PITCH_LIMIT="${BOAT_PITCH_LIMIT:-20}"    # |pitch| >= this (deg) -> stand by
+PITCH_LIMIT="${BOAT_PITCH_LIMIT:-15}"    # |pitch| >= this (deg) -> stand by
 ATT_DUR="${BOAT_ATT_DURATION:-5}"        # attitude sample seconds
 VOLT_MIN="${BOAT_VOLT_MIN:-13.0}"        # pack volts below this -> stand by
                                          #   NOTE: calibrate for your pack!
