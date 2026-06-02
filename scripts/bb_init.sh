@@ -77,6 +77,11 @@ BUILD_SCRIPT="${BOAT_BUILD_SCRIPT:-$REPO_DIR/build.sh}"
 # a reference copy is in scripts/systemd/fs-mission.service).
 MISSION_SERVICE="${BOAT_MISSION_SERVICE:-fs-mission.service}"
 
+# Idle status-LED heartbeat unit -- started when the boat stands by, stopped
+# when it launches. Runs as its own unit because bb_init is a oneshot and
+# exits, while the heartbeat must keep blinking for as long as the boat is on.
+LED_IDLE_SERVICE="${BOAT_LED_IDLE_SERVICE:-bb-led-idle.service}"
+
 # Helpers. The sensor/strip helpers are compiled (src/02_applets); the PWM0
 # status LED is a shell helper (Pi GPIO18 via pinctrl, no build needed).
 BB_ATTITUDE="$BIN_DIR/bb_attitude"
@@ -89,7 +94,9 @@ DO_PULL="${BOAT_DO_PULL:-true}"          # master toggle for the pull+build step
 DO_BUILD="${BOAT_DO_BUILD:-true}"        # rebuild when the pull changes HEAD
 GIT_REMOTE="${BOAT_GIT_REMOTE:-origin}"
 GIT_BRANCH="${BOAT_GIT_BRANCH:-}"        # empty -> current branch
-PULL_TIMEOUT="${BOAT_PULL_TIMEOUT:-60}"  # seconds
+PULL_TIMEOUT="${BOAT_PULL_TIMEOUT:-60}"  # seconds (per fetch attempt)
+PULL_RETRIES="${BOAT_PULL_RETRIES:-3}"   # fetch attempts before giving up
+PULL_RETRY_DELAY="${BOAT_PULL_RETRY_DELAY:-5}"  # seconds between attempts
 BUILD_TIMEOUT="${BOAT_BUILD_TIMEOUT:-600}"
 
 # Gates (tunables)
@@ -165,16 +172,22 @@ write_status() {
   } > "$STATUS_FILE" 2>/dev/null || true
 }
 
-# Solid LED = mission running. Optional nav-lights on the strip.
-# The LED runs as root (GPIO/pinctrl); the strip runs as pi (navigator-lib).
+# Mission running: a 5 s fast strobe to announce the launch, then leave the LED
+# solid on (the pin latches, so no daemon is needed for the running state).
+# First stop any idle heartbeat so it cannot fight us for the pin. Optional
+# nav-lights on the strip. The LED runs as root (GPIO/pinctrl); strip as pi.
 signal_running() {
-  [[ -x "$BB_LED" ]] && run "$BB_LED" on || true
+  run systemctl stop "$LED_IDLE_SERVICE" || true
+  [[ -x "$BB_LED" ]] && run "$BB_LED" flash -d 5 --hz 10 --end on || true
   if [[ "$USE_NEOPIXEL" == "true" && -x "$BB_NEOPIXEL" ]]; then
     run as_user "$BB_NEOPIXEL" navlights --count "$NEOPIXEL_COUNT" || true
   fi
 }
 
-# Blinking LED for a period = idle/standby. Optional rainbow on the strip.
+# Idle/standby: hand the LED to bb-led-idle.service, which does a 10 s slow
+# flash then a double-blink every minute for as long as the boat stays on, so
+# an idle-but-powered boat is distinguishable from a dead one. We restart (not
+# start) it so re-entering idle replays the intro flash. Optional rainbow strip.
 signal_idle() {
   if [[ "$USE_NEOPIXEL" == "true" && -x "$BB_NEOPIXEL" ]]; then
     # timeout goes *inside* as_user (it must exec a real binary, not the
@@ -182,7 +195,7 @@ signal_idle() {
     run as_user timeout "$IDLE_FLASH_SECS" "$BB_NEOPIXEL" rainbow \
         --count "$NEOPIXEL_COUNT" -d "$IDLE_FLASH_SECS" || true
   fi
-  [[ -x "$BB_LED" ]] && run "$BB_LED" flash -d "$IDLE_FLASH_SECS" || true
+  run systemctl restart --no-block "$LED_IDLE_SERVICE" || true
 }
 
 # Called whenever we choose not to launch. Records status, signals idle, exits 0
@@ -225,47 +238,7 @@ else
 fi
 
 #------------------------------------------------------------------------------
-# 1) Pull + rebuild (optional, best-effort but build failure aborts launch)
-#------------------------------------------------------------------------------
-if $NO_PULL || [[ "$DO_PULL" != "true" ]]; then
-  log "Skipping git pull (NO_PULL=$NO_PULL DO_PULL=$DO_PULL)"
-elif [[ ! -d "$REPO_DIR/.git" ]]; then
-  log "WARN: $REPO_DIR is not a git repo; skipping pull."
-else
-  branch="$GIT_BRANCH"
-  [[ -z "$branch" ]] && branch="$(as_user git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
-  before="$(as_user git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo '')"
-
-  log "Pulling $GIT_REMOTE/$branch (timeout ${PULL_TIMEOUT}s)..."
-  if $DRY_RUN; then
-    log "DRY-RUN: git fetch + ff-only merge $GIT_REMOTE/$branch"
-  elif as_user timeout "$PULL_TIMEOUT" git -C "$REPO_DIR" fetch --quiet "$GIT_REMOTE" "$branch" \
-       && as_user git -C "$REPO_DIR" merge --ff-only --quiet "$GIT_REMOTE/$branch"; then
-    after="$(as_user git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo '')"
-    if [[ "$before" != "$after" ]]; then
-      log "Repo updated: ${before:0:8} -> ${after:0:8}"
-      if $NO_BUILD || [[ "$DO_BUILD" != "true" ]]; then
-        log "Repo changed but rebuild disabled (NO_BUILD=$NO_BUILD DO_BUILD=$DO_BUILD)"
-      else
-        log "Rebuilding (timeout ${BUILD_TIMEOUT}s)..."
-        if as_user timeout "$BUILD_TIMEOUT" bash -lc "cd '$REPO_DIR' && '$BUILD_SCRIPT'"; then
-          log "Rebuild OK."
-        else
-          # A half-built tree is unsafe to launch -> stand by.
-          fail "Rebuild failed after pull; not launching with a partial build."
-        fi
-      fi
-    else
-      log "Repo already up to date; no rebuild needed."
-    fi
-  else
-    # Offline / unreachable remote is fine -- launch with what we have.
-    log "WARN: pull failed or timed out (offline?); continuing with existing build."
-  fi
-fi
-
-#------------------------------------------------------------------------------
-# 2) Battery gate
+# 1) Battery gate
 #------------------------------------------------------------------------------
 VOLTAGE=""
 if $FORCE_LAUNCH; then
@@ -295,7 +268,7 @@ if [[ -n "$VOLTAGE" ]]; then
 fi
 
 #------------------------------------------------------------------------------
-# 3) Pitch gate
+# 2) Pitch gate
 #------------------------------------------------------------------------------
 PITCH=""
 if $FORCE_LAUNCH; then
@@ -328,6 +301,68 @@ if [[ -n "$PITCH" ]]; then
   # Gate on absolute pitch -- nose-up or nose-down both mean "not in the water."
   if awk -v p="$PITCH" -v lim="$PITCH_LIMIT" 'BEGIN{ if (p<0) p=-p; exit !(p >= lim) }'; then
     stand_by "IDLE_PITCH" "|pitch| $PITCH >= $PITCH_LIMIT"
+  fi
+fi
+
+#------------------------------------------------------------------------------
+# 3) Pull + rebuild -- only reached once the gates have PASSED, so a boat that
+# is standing by (elevated / low battery) never waits on a pull or build, and
+# the network gets extra seconds to come up before we fetch. Best-effort: an
+# offline pull just continues with the existing build, but a failed *build*
+# aborts the launch (a half-built tree is unsafe).
+#------------------------------------------------------------------------------
+if $NO_PULL || [[ "$DO_PULL" != "true" ]]; then
+  log "Skipping git pull (NO_PULL=$NO_PULL DO_PULL=$DO_PULL)"
+elif [[ ! -d "$REPO_DIR/.git" ]]; then
+  log "WARN: $REPO_DIR is not a git repo; skipping pull."
+else
+  branch="$GIT_BRANCH"
+  [[ -z "$branch" ]] && branch="$(as_user git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+  before="$(as_user git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+
+  log "Pulling $GIT_REMOTE/$branch (timeout ${PULL_TIMEOUT}s, up to ${PULL_RETRIES} tries)..."
+  # Boot-time networking (especially over the radio link) is often not ready the
+  # instant bb-init runs, even with network-online.target -- the fetch fails for
+  # a few seconds and then works. Retry with a short backoff before giving up.
+  pull_ok=false
+  if $DRY_RUN; then
+    log "DRY-RUN: git fetch + ff-only merge $GIT_REMOTE/$branch"
+    pull_ok=true
+  else
+    for ((attempt=1; attempt<=PULL_RETRIES; attempt++)); do
+      if as_user timeout "$PULL_TIMEOUT" git -C "$REPO_DIR" fetch --quiet "$GIT_REMOTE" "$branch" \
+         && as_user git -C "$REPO_DIR" merge --ff-only --quiet "$GIT_REMOTE/$branch"; then
+        pull_ok=true
+        break
+      fi
+      if [[ "$attempt" -lt "$PULL_RETRIES" ]]; then
+        log "WARN: git pull failed (attempt $attempt/$PULL_RETRIES); sleeping ${PULL_RETRY_DELAY}s..."
+        sleep "$PULL_RETRY_DELAY"
+      fi
+    done
+  fi
+
+  if ! $pull_ok; then
+    # Offline / unreachable remote is fine -- launch with what we have.
+    log "WARN: pull failed after ${PULL_RETRIES} attempts (offline?); continuing with existing build."
+  elif ! $DRY_RUN; then
+    after="$(as_user git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+    if [[ "$before" != "$after" ]]; then
+      log "Repo updated: ${before:0:8} -> ${after:0:8}"
+      if $NO_BUILD || [[ "$DO_BUILD" != "true" ]]; then
+        log "Repo changed but rebuild disabled (NO_BUILD=$NO_BUILD DO_BUILD=$DO_BUILD)"
+      else
+        log "Rebuilding (timeout ${BUILD_TIMEOUT}s)..."
+        if as_user timeout "$BUILD_TIMEOUT" bash -lc "cd '$REPO_DIR' && '$BUILD_SCRIPT'"; then
+          log "Rebuild OK."
+        else
+          # A half-built tree is unsafe to launch -> stand by.
+          fail "Rebuild failed after pull; not launching with a partial build."
+        fi
+      fi
+    else
+      log "Repo already up to date; no rebuild needed."
+    fi
   fi
 fi
 

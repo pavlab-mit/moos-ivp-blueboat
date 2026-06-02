@@ -30,24 +30,46 @@ duration=30
 hz=2
 end="off"
 
+# heartbeat-mode tunables (idle "still alive" signal)
+intro=10        # intro slow-flash duration (s); 0 to skip
+intro_hz=1      # intro flash rate (Hz)
+period=60       # seconds between blink groups
+pulses=2        # blinks per group (2 = double-blink)
+blink=0.12      # on-time per pulse (s)
+gap=0.18        # off-time between pulses (s)
+
 usage() {
   cat <<USAGE
-Usage: bb_led.sh on|off|flash [options]
+Usage: bb_led.sh on|off|flash|heartbeat [options]
   on                 drive the LED solid on
   off                drive the LED off
   flash              blink, then leave it in the --end state
+  heartbeat          intro slow-flash, then a blink group every --period forever
   -d, --duration <s> flash duration seconds (default 30)
       --hz <f>       flash rate Hz (default 2)
       --end <on|off> LED state after a flash (default off)
+  heartbeat options:
+      --intro <s>    intro slow-flash duration (default 10; 0 to skip)
+      --intro-hz <f> intro flash rate Hz (default 1)
+      --period <s>   seconds between blink groups (default 60)
+      --pulses <n>   blinks per group (default 2 = double-blink)
+      --blink <s>    on-time per pulse (default 0.12)
+      --gap <s>      off-time between pulses (default 0.18)
 USAGE
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    on|off|flash)  cmd="$1" ;;
+    on|off|flash|heartbeat)  cmd="$1" ;;
     -d|--duration) duration="${2:?}"; shift ;;
     --hz)          hz="${2:?}"; shift ;;
     --end)         end="${2:?}"; shift ;;
+    --intro)       intro="${2:?}"; shift ;;
+    --intro-hz)    intro_hz="${2:?}"; shift ;;
+    --period)      period="${2:?}"; shift ;;
+    --pulses)      pulses="${2:?}"; shift ;;
+    --blink)       blink="${2:?}"; shift ;;
+    --gap)         gap="${2:?}"; shift ;;
     -h|--help)     usage; exit 0 ;;
     *) echo "bb_led.sh: bad arg '$1'" >&2; exit 2 ;;
   esac
@@ -84,5 +106,27 @@ case "$cmd" in
       led off; sleep "$half"
     done
     led "$end"
+    ;;
+  heartbeat)
+    # Idle "still alive" signal. Runs forever, so it lives in its own systemd
+    # unit (bb-led-idle.service) that bb_init starts on stand-by; that unit's
+    # ExecStopPost drives the LED off when the heartbeat is stopped (e.g. on a
+    # later launch).
+    if awk -v s="$intro" 'BEGIN{ exit !(s > 0) }'; then   # intro slow flash
+      ihalf=$(awk -v hz="$intro_hz" 'BEGIN{ printf "%.3f", 1/(2*hz) }')
+      icycles=$(awk -v d="$intro" -v hz="$intro_hz" 'BEGIN{ printf "%d", d*hz }')
+      for ((i = 0; i < icycles; i++)); do
+        led on;  sleep "$ihalf"
+        led off; sleep "$ihalf"
+      done
+    fi
+    led off
+    while :; do                                           # blink group / period
+      for ((p = 0; p < pulses; p++)); do
+        led on;  sleep "$blink"
+        led off; sleep "$gap"
+      done
+      sleep "$period"
+    done
     ;;
 esac

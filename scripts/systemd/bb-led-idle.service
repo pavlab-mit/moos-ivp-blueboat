@@ -1,0 +1,35 @@
+# Reference unit -- the idle "still alive" status-LED heartbeat. Started ON
+# DEMAND by bb_init.sh when the boat stands by; stopped by bb_init when it
+# launches. Do NOT enable it and do NOT start it at boot -- bb_init owns its
+# lifecycle. It does a 10 s slow flash then a double-blink every minute for as
+# long as the boat is powered, so an idle-but-on boat is distinguishable from a
+# dead one.
+#
+# Install with:
+#     sudo cp scripts/systemd/bb-led-idle.service /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#   (Do NOT `enable` it.)
+
+[Unit]
+Description=BlueBoat idle status-LED heartbeat
+# NO ordering on bb-init.service. bb_init starts this explicitly; an
+# After=bb-init dep would deadlock exactly like the fs-mission.service bug did
+# (bb-init is a Type=oneshot that stays "activating" until its script returns).
+
+[Service]
+Type=simple
+User=root
+# 10 s slow intro flash, then a double-blink every 60 s, forever.
+ExecStart=/home/pi/moos-ivp-blueboat/scripts/bb_led.sh heartbeat --intro 10 --intro-hz 1 --period 60 --pulses 2
+# When stopped (e.g. bb_init launches the mission) leave the LED off, so the
+# launch strobe -> solid takes over a clean pin.
+ExecStopPost=/home/pi/moos-ivp-blueboat/scripts/bb_led.sh off
+Restart=on-failure
+RestartSec=5
+
+# bb_led.sh reads BOAT_LED_GPIO / BOAT_LED_ACTIVE_HIGH from its own environment.
+# This is a SEPARATE unit from bb-init.service, so it does NOT inherit bb-init's
+# Environment= lines -- if this boat overrides the LED pin/polarity, set them
+# here too (uncomment and match bb-init.service).
+#Environment=BOAT_LED_GPIO=18
+#Environment=BOAT_LED_ACTIVE_HIGH=true
