@@ -38,8 +38,19 @@ int main(int ac, char *av[]) {
     bool verbose = false;
     bool raw = false;       // Dump unmodified read_accel()/read_gyro() per sample
     
-    // BlueBoat specific defaults (upside down mounting)
-    double roll_offset_deg = 180.0;   // Upside down
+    // BlueBoat specific defaults. The roll offset compensates for the
+    // navigator's mounting/axis convention so that the post-rotation gravity
+    // vector lands on +z (the Madgwick reference). The v1 IMU reads gravity on
+    // -z (board effectively upside down) and needs a 180 deg flip; the v2 IMU
+    // reads gravity on +z and needs no flip -- matching iBBNavigatorInterface_v2,
+    // which defaults m_roll_offset = 0.0. Using 180 on v2 forces the filter to
+    // converge through a full 180 deg of roll at ~beta rad/s (~5.7 deg/s), so
+    // the averaged result scales with --duration instead of settling.
+#if defined(IBBNAV_NAVOS_V2) && IBBNAV_NAVOS_V2
+    double roll_offset_deg = 0.0;     // v2: gravity already on +z
+#else
+    double roll_offset_deg = 180.0;   // v1: board mounted upside down (gravity -z)
+#endif
     double pitch_offset_deg = 0.0;
     double yaw_offset_deg = 0.0;
 
