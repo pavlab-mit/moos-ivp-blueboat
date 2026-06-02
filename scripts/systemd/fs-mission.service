@@ -9,7 +9,12 @@
 
 [Unit]
 Description=BlueBoat front-seat MOOS mission
-After=bb-init.service
+# NO ordering on bb-init.service. bb_init.sh starts this unit explicitly via a
+# synchronous `systemctl start`; an After=bb-init dep here deadlocks, because
+# bb-init (Type=oneshot) stays "activating" until its script returns, while the
+# script blocks waiting for this start job that systemd won't run until bb-init
+# is active. fs-mission is on-demand only -- it must not be ordered after the
+# thing that launches it.
 
 [Service]
 Type=simple

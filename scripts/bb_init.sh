@@ -239,7 +239,7 @@ else
   log "Pulling $GIT_REMOTE/$branch (timeout ${PULL_TIMEOUT}s)..."
   if $DRY_RUN; then
     log "DRY-RUN: git fetch + ff-only merge $GIT_REMOTE/$branch"
-  elif timeout "$PULL_TIMEOUT" as_user git -C "$REPO_DIR" fetch --quiet "$GIT_REMOTE" "$branch" \
+  elif as_user timeout "$PULL_TIMEOUT" git -C "$REPO_DIR" fetch --quiet "$GIT_REMOTE" "$branch" \
        && as_user git -C "$REPO_DIR" merge --ff-only --quiet "$GIT_REMOTE/$branch"; then
     after="$(as_user git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo '')"
     if [[ "$before" != "$after" ]]; then
@@ -248,7 +248,7 @@ else
         log "Repo changed but rebuild disabled (NO_BUILD=$NO_BUILD DO_BUILD=$DO_BUILD)"
       else
         log "Rebuilding (timeout ${BUILD_TIMEOUT}s)..."
-        if timeout "$BUILD_TIMEOUT" as_user bash -lc "cd '$REPO_DIR' && '$BUILD_SCRIPT'"; then
+        if as_user timeout "$BUILD_TIMEOUT" bash -lc "cd '$REPO_DIR' && '$BUILD_SCRIPT'"; then
           log "Rebuild OK."
         else
           # A half-built tree is unsafe to launch -> stand by.
