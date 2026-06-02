@@ -23,21 +23,19 @@ WorkingDirectory=/home/pi/moos-ivp-blueboat/missions/blueboat_frontseat
 # A systemd unit has a bare PATH; launch_vehicle.sh needs pAntler, nsplug,
 # mhash_gen, uMAC, and the repo's own binaries. List every dir they live in.
 Environment=PATH=/home/pi/moos-ivp-blueboat/bin:/home/pi/moos-ivp/bin:/home/pi/moos-ivp/scripts:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-# Run the mission inside a detached `screen` session so you can attach to its
-# live console after logging in:   screen -r fsmission   (detach: Ctrl-a d;
-# read-along share: screen -x fsmission). Needs `screen` installed (apt).
-#   -Dm  run screen in the FOREGROUND without forking, so systemd tracks it as
-#        Type=simple and it exits when the mission exits (start-once preserved).
-#   -S   session name.
-# launch_vehicle.sh -a execs pAntler in the FOREGROUND (no uMAC). That foreground
-# process is what holds the screen window -- and therefore the service -- open.
-# WITHOUT -a the script backgrounds its apps and returns immediately, so screen
-# exits and systemd tears the mission down (service goes inactive instantly).
-# Attaching shows pAntler's live output (not an interactive uMAC). -nc skips the
-# confirm.
-# NOTE: mission stdout goes to the screen pty, not journald. To also keep a file
-# copy, add `-L -Logfile /home/pi/fsmission.log` to the screen args below.
-ExecStart=/usr/bin/screen -DmS fsmission /bin/bash -lc 'cd /home/pi/moos-ivp-blueboat/missions/blueboat_frontseat && exec ./launch_vehicle.sh -a -nc'
+# -a makes launch_vehicle.sh `exec pAntler` in the FOREGROUND (no uMAC); with the
+# `exec` below, pAntler becomes the service's main process so systemd tracks it
+# directly -- output to journald, restart-capable, no screen in the critical path.
+# -nc skips the interactive confirm. (We tried wrapping this in `screen` for an
+# attachable console; screen-under-systemd proved flaky, so it's reverted.)
+#
+# To watch or drive the running mission after logging in, WITHOUT touching the
+# service lifecycle:
+#   live output:       journalctl -fu fs-mission.service
+#   interactive uMAC:  uMAC targs/targ_<vname>.moos   (e.g. targ_yip.moos, in the
+#                      mission dir) -- uMAC just connects to the live MOOSDB, so
+#                      you can open/close it freely.
+ExecStart=/bin/bash -c 'exec ./launch_vehicle.sh -a -nc'
 # Start-once semantics: bb_init.sh decides when to (re)start; do not loop here.
 Restart=no
 
