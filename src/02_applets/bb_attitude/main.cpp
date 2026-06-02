@@ -22,6 +22,7 @@ void showHelpAndExit() {
     cout << "  --pitch-offset <deg>    Set pitch offset in degrees (default: 0)" << endl;
     cout << "  --yaw-offset <deg>      Set yaw offset in degrees (default: 0)" << endl;
     cout << "  -v, --verbose           Enable verbose output during sampling" << endl;
+    cout << "  --raw                   Dump raw accel/gyro reads each sample (diagnostic)" << endl;
     cout << endl;
     cout << "Note: Arguments can use space or '=' (e.g., -d 2.0, --duration=2.0)" << endl;
     exit(0);
@@ -35,6 +36,7 @@ int main(int ac, char *av[]) {
     double beta = 0.1;      // Lower beta for IMU-only mode
     double tau = 0.075;     // Smoothing parameter
     bool verbose = false;
+    bool raw = false;       // Dump unmodified read_accel()/read_gyro() per sample
     
     // BlueBoat specific defaults (upside down mounting)
     double roll_offset_deg = 180.0;   // Upside down
@@ -94,6 +96,10 @@ int main(int ac, char *av[]) {
         // Verbose flag
         else if ((argi == "-v") || (argi == "--verbose")) {
             verbose = true;
+        }
+        // Raw sensor dump flag (diagnostic): print unmodified accel/gyro reads
+        else if (argi == "--raw") {
+            raw = true;
         }
         else {
             cerr << "Unhandled argument: " << argi << endl;
@@ -177,6 +183,19 @@ int main(int ac, char *av[]) {
 
         arma::vec gyro = {gyro_sensor.x, gyro_sensor.y, gyro_sensor.z};
         arma::vec acc = {imu_sensor.x, imu_sensor.y, imu_sensor.z};
+
+        // Diagnostic: dump the RAW sensor reads (pre-rotation, pre-filter).
+        // A healthy accel reads |a| ~ 9.81 m/s^2; if accel is ~0 the Madgwick
+        // filter skips gravity correction and the estimate drifts (output then
+        // grows with --duration). A stationary gyro should read ~0 rad/s.
+        if (raw) {
+            double accel_mag = sqrt(imu_sensor.x*imu_sensor.x +
+                                    imu_sensor.y*imu_sensor.y +
+                                    imu_sensor.z*imu_sensor.z);
+            printf("accel=[% .4f % .4f % .4f] |a|=% .4f  gyro=[% .4f % .4f % .4f]\n",
+                   imu_sensor.x, imu_sensor.y, imu_sensor.z, accel_mag,
+                   gyro_sensor.x, gyro_sensor.y, gyro_sensor.z);
+        }
 
         // Apply rotation offsets
         gyro = R_offset * gyro;
