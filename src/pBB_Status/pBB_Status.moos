@@ -19,7 +19,7 @@ ProcessConfig = pBB_Status
    stale_time = 3.0
 
    // Pack voltage (V) below which batt is reported LOW.
-   low_voltage_thresh = 22.0
+   low_voltage_thresh = 13.0
 
    // Shoreside collector: BB_STATUS is pushed here as a UDP datagram
    // each post (in addition to the local MOOS post above). Leave tx_ip
