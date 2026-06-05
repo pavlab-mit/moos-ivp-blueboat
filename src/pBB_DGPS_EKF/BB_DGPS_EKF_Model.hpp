@@ -53,7 +53,7 @@ public:
     double sigma_gps_spd = 0.1;     // GPS speed noise (m/s)
   };
 
-  // GPS measurement bundle (parsed from FIX_STATE_DGNSS)
+  // GPS measurement bundle (parsed from GNSS_STATE)
   struct GPSMeasurement
   {
     double timestamp = 0.0;
@@ -69,10 +69,10 @@ public:
     double h_acc = 1.0;          // Horizontal accuracy (m)
     bool heading_valid = false;
     bool gps_lock = false;
-    std::string fix_type = "NONE";
+    int fix_type = 0;            // 0=no fix, 2=2D, 3=3D
 
     bool isValid() const {
-      return gps_lock && (fix_type != "NONE") && (nav_lat != 0.0 || nav_lon != 0.0);
+      return gps_lock && (fix_type >= 2) && (nav_lat != 0.0 || nav_lon != 0.0);
     }
   };
 
@@ -108,12 +108,16 @@ public:
     m_state(Y_IDX) = gps.nav_y;
     m_state(S_IDX) = gps.speed;
 
-    // Convert compass heading to Cartesian (0=East, CCW+)
-    double phi_cart = compassToCartesian(gps.heading);
+    // Convert compass angles to Cartesian (0=East, CCW+)
     double gamma_cart = compassToCartesian(gps.cog);
-
-    m_state(PHI_IDX) = phi_cart;
     m_state(GAMMA_IDX) = gamma_cart;
+
+    // Use DGNSS heading if valid, otherwise fall back to COG
+    if (gps.heading_valid && gps.heading_acc > 0 && gps.heading_acc < 10.0) {
+      m_state(PHI_IDX) = compassToCartesian(gps.heading);
+    } else {
+      m_state(PHI_IDX) = gamma_cart;
+    }
 
     // Initial covariance based on GPS accuracy
     m_covariance = arma::eye<arma::mat>(DIM_STATE, DIM_STATE);

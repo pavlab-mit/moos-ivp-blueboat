@@ -19,6 +19,8 @@ ProcessConfig = iUnicore
   publish_state    = true
   publish_dto      = true
 
+  differential_gnss = true
+
   stale_data_timeout_sec = 2.0
   stale_warn_repeat_sec  = 5.0
 

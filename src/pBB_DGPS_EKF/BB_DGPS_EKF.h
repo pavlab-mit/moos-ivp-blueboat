@@ -17,8 +17,8 @@
         When thrusters are off for a configurable period, the drift
         estimator runs to capture current velocities [v_x, v_y].
 
-        Subscribes to FIX_STATE_DGNSS (iUnicore time-bundled fix
-        state), GYRO_Z_LVL_IMU, and DESIRED_THRUST_L/R for drift
+        Subscribes to GNSS_STATE (platform-agnostic GNSS fix),
+        GYRO_Z_LVL_IMU, and DESIRED_THRUST_L/R for drift
         detection. Publishes NAV_X, NAV_Y, NAV_HEADING, NAV_SPEED,
         NAV_COG, and drift estimates (DRIFT_VX, DRIFT_VY, etc.).
         All output names take an optional pub_suffix appended as
@@ -63,7 +63,7 @@ class BB_DGPS_EKF : public AppCastingMOOSApp
    char m_fname[m_fname_buff_size];
 
    // Input variable names
-   std::string m_input_gps_state;     // FIX_STATE_DGNSS from iUnicore
+   std::string m_input_gps_state;     // GNSS_STATE (platform-agnostic)
    std::string m_input_gyro_z;        // GYRO_Z_LVL_IMU from navigator
    std::string m_input_thrust_l;      // DESIRED_THRUST_L
    std::string m_input_thrust_r;      // DESIRED_THRUST_R

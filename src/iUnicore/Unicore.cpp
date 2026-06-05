@@ -38,6 +38,7 @@ Unicore::Unicore()
   m_publish_time = false;
   m_publish_state = true;
   m_publish_dto = false;
+  m_differential_gnss = false;
 
   m_parser = nullptr;
   m_thread_running = false;
@@ -349,9 +350,33 @@ bool Unicore::Iterate()
       Notify(pubName("FIX_STATE"), buildStateString());
     }
 
+    // GNSS_STATE — standardized cross-platform GNSS variable
+    {
+      std::ostringstream gs;
+      gs << std::fixed << std::setprecision(9);
+      gs << "LAT=" << m_nav_lat
+         << ",LON=" << m_nav_lon
+         << ",ALT=" << std::setprecision(3) << m_nav_alt
+         << ",SPD=" << m_nav_speed
+         << ",COG=" << std::setprecision(2) << m_track_over_ground;
+      if (m_differential_gnss) {
+        if (m_heading_valid) {
+          gs << ",HDG=" << std::setprecision(3) << m_gps_heading;
+          gs << ",HDG_ACC=" << std::setprecision(3) << m_gps_heading_acc;
+        }
+        gs << ",HDG_VALID=" << (m_heading_valid ? "true" : "false");
+      }
+      gs << ",FIX=" << (m_gps_lock ? 3 : 0)
+         << ",NSATS=" << static_cast<int>(m_num_sats)
+         << ",HDOP=" << std::setprecision(2) << m_hdop
+         << ",H_ACC=" << std::setprecision(3) << m_h_acc
+         << ",TS=" << std::setprecision(3) << m_epoch_time;
+      Notify("GNSS_STATE", gs.str());
+    }
+
     // GROUP: dto
     if (m_publish_dto) {
-      Notify(pubName("GNSS_POSITION"), m_position_dto.to_moos_string());
+      Notify(pubName("GNSS_POSITION_DTO"), m_position_dto.to_moos_string());
       Notify(pubName("GNSS_HEADING"), m_heading_dto.to_moos_string());
       Notify(pubName("GNSS_VELOCITY"), m_velocity_dto.to_moos_string());
       Notify(pubName("GNSS_DOPS"), m_dops_dto.to_moos_string());
@@ -490,6 +515,10 @@ bool Unicore::OnStartUp()
     }
     else if (param == "publish_dto") {
       m_publish_dto = (tolower(value) == "true");
+      handled = true;
+    }
+    else if (param == "differential_gnss") {
+      m_differential_gnss = (tolower(value) == "true");
       handled = true;
     }
     else if (param == "stale_data_timeout_sec" ||

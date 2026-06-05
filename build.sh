@@ -14,6 +14,7 @@ for ARGI; do
 	printf "  --help, -h                        \n" 
         printf "  --debug,   -d                     \n"
         printf "  --release, -r                     \n"
+        printf "  --minrobot, -m                    \n"
 	printf "Notes:                              \n"
 	printf " (1) All other command line args will be passed as args    \n"
 	printf "     to \"make\" when it is eventually invoked.            \n"
@@ -26,6 +27,8 @@ for ARGI; do
         BUILD_TYPE="Debug"
     elif [ "${ARGI}" = "--release" -o "${ARGI}" = "-r" ] ; then
         BUILD_TYPE="Release"
+    elif [ "${ARGI}" = "--minrobot" -o "${ARGI}" = "-n" ] ; then
+	echo ""
     else
 	CMD_LINE_ARGS=$CMD_LINE_ARGS" "$ARGI
     fi

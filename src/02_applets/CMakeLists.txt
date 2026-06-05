@@ -20,6 +20,7 @@ IF(${ON_VEHICLE})
     # bb_attitude requires Armadillo
     IF(${ARMA_AVAIL})
         ADD_SUBDIRECTORY(bb_attitude)
+        ADD_SUBDIRECTORY(sample_navigator)
     ENDIF(${ARMA_AVAIL})
 
     # test_gnss_heading uses the UM982 (Unicore) parser library

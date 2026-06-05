@@ -22,6 +22,11 @@ ENDIF(${DOODLE_RADIO_AVAIL})
 # lib_nb_utils  is header-only, no build needed
 # lib_filters   is header-only, no build needed (LPF / LPFSmoother)
 
+# Catamaran dynamics engine (requires Armadillo)
+IF(${ARMA_AVAIL})
+
+ENDIF(${ARMA_AVAIL})
+
 ##############################################################################
 #                           END of CMakeLists.txt
 ##############################################################################
