@@ -155,7 +155,7 @@ case "${HOSTNAME}" in
             ;;
         *)
             echo "$ME: Unknown hostname '${HOSTNAME}'. Exit Code 2"
-            echo "Valid hostnames: zoe, yan, xai, wil, via, uma, t--, s--, r--, q--"
+            echo "Valid hostnames: zoe, yan, xai, wes, via, uma, t--, s--, r--, q--"
             exit 2
             ;;
 esac

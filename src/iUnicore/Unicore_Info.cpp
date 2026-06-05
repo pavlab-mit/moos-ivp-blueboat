@@ -153,8 +153,12 @@ void showInterfaceAndExit()
   blk("    FIX_STATE                     - Time-bundled CSV of full   ");
   blk("                                    fix state for EKF intake.   ");
   blk("                                                                ");
+  blk("  Always published:                                             ");
+  blk("    GNSS_STATE                    - Standardized GNSS state    ");
+  blk("                                    (LAT,LON,COG,HDG,SPD,...)  ");
+  blk("                                                                ");
   blk("  DTO group (publish_dto):                                      ");
-  blk("    GNSS_POSITION, GNSS_HEADING, GNSS_VELOCITY,                 ");
+  blk("    GNSS_POSITION_DTO, GNSS_HEADING, GNSS_VELOCITY,             ");
   blk("    GNSS_DOPS, GNSS_STATUS, GNSS_RTK_STATUS                     ");
   blk("                                                                ");
   exit(0);
