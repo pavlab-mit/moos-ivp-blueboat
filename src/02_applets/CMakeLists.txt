@@ -12,6 +12,7 @@ ENDIF(${DOODLE_RADIO_AVAIL})
 # Vehicle-only applets (require Navigator hardware)
 IF(${ON_VEHICLE})
     ADD_SUBDIRECTORY(init_bb_pwm)
+    ADD_SUBDIRECTORY(test_bb_adc)
 
     # bb_attitude and sample_navigator require Armadillo
     IF(${ARMA_AVAIL})
