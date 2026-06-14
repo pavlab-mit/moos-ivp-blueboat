@@ -15,7 +15,9 @@ IF(${ON_VEHICLE})
     ADD_SUBDIRECTORY(test_bb_adc)
 
     # Boot-script helpers (used by scripts/bb_init.sh)
-    ADD_SUBDIRECTORY(bb_adc)        # battery-voltage read (low-battery gate)
+    IF(${NAVOS_VERSION} STREQUAL "1")
+        ADD_SUBDIRECTORY(bb_adc)        # battery-voltage read (low-battery gate)
+    ENDIF()
     ADD_SUBDIRECTORY(bb_neopixel)   # optional LED-strip status (future hardware)
 
     # bb_attitude requires Armadillo
