@@ -1,14 +1,14 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name:
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface/BBNavigatorInterface_Info.h
-   Last Ed:  2025-03-30
-     Brief:
-        Combined Navigator Interface for Blueboat ASV.
+      File: pBB_Status/BB_Status_Info.h
+   Last Ed: 2026-06-03
+     Brief: Help, example config, and interface text forward
+            declarations for pBB_Status.
 *************************************************************/
 
-#ifndef BBNavigatorInterface_INFO_HEADER
-#define BBNavigatorInterface_INFO_HEADER
+#ifndef BB_Status_INFO_HEADER
+#define BB_Status_INFO_HEADER
 
 void showSynopsis();
 void showHelpAndExit();
@@ -17,4 +17,3 @@ void showInterfaceAndExit();
 void showReleaseInfoAndExit();
 
 #endif
-

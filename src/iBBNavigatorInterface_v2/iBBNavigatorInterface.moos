@@ -1,0 +1,183 @@
+//----------------------------------------------------------
+// iBBNavigatorInterface Example Configuration
+// Combined Navigator Interface for Blueboat ASV
+// Provides: Thrust control, AHRS, ADC, IPT sensors, LEDs
+//----------------------------------------------------------
+
+ServerHost = localhost
+ServerPort = 9000
+
+Community  = blueboat
+
+//----------------------------------------------------------
+ProcessConfig = iBBNavigatorInterface
+{
+  AppTick   = 10
+  CommsTick = 10
+
+  //=========================================================
+  // THRUST CONTROL CONFIGURATION
+  //=========================================================
+
+  // PWM pin assignments (1-indexed, Navigator board)
+  left_thruster_pin   = 15      // PWM channel for left thruster
+  right_thruster_pin  = 17      // PWM channel for right thruster
+
+  // Thrust limits (percent, -100 to 100)
+  max_thrust          = 100     // Maximum thrust command
+  min_thrust          = -100    // Minimum thrust command (reverse)
+  thruster_dead_band  = 5       // Dead band percentage
+
+  // Thrust inversion (if thruster spins wrong direction)
+  left_thruster_invert  = false
+  right_thruster_invert = false
+
+  // Enable/disable thrusters
+  thruster_enabled    = true
+
+  // Low-pass filter alpha for smooth thrust transitions
+  // alpha = dt/(tau + dt), higher = faster response
+  thruster_alpha      = 0.1
+
+  // ESC initialization on startup (sends min/max/neutral sequence)
+  initialize_esc      = true
+
+  // Safety timeout - zeroes thrust if no command received (seconds)
+  // Set to 0 or negative to disable
+  thrust_command_timeout = 2.0
+
+  // RC deadman watchdog. When enabled, the vehicle is safed
+  // (thrust zeroed) if the RC link has been bad for longer than
+  // rc_deadman_timeout seconds. Active in BOTH RC and autonomous
+  // mode - treats the RC link as a vehicle-side deadman. The boat
+  // boots SAFED (last-good-time starts at 0) until the first RC
+  // mail arrives. Override at runtime via the RC_DEADMAN_ENABLED
+  // MOOS variable (set to "false" for over-the-horizon missions).
+  rc_deadman_enabled = true
+  rc_deadman_timeout = 2.0
+
+  //=========================================================
+  // RC CONTROL CONFIGURATION
+  //=========================================================
+
+  // Bank angle limit for RC turn mixing (degrees)
+  theta_b     = 90.0
+
+  // Turn sensitivity for RC control (percent)
+  turn_scale  = 100
+
+  //=========================================================
+  // ADC / POWER MONITORING CONFIGURATION
+  //=========================================================
+
+  // Number of batteries (1-8, affects current calibration)
+  nbats = 4
+
+  // Voltage scaling: measured_voltage = (adc_raw - offset) * scale
+  voltage_scale  = 11.132
+  voltage_offset = 0.0
+
+  // Current scaling (uses battery-specific calibration)
+  current_scale  = 37.8788
+  current_offset = 0.3235
+
+  // Rolling average window for power monitoring (seconds)
+  rolling_window_period = 2.0
+
+  //=========================================================
+  // AHRS CONFIGURATION
+  //=========================================================
+
+  // Sensor sampling rate (Hz) - typically 100-200 Hz
+  sample_rate = 150
+
+  // Madgwick filter gain (beta) - higher = faster convergence, more noise
+  // Typical values: 0.1 (slow/stable) to 0.5 (fast/noisy)
+  ahrs_gain = 0.2
+
+  // Magnetometer calibration file (AK09915)
+  // Format: b = bx,by,bz and A = a11,a12,...,a33 (3x3 matrix)
+  mag_ak_cal_file = /home/pi/calibration/mag_cal.txt
+
+  // IMU calibration file (optional)
+  // Format: gyro_bias = gx,gy,gz and accel_bias = ax,ay,az
+  // imu_cal_file = /home/pi/calibration/imu_cal.txt
+
+  // Sensor mounting offsets (degrees)
+  // Apply rotation to align sensor frame with body frame
+  roll_offset  = 0.0
+  pitch_offset = 0.0
+  yaw_offset   = 0.0
+
+  // Magnetic declination for your location (degrees)
+  // Positive = east, Negative = west
+  // Find your value at: https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml
+  declination_deg = -14.058
+
+  // Operating heading offset (degrees, for mission-specific adjustments)
+  operating_heading_offset = 0.0
+
+  //=========================================================
+  // PUBLICATION SUFFIXES
+  //=========================================================
+  // Two source categories, each with its own configurable
+  // suffix appended as "_<suffix>" to the base var name.
+  //   AHRS suffix -> NAV_ROLL, NAV_PITCH, NAV_YAW, NAV_HEADING
+  //   IMU  suffix -> GYRO_X,   GYRO_Y,   GYRO_Z,   GYRO_Z_LVL
+  // Set to empty string to publish bare base names.
+
+  ahrs_pub_suffix = AHRS    // -> NAV_ROLL_AHRS, ..., NAV_HEADING_AHRS
+  imu_pub_suffix  = IMU     // -> GYRO_X_IMU, ..., GYRO_Z_LVL_IMU
+
+  //=========================================================
+  // LED CONFIGURATION
+  //=========================================================
+
+  // RGBW LED color (R,G,B,W values 0-255)
+  // rgbw_color = 0,255,0,0
+
+  //=========================================================
+  // DEBUG
+  //=========================================================
+
+  debug = false
+}
+
+//----------------------------------------------------------
+// SUBSCRIPTIONS (inputs to iBBNavigatorInterface)
+//----------------------------------------------------------
+// DESIRED_THRUST_L     - Left thruster command (-100 to 100)
+// DESIRED_THRUST_R     - Right thruster command (-100 to 100)
+// ALL_STOP             - Emergency stop ("true"/"false")
+// MISSION_COMPLETE     - Clean shutdown trigger ("true")
+// RC_CONNECTED         - RC controller connection status
+// RC_CH1 - RC_CH16     - RC channel values
+// RC_DEADMAN_ENABLED   - Runtime override for the RC deadman ("true"/"false")
+
+//----------------------------------------------------------
+// PUBLICATIONS (outputs from iBBNavigatorInterface)
+//----------------------------------------------------------
+// Thrust:
+//   THRUST_SET_LEFT, THRUST_SET_RIGHT - Actual thrust applied
+//   NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT - Same as above
+//   NVGR_THRUST_TIMEOUT - Autonomous-mode command timeout ("true"/"false")
+//   NVGR_RC_MODE, NVGR_RC_CONNECTED - RC control status
+//   NVGR_RC_DEADMAN_ACTIVE - RC deadman tripped ("true"/"false")
+//
+// AHRS (suffixed with _<ahrs_pub_suffix>, default _AHRS):
+//   NAV_ROLL, NAV_PITCH, NAV_YAW - Euler angles (degrees)
+//   NAV_HEADING - Magnetic heading with declination (degrees)
+//
+// IMU (suffixed with _<imu_pub_suffix>, default _IMU):
+//   GYRO_X, GYRO_Y, GYRO_Z - Body rates (rad/s)
+//   GYRO_Z_LVL - Level-frame yaw rate (rad/s)
+//
+// Power:
+//   NVGR_VOLTAGE, NVGR_CURRENT - Instantaneous readings
+//   NVGR_ROLLING_VOLTAGE, NVGR_ROLLING_CURRENT, NVGR_ROLLING_POWER
+//   NVGR_ADC_1, NVGR_ADC_2, NVGR_ADC_3, NVGR_ADC_4 - Raw ADC
+//
+// Sensors:
+//   NVGTR_IT_C - Navigator internal temperature (Celsius)
+//   NVGTR_IP_KPA - Navigator internal pressure (kPa)
+//   RPI_TEMP - Raspberry Pi CPU temperature (Celsius)

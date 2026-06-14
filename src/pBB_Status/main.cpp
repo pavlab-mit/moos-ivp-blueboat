@@ -1,17 +1,17 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name:
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface/main.cpp
-   Last Ed:  2025-03-30
-     Brief:
-        Combined Navigator Interface for Blueboat ASV.
+      File: pBB_Status/main.cpp
+   Last Ed: 2026-06-03
+     Brief: Launcher for pBB_Status: parses CLI args (-h, -e,
+            -i, -v, --alias=) and runs the consolidator app.
 *************************************************************/
 
 #include <string>
 #include "MBUtils.h"
 #include "ColorParse.h"
-#include "BBNavigatorInterface.h"
-#include "BBNavigatorInterface_Info.h"
+#include "BB_Status.h"
+#include "BB_Status_Info.h"
 
 using namespace std;
 
@@ -42,13 +42,12 @@ int main(int argc, char *argv[])
     showHelpAndExit();
 
   cout << termColor("green");
-  cout << "iBBNavigatorInterface launching as " << run_command << endl;
+  cout << "pBB_Status launching as " << run_command << endl;
   cout << termColor() << endl;
 
-  BBNavigatorInterface app;
+  BB_Status BB_Status;
 
-  app.Run(run_command.c_str(), mission_file.c_str());
+  BB_Status.Run(run_command.c_str(), mission_file.c_str());
 
   return(0);
 }
-

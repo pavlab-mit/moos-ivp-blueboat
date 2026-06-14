@@ -5,14 +5,18 @@
 
 if(ARMA_AVAIL)
   SET(SRC
-    BBNavigatorInterface.cpp
-    BBNavigatorInterface_Info.cpp
+    BBNavigatorInterface_v2.cpp
+    BBNavigatorInterface_v2_Info.cpp
     main.cpp
   )
 
   ADD_EXECUTABLE(iBBNavigatorInterface ${SRC})
 
   add_dependencies(iBBNavigatorInterface navigator_lib)
+
+  if(RASPBERRY_PI_VERSION STREQUAL "5")
+    target_compile_definitions(iBBNavigatorInterface PRIVATE IBBNAV_RASPBERRY_PI5=1)
+  endif()
 
   add_definitions(-DARMA_DONT_USE_WRAPPER)
 

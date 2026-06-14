@@ -1,0 +1,29 @@
+//------------------------------------------------
+// pBB_Status config block
+//
+// Runs in the FRONT-SEAT community. Publishes one consolidated
+// BB_STATUS string for shoreside monitoring (Subsystem B).
+
+ProcessConfig = pBB_Status
+{
+   AppTick   = 4
+   CommsTick = 4
+
+   // MOOS variable to publish the consolidated status into.
+   status_var = BB_STATUS
+
+   // Seconds between BB_STATUS posts (independent of AppTick).
+   publish_interval = 0.5
+
+   // Seconds with no update before an input group is flagged stale.
+   stale_time = 3.0
+
+   // Pack voltage (V) below which batt is reported LOW.
+   low_voltage_thresh = 13.0
+
+   // Shoreside collector: BB_STATUS is pushed here as a UDP datagram
+   // each post (in addition to the local MOOS post above). Leave tx_ip
+   // empty to disable UDP and publish to MOOSDB only.
+   tx_ip   = 10.1.0.10
+   tx_port = 9300
+}

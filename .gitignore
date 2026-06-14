@@ -59,6 +59,8 @@ lib/
 *#
 *~
 
+.claude/
+.DS_Store
 
 # Python
 __pycache__/

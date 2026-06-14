@@ -4,8 +4,8 @@
 #   Script: launch_vehicle.sh
 #   Author: Raymond Turrisi
 #   LastEd: October 2024
-#    Brief: 
-#         Launches a single heron on the vehicle or in 
+#    Brief:
+#         Launches a single heron on the vehicle or in
 #         simulation
 #--------------------------------------------------------------
 #  Part 1: Declare global var defaults
@@ -117,13 +117,13 @@ case "${HOSTNAME}" in
             BSEAT_IP="10.34.1.100"
             BCAST_IP="10.34.1.100"
             ;;
-        "via")
+        "via-bb")
             VNAME="via"
             IP_ADDR="10.35.1.1"
             BSEAT_IP="10.35.1.100"
             BCAST_IP="10.35.1.100"
             ;;
-        "uma")
+        "uma-bb")
             VNAME="uma"
             IP_ADDR="10.36.1.1"
             BSEAT_IP="10.36.1.100"
@@ -184,9 +184,13 @@ fi
 #  Part 5: Create the .moos and .bhv files. 
 #--------------------------------------------------------------
 
+# Ensure the output dirs exist (a fresh checkout has neither; both are
+# .gitignored). Without these the auto-launch dies before nsplug runs.
+mkdir -p targs
+
 if [ "$MISSION_NAME" = "" ]; then
     MISSION_NAME=$(mhash_gen)
-    mkdir logs/$MISSION_NAME
+    mkdir -p logs/$MISSION_NAME
 fi
 
 NSFLAGS="-s -f"
