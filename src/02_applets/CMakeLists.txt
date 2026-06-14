@@ -12,11 +12,10 @@ ENDIF(${DOODLE_RADIO_AVAIL})
 # Vehicle-only applets (require Navigator hardware)
 IF(${ON_VEHICLE})
     ADD_SUBDIRECTORY(init_bb_pwm)
-    ADD_SUBDIRECTORY(test_bb_adc)
 
     # Boot-script helpers (used by scripts/bb_init.sh)
     IF(${NAVOS_VERSION} STREQUAL "1")
-        ADD_SUBDIRECTORY(bb_adc)        # battery-voltage read (low-battery gate)
+        ADD_SUBDIRECTORY(test_bb_adc)        # battery-voltage read (low-battery gate)
     ENDIF()
     ADD_SUBDIRECTORY(bb_neopixel)   # optional LED-strip status (future hardware)
 
