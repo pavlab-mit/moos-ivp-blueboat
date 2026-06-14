@@ -1,0 +1,64 @@
+# Reference unit -- runs bb_init.sh once at boot to decide whether to
+# auto-launch the front-seat mission. Install with:
+#
+#     sudo cp scripts/systemd/bb-init.service /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable bb-init.service
+#
+# Runs as root so it can write /var/log, drive the Navigator, and
+# `systemctl start` the mission unit; it drops to $BOAT_USER (pi) for the
+# git pull, build, and helper binaries internally.
+#
+# PER-BOAT CONFIG lives in the Environment= lines below. bb_init.sh has a
+# built-in default for every BOAT_* var, so only add a line for what differs
+# on this boat. The build-time vars (NAVOS_VERSION, RASPBERRY_PI_VERSION,
+# NAV_PLATFORM_TYPE) are NOT here -- they stay in the pi login profile and the
+# rebuild inherits them via `sudo -u pi -H bash -lc`.
+
+[Unit]
+Description=BlueBoat init (battery + attitude gate -> update -> launch)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# Stay "active (exited)" after the decision so /run/bb_boot (and the status
+# file) survive for inspection over SSH until the next boot.
+RemainAfterExit=yes
+# Retry a few times on a genuine error (exit!=0); standing by is exit 0 and
+# does not retry. systemd's default StartLimit caps the retries.
+Restart=on-failure
+RestartSec=5
+# Let systemd own /run/bb_boot (created 0755 root, cleaned on stop).
+RuntimeDirectory=bb_boot
+RuntimeDirectoryMode=0755
+
+# ---- Per-boat overrides (uncomment/edit as needed) ----
+# Low-battery gate -- CALIBRATE for this boat's pack (volts). Default 13.0.
+#Environment=BOAT_VOLT_MIN=14.2
+# Mission unit to start once the gates pass. Default fs-mission.service.
+#Environment=BOAT_MISSION_SERVICE=fs-mission.service
+# Pitch gate: |pitch| deg at/above which we stand by. Default 15.
+#Environment=BOAT_PITCH_LIMIT=15
+# PWM0 status LED (Pi GPIO18). Override pin/polarity only if wired differently.
+#Environment=BOAT_LED_GPIO=18
+#Environment=BOAT_LED_ACTIVE_HIGH=true
+# Drive an LED strip too (once installed). Default false.
+#Environment=BOAT_NEOPIXEL=false
+#Environment=BOAT_NEOPIXEL_COUNT=24
+# Pin the pull to a branch (handy while testing). Default: current branch.
+#Environment=BOAT_GIT_BRANCH=master
+# Disable the boot-time pull/build entirely. Defaults true.
+#Environment=BOAT_DO_PULL=true
+#Environment=BOAT_DO_BUILD=true
+# Identity/paths (rarely needed). Defaults: pi / /home/pi/moos-ivp-blueboat.
+#Environment=BOAT_USER=pi
+#Environment=BOAT_REPO_DIR=/home/pi/moos-ivp-blueboat
+
+ExecStart=/home/pi/moos-ivp-blueboat/scripts/bb_init.sh
+# Pull + build can take a little while on a fresh remote change.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

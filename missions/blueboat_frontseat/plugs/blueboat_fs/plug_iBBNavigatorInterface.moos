@@ -50,7 +50,7 @@ ProcessConfig = iBBNavigatorInterface
   // outside RC range is acceptable, either at config time
   // (rc_deadman_enabled = false) or at runtime by publishing
   // RC_DEADMAN_ENABLED = "false" to the MOOSDB.
-  rc_deadman_enabled = true
+  rc_deadman_enabled = false
   rc_deadman_timeout = 2.0
 
   //=========================================================

@@ -18,6 +18,17 @@ if(ARMA_AVAIL)
   navigator_lib
   )
 
+  # NAVOS v1 / v2 selection. When building against navigator-lib 0.1.2 the
+  # applet must call set_navigator_version()/set_raspberry_pi_version() before
+  # init(); these defines gate that prelude in main.cpp. Mirrors init_bb_pwm.
+  if(NAVIGATOR_LIB_VERSION STREQUAL "2"
+     OR NAVOS_VERSION STREQUAL "2")
+    target_compile_definitions(bb_attitude PRIVATE IBBNAV_NAVOS_V2=1)
+    if(RASPBERRY_PI_VERSION STREQUAL "5")
+      target_compile_definitions(bb_attitude PRIVATE IBBNAV_RASPBERRY_PI5=1)
+    endif()
+  endif()
+
   target_include_directories(bb_attitude PRIVATE
    ${NAVIGATOR_INCLUDE}
    ${ARMADILLO_INCLUDE_DIR}
