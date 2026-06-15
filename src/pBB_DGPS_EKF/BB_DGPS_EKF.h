@@ -87,6 +87,8 @@ class BB_DGPS_EKF : public AppCastingMOOSApp
    double m_gps_stale_threshold;      // Seconds before GPS is considered stale for override
    bool m_enable_manual_override;     // Whether to publish MOOS_MANUAL_OVERRIDE
 
+  bool m_passthrough;   // If true, publish raw DGPS measurement, bypassing the filter
+
    // Drift visualization configuration
    bool m_enable_drift_seglist;       // Whether to publish VIEW_SEGLIST for drift vector
    double m_drift_vector_scale;       // Scale factor for drift vector visualization (m per m/s)
