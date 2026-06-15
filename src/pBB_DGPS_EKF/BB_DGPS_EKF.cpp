@@ -55,7 +55,8 @@ BB_DGPS_EKF::BB_DGPS_EKF()
     m_nav_published(false),
     m_gps_update_count(0),
     m_iterate_count(0),
-    m_geodesy_initialized(false)
+    m_geodesy_initialized(false),
+    m_passthrough(false)
 {
   memset(m_fname, '\0', m_fname_buff_size);
 }
@@ -269,6 +270,23 @@ bool BB_DGPS_EKF::Iterate()
     }
   }
   m_gps_valid = gps_currently_valid;
+
+  // ---- Passthrough: publish raw DGPS straight to the helm, no EKF ----
+  if (m_passthrough) {
+    if (m_gps_valid && m_latest_gps.isValid() && m_geodesy_initialized) {
+      Notify(outName("NAV_X"),       m_latest_gps.nav_x);
+      Notify(outName("NAV_Y"),       m_latest_gps.nav_y);
+      Notify(outName("NAV_HEADING"), m_latest_gps.heading);  // deg true [0,360)
+      Notify(outName("NAV_SPEED"),   m_latest_gps.speed);    // m/s
+      Notify(outName("NAV_COG"),     m_latest_gps.cog);      // deg
+      Notify(outName("NAV_LAT"),     m_latest_gps.nav_lat);
+      Notify(outName("NAV_LONG"),    m_latest_gps.nav_lon);
+      m_nav_published = true;
+    }
+    Notify("EKF_STATUS", "PASSTHROUGH");
+    AppCastingMOOSApp::PostReport();
+    return true;
+  }
 
   // Initialize filter on first valid GPS
   if (!m_ekf.isInitialized() && gps_fresh && m_latest_gps.isValid()) {
@@ -559,6 +577,11 @@ bool BB_DGPS_EKF::OnStartUp()
     }
     else if (param == "enable_manual_override") {
       m_enable_manual_override = (tolower(value) == "true");
+      handled = true;
+    }
+
+    else if (param == "passthrough") {
+      m_passthrough = (tolower(value) == "true");
       handled = true;
     }
 
