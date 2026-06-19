@@ -1,0 +1,17 @@
+//------------------------------------------
+// pHelmIvP Config Block 
+
+ProcessConfig = pHelmIvP
+{
+  AppTick    = 1
+  CommsTick  = 1
+
+  ok_skew      = any
+  
+  Behaviors    = targs/targ_$(VNAME).bhv  
+  Verbose      = false
+  Domain       = course:0:359:360
+  Domain       = speed:0:$(MAX_SPD):51
+
+  // hold_on_app  = pContactMgrV20
+}

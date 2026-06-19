@@ -1,0 +1,30 @@
+//------------------------------------------------
+// pBB_Health config block
+// Health monitoring for BlueBoat platform.
+// Monitors battery, thermal, EKF, GPS, and RC state.
+// Publishes visual indicators when in RC mode.
+
+ProcessConfig = pBB_Health
+{
+  AppTick   = 4
+  CommsTick = 4
+
+  // Staleness threshold (seconds)
+  stale_time = 3.0
+
+  // Battery thresholds
+  low_voltage_thresh = 13.0       // Volts - warn below this
+  high_current_thresh = 30.0      // Amps - warn above this
+
+  // Thermal thresholds (Celsius)
+  high_pi_temp_thresh = 80.0
+  high_internal_temp_thresh = 70.0
+
+  // GPS quality threshold
+  hdop_thresh = 2.0               // Warn if HDOP exceeds this
+
+  // RC mode circle radius (meters)
+  rc_circle_radius = 2.5          // Yellow ring around vehicle in RC mode
+
+  debug = false
+}

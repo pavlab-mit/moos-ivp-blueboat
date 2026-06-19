@@ -1,0 +1,46 @@
+//----------------------------------------------------------
+// pBBPID example configuration block
+//
+// Cascaded PID:  speed -> thrust,  heading -> yaw-rate -> rudder
+// Feeds DESIRED_THRUST / DESIRED_RUDDER to pThrustMix.
+//
+// IMPORTANT: when running pBBPID, pThrustMix must be a PURE MIXER.
+// Disable its internal yaw scheme so the two controllers don't fight:
+//     enable_yaw_feedback = false
+//     enable_speed_scaling = false
+//----------------------------------------------------------
+ProcessConfig = pBBPID
+{
+  AppTick   = 10
+  CommsTick = 10
+
+  // Gains:  param = Kp, Ki, Kd
+  speed_pid   = 20, 5, 0       // thrust per (m/s) of speed error
+  heading_pid = 1.0, 0, 0      // outer: heading err (deg) -> yaw rate (deg/s)
+  yawrate_pid = 2.0, 0.1, 0    // inner: yaw-rate err (deg/s) -> rudder
+
+  // Limits
+  max_thrust             = 100
+  max_rudder             = 100
+  max_yawrate            = 25     // deg/s; SHRINK THIS AT HIGH SPEED (schedule hook)
+  speed_integral_limit   = 50
+  yawrate_integral_limit = 50
+
+  // Conventions -- VERIFY ON THE BENCH:
+  //  - yawrate_scale converts GYRO_Z_LVL_IMU to deg/s and fixes its sign.
+  //    Use 57.2958 if the gyro reports rad/s; use -57.2958 if sign is inverted.
+  //  - rudder_polarity flips DESIRED_RUDDER sign to match the mixer.
+  yawrate_scale    = 57.2958
+  rudder_polarity  = 1
+  allow_reverse    = false
+  command_stale_thresh = 1.5    // s; zero outputs if helm stops commanding
+
+  // Variable name overrides (defaults shown)
+  // desired_speed_var   = DESIRED_SPEED
+  // desired_heading_var = DESIRED_HEADING
+  // nav_speed_var       = NAV_SPEED
+  // nav_heading_var     = NAV_HEADING
+  // nav_yawrate_var     = GYRO_Z_LVL_IMU
+  // thrust_var          = DESIRED_THRUST
+  // rudder_var          = DESIRED_RUDDER
+}

@@ -1,0 +1,33 @@
+//*******************************************************
+// ShoreSide Configuration File
+ServerHost = localhost
+ServerPort = $(MOOS_PORT)
+Community  = shoreside
+
+#include plugs/shared_all/plug_origin_warp.moos
+  
+//--------------------------------------------------------
+Processconfig = ANTLER
+{
+  MSBetweenLaunches = 100
+
+  Run = MOOSDB          @ NewConsole = false
+	Run = pMarineViewer   @ NewConsole = false
+  Run = pLogger         @ NewConsole = false
+  Run = uProcessWatch   @ NewConsole = false
+  Run = pShare          @ NewConsole = false
+  Run = pHostInfo       @ NewConsole = false
+  Run = uFldShoreBroker @ NewConsole = false
+  Run = uFldNodeComms   @ NewConsole = false
+  Run = pRealm          @ NewConsole = false
+}
+
+#include plugs/shared_all/plug_pShare.moos
+#include plugs/shared_all/plug_pHostInfo.moos
+#include plugs/shared_all/plug_uProcessWatch.moos
+#include plugs/shared_all/plug_pRealm.moos
+
+#include plugs/shoreside/plug_uFldShoreBroker.moos
+#include plugs/shoreside/plug_uFldNodeComms.moos
+#include plugs/shoreside/plug_pLogger.moos
+#include plug_pMarineViewer.moos

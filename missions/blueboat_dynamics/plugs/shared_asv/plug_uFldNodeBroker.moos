@@ -1,0 +1,37 @@
+//--------------------------------------------------
+// uFldNodeBroker config block
+
+ProcessConfig = uFldNodeBroker
+{
+  AppTick   = 2
+  CommsTick = 2
+
+	app_logging = true
+
+  try_shore_host = pshare_route=$(SHORE_IP):$(SHORE_PSHARE)
+
+	//shadow_shore = ip=192.168.1.217, name=fred
+	
+  bridge = src=VIEW_POLYGON
+  bridge = src=VIEW_CIRCLE
+  bridge = src=VIEW_POINT
+  bridge = src=VIEW_SEGLIST
+  bridge = src=VIEW_COMMS_PULSE
+  bridge = src=APPCAST
+  bridge = src=REALMCAST
+  bridge = src=TASK_MGR_STAT
+  bridge = src=BVOI_STATE
+  bridge = src=VOI_REGION_POLY
+  bridge = src=CONVOY_RECAP
+  bridge = src=CONVOY_STAT_RECAP
+  bridge = src=CONVOY_SPD_POLICY
+  bridge = src=NODE_REPORT_LOCAL,  alias=NODE_REPORT
+  bridge = src=QUIT_MISSION
+
+#ifdef MEDIATED yes
+  bridge = src=MEDIATED_MESSAGE_LOCAL, alias=MEDIATED_MESSAGE
+  bridge = src=ACK_MESSAGE_LOCAL, alias=ACK_MESSAGE
+#else
+	bridge = src=NODE_MESSAGE_LOCAL, alias=NODE_MESSAGE
+#endif
+	}

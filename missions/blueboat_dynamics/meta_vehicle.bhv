@@ -1,0 +1,85 @@
+//*******************************************************
+// Vehicle behavior configuration file
+
+initialize   DEPLOY = false
+initialize   RETURN = false
+initialize   STATION_KEEP = false
+
+set MODE = ACTIVE {
+  DEPLOY = true
+} INACTIVE
+
+set MODE = STATION-KEEPING {
+  MODE = ACTIVE
+  STATION_KEEP = true
+}
+
+set MODE = RETURNING {
+  MODE = ACTIVE
+  RETURN = true
+  STATION_KEEP = false
+} TRAVERSING
+
+	
+//----------------------------------------------
+Behavior = BHV_LegRun
+{
+  name      = waypt_legrun
+  pwt       = 100
+  condition = MODE==TRAVERSING
+
+  updates   = LEGRUN_UPDATE
+  perpetual = true
+
+                lead = 6
+         lead_damper = 1
+              speed = $(SPEED)  // meters per second
+	      
+        capture_line = true
+      capture_radius = 2
+         slip_radius = 10
+
+  
+    // Legrun parameters
+    p1 = -20:-60
+    p2 = 45:-30
+    turn1_bias = 0
+    turn2_bias = 0
+    turn1_dir = port
+    turn2_dir = starboard
+		turn_rad = 7
+
+    init_leg_mode = fixed
+    turn_endflag = COMPLETED_TURN=true
+
+    visual_hints = nextpt_color=yellow
+    visual_hints = nextpt_vertex_size=8
+    visual_hints = nextpt_lcolor=gray70
+    visual_hints = vertex_color=dodger_blue, edge_color=white
+    visual_hints = vertex_size=5, edge_size=1
+}
+
+//----------------------------------------------
+Behavior=BHV_Waypoint
+{
+  name       = waypt_return
+  pwt        = 100
+  condition  = MODE==RETURNING
+  perpetual  = true
+  updates    = RETURN_UPDATE
+  endflag    = RETURN = false
+  endflag    = DEPLOY = false
+  endflag    = MISSION = complete
+
+	   speed = $(SPEED)
+  capture_radius = 2.0
+     slip_radius = 8.0
+
+  points = $(RETURN_POS)
+
+ }
+
+#include plugs/bhvs/std_bhvs/plug_stationkeep.bhv
+#include plugs/bhvs/std_bhvs/plug_opregion.bhv
+
+

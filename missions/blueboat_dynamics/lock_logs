@@ -1,0 +1,11 @@
+#!/bin/bash
+#--------------------------------------------------------------
+#   Script: lock_logs
+#   Author: Raymond Turrisi
+#   LastEd: October 2024
+#    Brief: 
+#         Creates the loglock hidden file which changes the 
+#         behavior of clean.sh
+#--------------------------------------------------------------
+
+touch .loglock

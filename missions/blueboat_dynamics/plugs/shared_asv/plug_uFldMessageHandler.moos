@@ -1,0 +1,10 @@
+//--------------------------------------------
+// uFldMessageHandler Config Block
+
+ProcessConfig = uFldMessageHandler
+{
+  AppTick   = 4
+  CommsTick = 4
+
+  strict_addressing = false
+}
