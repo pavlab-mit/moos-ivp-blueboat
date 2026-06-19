@@ -22,9 +22,22 @@ ProcessConfig = pBBPID
   // Limits
   max_thrust             = 100
   max_rudder             = 100
-  max_yawrate            = 25     // deg/s; SHRINK THIS AT HIGH SPEED (schedule hook)
+  max_yawrate            = 25     // deg/s; default cap (overridden by schedule)
   speed_integral_limit   = 50
   yawrate_integral_limit = 50
+
+  // Gain scheduling on measured speed (NAV_SPEED).
+  //   - Linearly interpolates the inner yaw-rate PID gains + max_yawrate
+  //     between breakpoints; holds endpoint values outside the range.
+  //   - This is the answer to the deep-hull problem: at low speed you can
+  //     turn on a dime (high Kp, large rate cap); at speed the hull resists,
+  //     so back Kp off and cap the commanded rate to avoid saturating rudder.
+  //   - When enabled, the schedule OWNS the yaw-rate gains each tick, so
+  //     live BBPID_YAWRATE_K* pokes are overwritten; retune the table instead.
+  enable_gain_schedule = true
+  schedule_point = speed=0.5, kp=3.0, ki=0.10, kd=0.0,  max_yawrate=30
+  schedule_point = speed=1.5, kp=2.0, ki=0.10, kd=0.0,  max_yawrate=20
+  schedule_point = speed=3.0, kp=1.2, ki=0.05, kd=0.2,  max_yawrate=12
 
   // Conventions -- VERIFY ON THE BENCH:
   //  - yawrate_scale converts GYRO_Z_LVL_IMU to deg/s and fixes its sign.

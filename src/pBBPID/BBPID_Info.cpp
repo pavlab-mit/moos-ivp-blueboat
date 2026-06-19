@@ -80,6 +80,14 @@ void showExampleConfigAndExit()
   blk("  speed_integral_limit   = 50                                   ");
   blk("  yawrate_integral_limit = 50                                   ");
   blk("                                                                ");
+  blk("  // Speed-scheduled yaw-rate gains (linearly interpolated).     ");
+  blk("  // Shrink Kp + max_yawrate as speed rises so the deep hull     ");
+  blk("  // isn't over-driven at speed. Endpoints are held (no extrap). ");
+  blk("  enable_gain_schedule = true                                   ");
+  blk("  schedule_point = speed=0.5, kp=3.0, ki=0.10, kd=0.0,  max_yawrate=30");
+  blk("  schedule_point = speed=1.5, kp=2.0, ki=0.10, kd=0.0,  max_yawrate=20");
+  blk("  schedule_point = speed=3.0, kp=1.2, ki=0.05, kd=0.2,  max_yawrate=12");
+  blk("                                                                ");
   blk("  // Conventions (verify on the bench!)                         ");
   blk("  yawrate_scale    = 57.2958  // raw yawrate -> deg/s; sign flip");
   blk("  rudder_polarity  = 1        // set -1 if rudder sign inverted ");
