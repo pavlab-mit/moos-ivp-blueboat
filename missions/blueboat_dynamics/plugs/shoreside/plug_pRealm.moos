@@ -1,0 +1,9 @@
+//------------------------------------------
+// pRealm Config Block
+
+ProcessConfig = pRealm
+{
+  AppTick   = 4
+  CommsTick = 4
+
+}

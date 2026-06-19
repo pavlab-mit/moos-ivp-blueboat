@@ -26,6 +26,7 @@ ADD_SUBDIRECTORY(02_applets)
 
 # Processes - always build (developer simulation support)
 ADD_SUBDIRECTORY(pThrustMix)
+ADD_SUBDIRECTORY(pBBPID)
 ADD_SUBDIRECTORY(pBB_Health)
 ADD_SUBDIRECTORY(pBB_Status)
 ADD_SUBDIRECTORY(uRTCMBroker)
