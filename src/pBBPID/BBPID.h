@@ -34,6 +34,7 @@ class BBPID : public AppCastingMOOSApp
  protected:
    void registerVariables();
    bool handleConfigLine(const std::string& param, const std::string& value);
+   bool parseSchedulePoint(const std::string& value);
    void handleLiveGainMail(const std::string& key, double dval);
    void applyEngineLimits();
 
@@ -63,6 +64,10 @@ class BBPID : public AppCastingMOOSApp
    bool   m_have_nav_speed;
    bool   m_have_nav_heading;
    bool   m_have_nav_yawrate;
+
+   // When true, yaw rate is derived from NAV_HEADING (no external gyro var),
+   // so the iterate gate must not wait on m_have_nav_yawrate.
+   bool   m_yawrate_derive;
 
  private: // Bookkeeping
    bool   m_active;          // false until first desired+nav mail
