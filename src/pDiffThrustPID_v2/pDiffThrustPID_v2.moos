@@ -1,0 +1,27 @@
+//------------------------------------------------------------
+// pDiffThrustPID_v2 config block
+//   helm DESIRED_HEADING + DESIRED_SPEED  ->  DESIRED_THRUST_L / _R
+//------------------------------------------------------------
+
+ProcessConfig = pDiffThrustPID_v2
+{
+  AppTick   = 10
+  CommsTick = 10
+
+  // surge: feedforward + integrator -> total thrust
+  speed_ff_points = 0,0 : 0.5,4.25 : 1.0,17 : 1.5,38 : 2.0,68 : 2.4,98
+  speed_ki        = 0
+  speed_i_max     = 15
+
+  // yaw: bank-angle mixing, FF on heading, gyro feedback in the integral only
+  theta_b      = 30
+  max_yaw_rate = 30
+  yaw_ff_c0    = 1.5
+  yaw_ff_c1    = 2.4
+  yaw_ki       = 0
+  yaw_i_max    = 25
+
+  // allocation: max differential vs speed (sets reverse / no-reverse)
+  delta_cap_points = 0,100 : 0.6,100 : 0.8,11 : 1.2,25 : 1.7,50 : 2.4,50
+  u_max            = 100
+}

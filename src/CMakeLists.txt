@@ -26,6 +26,7 @@ ADD_SUBDIRECTORY(02_applets)
 
 # Processes - always build (developer simulation support)
 ADD_SUBDIRECTORY(pThrustMix)
+ADD_SUBDIRECTORY(pDiffThrustPID_v2)
 ADD_SUBDIRECTORY(pBBPID)
 ADD_SUBDIRECTORY(pBB_Health)
 ADD_SUBDIRECTORY(pBB_Status)
@@ -35,6 +36,7 @@ ADD_SUBDIRECTORY(iBackSeatBroker)
 ADD_SUBDIRECTORY(uBBBundler)
 ADD_SUBDIRECTORY(iUnicore)
 ADD_SUBDIRECTORY(iRCReader)
+ADD_SUBDIRECTORY(pBBDynamicsMissionManager)
 
 # Armadillo-dependent processes
 IF(${ARMA_AVAIL})
