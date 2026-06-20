@@ -37,6 +37,7 @@ BBPID::BBPID()
   m_have_nav_speed   = false;
   m_have_nav_heading = false;
   m_have_nav_yawrate = false;
+  m_yawrate_derive   = false;
 
   m_active            = false;
   m_last_thrust       = 0.0;
@@ -140,7 +141,10 @@ bool BBPID::Iterate()
   AppCastingMOOSApp::Iterate();
   m_iterations_run++;
 
-  bool have_nav = m_have_nav_speed && m_have_nav_heading && m_have_nav_yawrate;
+  // In derive_heading mode the yaw rate comes from NAV_HEADING, so don't
+  // wait on a separate (never-published) yaw-rate variable.
+  bool have_yawrate = m_have_nav_yawrate || m_yawrate_derive;
+  bool have_nav = m_have_nav_speed && m_have_nav_heading && have_yawrate;
   bool have_cmd = m_have_des_speed && m_have_des_heading;
 
   // Hold-off until we have a complete picture.
@@ -265,6 +269,25 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
   else if(param == "speed_integral_limit")   { m_speed_integral_limit = dval;   return(true); }
   else if(param == "yawrate_integral_limit") { m_yawrate_integral_limit = dval; return(true); }
 
+  // ---- gain scheduling ----
+  else if(param == "enable_gain_schedule") {
+    m_engine.enableGainSchedule(tolower(value) == "true");
+    return(true);
+  }
+  else if(param == "schedule_point") {
+    return(parseSchedulePoint(value));
+  }
+
+  // ---- yaw-rate feedback source ----
+  else if(param == "yawrate_source") {
+    string v = tolower(value);
+    if(v == "derive_heading")   { m_engine.setYawRateDerive(true);  m_yawrate_derive = true;  }
+    else if(v == "external")    { m_engine.setYawRateDerive(false); m_yawrate_derive = false; }
+    else { reportConfigWarning("yawrate_source must be external|derive_heading"); return(false); }
+    return(true);
+  }
+  else if(param == "yawrate_filter")  { m_engine.setYawRateFilter(dval);   return(true); }
+
   // ---- conventions ----
   else if(param == "yawrate_scale")   { m_engine.setYawRateScale(dval);   return(true); }
   else if(param == "rudder_polarity") { m_engine.setRudderPolarity(dval); return(true); }
@@ -281,6 +304,45 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
   else if(param == "rudder_var")          { m_rudder_var = value;          return(true); }
 
   return(false);
+}
+
+//---------------------------------------------------------
+// parseSchedulePoint: one breakpoint of the speed->gain table.
+// Syntax:  schedule_point = speed=1.5, kp=2.0, ki=0.1, kd=0, max_yawrate=20
+//   - speed is required.
+//   - kp/ki/kd default to 0; max_yawrate defaults to the global max_yawrate.
+// Points may be listed in any order; the engine keeps them sorted.
+
+bool BBPID::parseSchedulePoint(const string& value)
+{
+  bool   have_speed = false;
+  double speed = 0.0;
+  double kp = 0.0, ki = 0.0, kd = 0.0;
+  double mxy = m_engine.getMaxYawRate();
+
+  vector<string> fields = parseString(value, ',');
+  for(unsigned int i=0; i<fields.size(); i++) {
+    string fld = stripBlankEnds(fields[i]);
+    string k   = tolower(biteStringX(fld, '='));
+    double v   = atof(fld.c_str());
+    if(k == "speed")            { speed = v; have_speed = true; }
+    else if(k == "kp")          { kp = v;  }
+    else if(k == "ki")          { ki = v;  }
+    else if(k == "kd")          { kd = v;  }
+    else if(k == "max_yawrate") { mxy = v; }
+    else {
+      reportConfigWarning("schedule_point: unknown field '" + k + "'");
+      return(false);
+    }
+  }
+
+  if(!have_speed) {
+    reportConfigWarning("schedule_point missing required 'speed': " + value);
+    return(false);
+  }
+
+  m_engine.addSchedulePoint(speed, kp, ki, kd, mxy);
+  return(true);
 }
 
 //---------------------------------------------------------
@@ -310,7 +372,19 @@ bool BBPID::buildReport()
   m_msgs << "BlueBoat Cascaded PID (speed + heading->yawrate->rudder)" << endl;
   m_msgs << "============================================" << endl;
   m_msgs << "Active: " << (m_active ? "true" : "false");
-  m_msgs << "   Iterations: " << m_iterations_run << endl << endl;
+  m_msgs << "   Iterations: " << m_iterations_run << endl;
+
+  if(m_engine.gainScheduleEnabled()) {
+    m_msgs << "Gain schedule: ON  (" << m_engine.scheduleSize() << " pts)";
+    m_msgs << "  @ speed=" << doubleToString(m_engine.getSchedSpeed(),2);
+    m_msgs << " -> yaw Kp=" << doubleToString(m_engine.yawrateKp(),3);
+    m_msgs << ", Ki=" << doubleToString(m_engine.yawrateKi(),3);
+    m_msgs << ", Kd=" << doubleToString(m_engine.yawrateKd(),3);
+    m_msgs << ", max_yawrate=" << doubleToString(m_engine.getMaxYawRate(),1) << endl;
+  } else {
+    m_msgs << "Gain schedule: OFF (flat gains)" << endl;
+  }
+  m_msgs << endl;
 
   ACTable atab(4);
   atab << "Loop | Desired | Measured | Error";

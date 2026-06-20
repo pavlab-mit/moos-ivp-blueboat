@@ -29,6 +29,7 @@
 #define BBPID_ENGINE_HEADER
 
 #include <string>
+#include <vector>
 #include "ScalarPID.h"
 
 class BBPIDEngine
@@ -49,9 +50,28 @@ class BBPIDEngine
   void setMaxThrust(double v)     { m_max_thrust = v;  }
   void setMaxRudder(double v)     { m_max_rudder = v;  }
   void setMaxYawRate(double v)    { m_max_yawrate = v; }
+  double getMaxYawRate()    const { return m_max_yawrate; }
   void setAllowReverse(bool v)    { m_allow_reverse = v; }
   void setYawRateScale(double v)  { m_yawrate_scale = v;  }  // raw->deg/s (+ sign flip)
   void setRudderPolarity(double v){ m_rudder_polarity = v; } // +1 or -1
+
+  // Yaw-rate feedback source: external gyro (default) vs derived from
+  // heading (for gyro-less setups like sim). alpha is the LPF weight on
+  // the fresh derivative sample in [0,1] (higher = less smoothing).
+  void setYawRateDerive(bool v)   { m_yawrate_derive = v; }
+  void setYawRateFilter(double a) { m_yr_lpf_alpha = a;   }
+
+  // --- Speed-scheduled gain table (yaw-rate loop + turn-rate cap) ---
+  // Each breakpoint pins the inner yaw-rate PID gains and the max
+  // commanded yaw rate at a given speed. Between breakpoints the values
+  // are linearly interpolated; below the first / above the last point
+  // the endpoint values are held (no extrapolation).
+  void enableGainSchedule(bool v) { m_schedule_enabled = v; }
+  bool gainScheduleEnabled() const { return m_schedule_enabled; }
+  void addSchedulePoint(double speed, double kp, double ki,
+                        double kd, double max_yawrate);
+  unsigned int scheduleSize() const { return (unsigned int)m_schedule.size(); }
+  double getSchedSpeed() const { return m_sched_speed; }
 
   // --- Main computation: one control tick ---
   // nav_yawrate_raw is the unscaled feedback (e.g. GYRO_Z_LVL_IMU).
@@ -82,10 +102,32 @@ class BBPIDEngine
   double getRudder()         const { return m_out_rudder;    }
 
  protected:
+  // Linearly interpolate the active yaw-rate gains + cap for a given
+  // speed and push them into the inner loop / clamp. No-op if the
+  // schedule is empty.
+  void applySchedule(double speed);
+
   // PID cores (true positional PID; SetGains order is Kp,Kd,Ki)
   ScalarPID m_speed_pid;
   ScalarPID m_heading_pid;   // outer: heading error -> desired yaw rate
   ScalarPID m_yawrate_pid;   // inner: yaw-rate error -> rudder
+
+  // Speed-scheduled gain table (sorted ascending by speed)
+  struct SchedPoint {
+    double speed;
+    double kp, ki, kd;
+    double max_yawrate;
+  };
+  std::vector<SchedPoint> m_schedule;
+  bool   m_schedule_enabled;
+  double m_sched_speed;      // last speed the schedule was evaluated at
+
+  // Heading-derived yaw-rate fallback (gyro-less / sim)
+  bool   m_yawrate_derive;
+  double m_yr_lpf_alpha;     // LPF weight on fresh derivative sample
+  double m_prev_heading;
+  double m_prev_heading_time;
+  bool   m_have_prev_heading;
 
   // Limits / conventions
   double m_max_thrust;

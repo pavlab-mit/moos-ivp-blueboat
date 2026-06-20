@@ -23,6 +23,15 @@ BBPIDEngine::BBPIDEngine()
   m_rudder_polarity= 1.0;
   m_allow_reverse  = false;
 
+  m_schedule_enabled = false;
+  m_sched_speed      = 0.0;
+
+  m_yawrate_derive    = false;
+  m_yr_lpf_alpha      = 0.5;
+  m_prev_heading      = 0.0;
+  m_prev_heading_time = 0.0;
+  m_have_prev_heading = false;
+
   m_speed_error    = 0.0;
   m_heading_error  = 0.0;
   m_yawrate_error  = 0.0;
@@ -68,6 +77,70 @@ void BBPIDEngine::setYawRateLimits(double il, double ol)
 { m_yawrate_pid.SetLimits(il, ol); m_max_rudder = ol; }
 
 //---------------------------------------------------------
+// addSchedulePoint(): insert a breakpoint, keeping the table
+// sorted ascending by speed. A repeated speed overwrites the prior row.
+
+void BBPIDEngine::addSchedulePoint(double speed, double kp, double ki,
+                                   double kd, double max_yawrate)
+{
+  SchedPoint pt;
+  pt.speed = speed; pt.kp = kp; pt.ki = ki; pt.kd = kd;
+  pt.max_yawrate = max_yawrate;
+
+  size_t i = 0;
+  while(i < m_schedule.size() && m_schedule[i].speed < speed)
+    i++;
+  if(i < m_schedule.size() && m_schedule[i].speed == speed)
+    m_schedule[i] = pt;                       // overwrite duplicate
+  else
+    m_schedule.insert(m_schedule.begin() + i, pt);
+}
+
+//---------------------------------------------------------
+// applySchedule(): linearly interpolate the yaw-rate gains and the
+// turn-rate cap for the current speed, then push them into the loop.
+
+void BBPIDEngine::applySchedule(double speed)
+{
+  if(m_schedule.empty())
+    return;
+
+  m_sched_speed = speed;
+
+  double kp, ki, kd, mxy;
+
+  if(speed <= m_schedule.front().speed) {
+    // Below the first breakpoint: hold the first row (no extrapolation).
+    const SchedPoint& p = m_schedule.front();
+    kp = p.kp; ki = p.ki; kd = p.kd; mxy = p.max_yawrate;
+  }
+  else if(speed >= m_schedule.back().speed) {
+    // Above the last breakpoint: hold the last row.
+    const SchedPoint& p = m_schedule.back();
+    kp = p.kp; ki = p.ki; kd = p.kd; mxy = p.max_yawrate;
+  }
+  else {
+    // Find the bracketing pair [lo, hi] and lerp each field.
+    size_t i = 1;
+    while(i < m_schedule.size() && m_schedule[i].speed < speed)
+      i++;
+    const SchedPoint& lo = m_schedule[i-1];
+    const SchedPoint& hi = m_schedule[i];
+
+    double span = hi.speed - lo.speed;
+    double t = (span > 0.0) ? (speed - lo.speed) / span : 0.0;
+
+    kp  = lo.kp          + t * (hi.kp          - lo.kp);
+    ki  = lo.ki          + t * (hi.ki          - lo.ki);
+    kd  = lo.kd          + t * (hi.kd          - lo.kd);
+    mxy = lo.max_yawrate + t * (hi.max_yawrate - lo.max_yawrate);
+  }
+
+  m_yawrate_pid.SetGains(kp, kd, ki);   // ScalarPID order is (Kp,Kd,Ki)
+  setHeadingLimits(mxy, mxy);           // updates outer-loop limit + m_max_yawrate
+}
+
+//---------------------------------------------------------
 // update(): one full control tick
 
 void BBPIDEngine::update(double curr_time,
@@ -87,6 +160,12 @@ void BBPIDEngine::update(double curr_time,
   if(thrust >  m_max_thrust) thrust =  m_max_thrust;
   if(thrust < -m_max_thrust) thrust = -m_max_thrust;
 
+  // ---------- Gain scheduling ----------
+  // Retune the inner yaw-rate loop + turn-rate cap for the current
+  // (measured) speed before closing the yaw loops.
+  if(m_schedule_enabled)
+    applySchedule(nav_speed);
+
   // ---------- Yaw cascade ----------
   // Outer: heading error -> desired yaw rate (deg/s)
   m_heading_error = angle180(desired_heading - nav_heading);
@@ -100,8 +179,26 @@ void BBPIDEngine::update(double curr_time,
   if(des_rate < -m_max_yawrate) des_rate = -m_max_yawrate;
   m_desired_yawrate = des_rate;
 
-  // Inner: yaw-rate error -> rudder
-  m_meas_yawrate  = nav_yawrate_raw * m_yawrate_scale;
+  // Inner: yaw-rate error -> rudder.
+  // Feedback is either an external gyro (nav_yawrate_raw, scaled) or, when
+  // no gyro is available (e.g. sim), derived from heading: r ~= dpsi/dt,
+  // angle-wrapped and low-pass filtered to tame the numerical derivative.
+  if(m_yawrate_derive) {
+    if(m_have_prev_heading) {
+      double dt = curr_time - m_prev_heading_time;
+      if(dt > 1e-6) {
+        double raw_rate = angle180(nav_heading - m_prev_heading) / dt; // deg/s
+        m_meas_yawrate  = m_yr_lpf_alpha * raw_rate +
+                          (1.0 - m_yr_lpf_alpha) * m_meas_yawrate;
+      }
+    }
+    m_prev_heading      = nav_heading;
+    m_prev_heading_time = curr_time;
+    m_have_prev_heading = true;
+  }
+  else {
+    m_meas_yawrate = nav_yawrate_raw * m_yawrate_scale;
+  }
   m_yawrate_error = des_rate - m_meas_yawrate;
 
   double rudder = 0.0;
