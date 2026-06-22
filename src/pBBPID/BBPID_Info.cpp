@@ -88,6 +88,14 @@ void showExampleConfigAndExit()
   blk("  schedule_point = speed=1.5, kp=2.0, ki=0.10, kd=0.0,  max_yawrate=20");
   blk("  schedule_point = speed=3.0, kp=1.2, ki=0.05, kd=0.2,  max_yawrate=12");
   blk("                                                                ");
+  blk("  // Feedforward (identified static thrust map; bb_dynamics_id.py).");
+  blk("  //   c = c0+cv*v*+crr*r*^2 -> DESIRED_THRUST                   ");
+  blk("  //   d = d0+dr*r*+dvr*v*r* -> DESIRED_RUDDER (scaled). PID corrects.");
+  blk("  ff_enable        = true                                       ");
+  blk("  ff_speed         = 4.428, 4.960, 0.4505    // c0, cv, crr     ");
+  blk("  ff_yaw           = -3.420, -6.0653, 8.4952 // d0, dr, dvr     ");
+  blk("  ff_rudder_scale  = 1.0    // diff-%% -> rudder units (calibrate)");
+  blk("                                                                ");
   blk("  // Conventions (verify on the bench!)                         ");
   blk("  yawrate_scale    = 57.2958  // raw yawrate -> deg/s; sign flip");
   blk("  rudder_polarity  = 1        // set -1 if rudder sign inverted ");

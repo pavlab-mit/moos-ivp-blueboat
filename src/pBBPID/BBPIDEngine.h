@@ -61,6 +61,19 @@ class BBPIDEngine
   void setYawRateDerive(bool v)   { m_yawrate_derive = v; }
   void setYawRateFilter(double a) { m_yr_lpf_alpha = a;   }
 
+  // Feedforward (identified static thrust->motion map, inverted):
+  //   common c = c0 + cv*v* + crr*r*^2     (-> DESIRED_THRUST)
+  //   diff   d = d0 + dr*r* + dvr*v* * r*  (-> DESIRED_RUDDER, scaled)
+  void setFeedforwardEnable(bool v)      { m_ff_enable = v; }
+  bool feedforwardEnabled() const        { return m_ff_enable; }
+  void setFeedforwardSpeed(double c0, double cv, double crr)
+       { m_ff_c0 = c0; m_ff_cv = cv; m_ff_crr = crr; }
+  void setFeedforwardYaw(double d0, double dr, double dvr)
+       { m_ff_d0 = d0; m_ff_dr = dr; m_ff_dvr = dvr; }
+  void setFeedforwardRudderScale(double s) { m_ff_rudder_scale = s; }
+  double getFFThrust() const { return m_ff_thrust; }
+  double getFFRudder() const { return m_ff_rudder; }
+
   // --- Speed-scheduled gain table (yaw-rate loop + turn-rate cap) ---
   // Each breakpoint pins the inner yaw-rate PID gains and the max
   // commanded yaw rate at a given speed. Between breakpoints the values
@@ -70,6 +83,7 @@ class BBPIDEngine
   bool gainScheduleEnabled() const { return m_schedule_enabled; }
   void addSchedulePoint(double speed, double kp, double ki,
                         double kd, double max_yawrate);
+  void clearSchedule() { m_schedule.clear(); }
   unsigned int scheduleSize() const { return (unsigned int)m_schedule.size(); }
   double getSchedSpeed() const { return m_sched_speed; }
 
@@ -128,6 +142,13 @@ class BBPIDEngine
   double m_prev_heading;
   double m_prev_heading_time;
   bool   m_have_prev_heading;
+
+  // Feedforward (identified from field data)
+  bool   m_ff_enable;
+  double m_ff_c0, m_ff_cv, m_ff_crr;     // common-mode (speed) FF
+  double m_ff_d0, m_ff_dr, m_ff_dvr;     // differential (yaw) FF
+  double m_ff_rudder_scale;              // differential-% -> rudder units
+  double m_ff_thrust, m_ff_rudder;       // last FF terms (telemetry)
 
   // Limits / conventions
   double m_max_thrust;
