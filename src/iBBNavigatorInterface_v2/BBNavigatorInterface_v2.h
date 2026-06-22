@@ -290,6 +290,9 @@ private: // State variables
   double m_gyro_y;
   double m_gyro_z;
   double m_yaw_rate;
+  double m_accel_x;
+  double m_accel_y;
+  double m_accel_z;
   double m_qw, m_qx, m_qy, m_qz;
 
   // Publication suffixes for the two source categories.
