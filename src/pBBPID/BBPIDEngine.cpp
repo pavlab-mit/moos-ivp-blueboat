@@ -32,6 +32,13 @@ BBPIDEngine::BBPIDEngine()
   m_prev_heading_time = 0.0;
   m_have_prev_heading = false;
 
+  // Feedforward (identified model); disabled until configured.
+  m_ff_enable       = false;
+  m_ff_c0 = m_ff_cv = m_ff_crr = 0.0;
+  m_ff_d0 = m_ff_dr = m_ff_dvr = 0.0;
+  m_ff_rudder_scale = 1.0;
+  m_ff_thrust = m_ff_rudder = 0.0;
+
   m_speed_error    = 0.0;
   m_heading_error  = 0.0;
   m_yawrate_error  = 0.0;
@@ -149,37 +156,50 @@ void BBPIDEngine::update(double curr_time,
                          double nav_yawrate_raw,
                          double& out_thrust, double& out_rudder)
 {
-  // ---------- Speed loop (true positional PID) ----------
-  m_speed_error = desired_speed - nav_speed;
-
-  double thrust = 0.0;
-  m_speed_pid.Run(m_speed_error, curr_time, thrust);
-
-  if(!m_allow_reverse && thrust < 0.0)
-    thrust = 0.0;
-  if(thrust >  m_max_thrust) thrust =  m_max_thrust;
-  if(thrust < -m_max_thrust) thrust = -m_max_thrust;
-
   // ---------- Gain scheduling ----------
   // Retune the inner yaw-rate loop + turn-rate cap for the current
   // (measured) speed before closing the yaw loops.
   if(m_schedule_enabled)
     applySchedule(nav_speed);
 
-  // ---------- Yaw cascade ----------
-  // Outer: heading error -> desired yaw rate (deg/s)
+  // ---------- Outer heading loop: heading error -> desired yaw rate ----------
+  // Computed first so the feedforward (turning-drag term) can use des_rate.
   m_heading_error = angle180(desired_heading - nav_heading);
 
   double des_rate = 0.0;
   m_heading_pid.Run(m_heading_error, curr_time, des_rate);
-
-  // Clamp commanded turn rate. This is the speed-schedule hook:
-  // shrink m_max_yawrate as speed rises to respect the deep hull.
   if(des_rate >  m_max_yawrate) des_rate =  m_max_yawrate;
   if(des_rate < -m_max_yawrate) des_rate = -m_max_yawrate;
   m_desired_yawrate = des_rate;
 
-  // Inner: yaw-rate error -> rudder.
+  // ---------- Feedforward (identified from field data) ----------
+  // Static thrust split needed to hold the DESIRED (v*, r*):
+  //   common c = c0 + cv*v* + crr*r*^2      -> adds to DESIRED_THRUST
+  //   diff   d = d0 + dr*r* + dvr*v* * r*   -> adds to DESIRED_RUDDER (scaled)
+  // The PIDs then only correct the residual.
+  m_ff_thrust = 0.0;
+  m_ff_rudder = 0.0;
+  if(m_ff_enable) {
+    m_ff_thrust = m_ff_c0 + m_ff_cv * desired_speed
+                + m_ff_crr * des_rate * des_rate;
+    double ff_diff = m_ff_d0 + m_ff_dr * des_rate
+                   + m_ff_dvr * desired_speed * des_rate;
+    m_ff_rudder = m_ff_rudder_scale * ff_diff;
+  }
+
+  // ---------- Speed loop (true positional PID) + speed FF ----------
+  m_speed_error = desired_speed - nav_speed;
+
+  double thrust = 0.0;
+  m_speed_pid.Run(m_speed_error, curr_time, thrust);
+  thrust += m_ff_thrust;
+
+  if(!m_allow_reverse && thrust < 0.0)
+    thrust = 0.0;
+  if(thrust >  m_max_thrust) thrust =  m_max_thrust;
+  if(thrust < -m_max_thrust) thrust = -m_max_thrust;
+
+  // ---------- Inner yaw loop: yaw-rate error -> rudder.
   // Feedback is either an external gyro (nav_yawrate_raw, scaled) or, when
   // no gyro is available (e.g. sim), derived from heading: r ~= dpsi/dt,
   // angle-wrapped and low-pass filtered to tame the numerical derivative.
@@ -204,7 +224,7 @@ void BBPIDEngine::update(double curr_time,
   double rudder = 0.0;
   m_yawrate_pid.Run(m_yawrate_error, curr_time, rudder);
 
-  rudder *= m_rudder_polarity;
+  rudder = rudder * m_rudder_polarity + m_ff_rudder;   // feedback + feedforward
   if(rudder >  m_max_rudder) rudder =  m_max_rudder;
   if(rudder < -m_max_rudder) rudder = -m_max_rudder;
 

@@ -83,6 +83,27 @@ bool BBPID::OnNewMail(MOOSMSG_LIST &NewMail)
     else if(key == m_nav_yawrate_var) {
       m_nav_yawrate = dval; m_have_nav_yawrate = true;
     }
+    // Runtime gain-schedule control (used by the pBBPID tuner GUI)
+    else if(key == "BBPID_SCHEDULE_ENABLE") {
+      bool on = msg.IsString() ? (tolower(msg.GetString()) == "true")
+                               : (dval != 0.0);
+      m_engine.enableGainSchedule(on);
+      reportEvent("Gain schedule " + string(on ? "ENABLED" : "DISABLED"));
+    }
+    else if(key == "BBPID_SCHEDULE_POINT") {
+      if(parseSchedulePoint(msg.GetString()))
+        reportEvent("Schedule point: " + msg.GetString());
+    }
+    else if(key == "BBPID_SCHEDULE_CLEAR") {
+      m_engine.clearSchedule();
+      reportEvent("Gain schedule cleared");
+    }
+    else if(key == "BBPID_FF_ENABLE") {
+      bool on = msg.IsString() ? (tolower(msg.GetString()) == "true")
+                               : (dval != 0.0);
+      m_engine.setFeedforwardEnable(on);
+      reportEvent("Feedforward " + string(on ? "ENABLED" : "DISABLED"));
+    }
     else if(strBegins(key, "BBPID_")) {
       handleLiveGainMail(key, dval);
     }
@@ -180,10 +201,15 @@ bool BBPID::Iterate()
   Notify(m_rudder_var, rudder);
 
   // Debug postings for tuning / plotting
-  Notify("BBPID_SPEED_ERROR",   m_engine.getSpeedError());
-  Notify("BBPID_HEADING_ERROR", m_engine.getHeadingError());
+  Notify("BBPID_SPEED_ERROR",    m_engine.getSpeedError());
+  Notify("BBPID_HEADING_ERROR",  m_engine.getHeadingError());
   Notify("BBPID_DESIRED_YAWRATE", m_engine.getDesiredYawRate());
-  Notify("BBPID_YAWRATE_ERROR", m_engine.getYawRateError());
+  Notify("BBPID_MEAS_YAWRATE",   m_engine.getMeasYawRate());
+  Notify("BBPID_YAWRATE_ERROR",  m_engine.getYawRateError());
+  if(m_engine.feedforwardEnabled()) {
+    Notify("BBPID_FF_THRUST", m_engine.getFFThrust());
+    Notify("BBPID_FF_RUDDER", m_engine.getFFRudder());
+  }
 
   AppCastingMOOSApp::PostReport();
   return(true);
@@ -268,6 +294,32 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
   else if(param == "max_yawrate")            { m_max_yawrate = dval;            return(true); }
   else if(param == "speed_integral_limit")   { m_speed_integral_limit = dval;   return(true); }
   else if(param == "yawrate_integral_limit") { m_yawrate_integral_limit = dval; return(true); }
+
+  // ---- feedforward (identified model) ----
+  else if(param == "ff_enable") {
+    m_engine.setFeedforwardEnable(tolower(value) == "true");
+    return(true);
+  }
+  else if(param == "ff_speed") {           // c0, cv, crr
+    string v = value;
+    double c0  = atof(biteStringX(v, ',').c_str());
+    double cv  = atof(biteStringX(v, ',').c_str());
+    double crr = atof(biteStringX(v, ',').c_str());
+    m_engine.setFeedforwardSpeed(c0, cv, crr);
+    return(true);
+  }
+  else if(param == "ff_yaw") {             // d0, dr, dvr
+    string v = value;
+    double d0  = atof(biteStringX(v, ',').c_str());
+    double dr  = atof(biteStringX(v, ',').c_str());
+    double dvr = atof(biteStringX(v, ',').c_str());
+    m_engine.setFeedforwardYaw(d0, dr, dvr);
+    return(true);
+  }
+  else if(param == "ff_rudder_scale") {
+    m_engine.setFeedforwardRudderScale(dval);
+    return(true);
+  }
 
   // ---- gain scheduling ----
   else if(param == "enable_gain_schedule") {
@@ -362,6 +414,14 @@ void BBPID::registerVariables()
   Register("BBPID_SPEED_KP", 0);   Register("BBPID_SPEED_KI", 0);   Register("BBPID_SPEED_KD", 0);
   Register("BBPID_HEADING_KP", 0); Register("BBPID_HEADING_KI", 0); Register("BBPID_HEADING_KD", 0);
   Register("BBPID_YAWRATE_KP", 0); Register("BBPID_YAWRATE_KI", 0); Register("BBPID_YAWRATE_KD", 0);
+
+  // Runtime gain-schedule control
+  Register("BBPID_SCHEDULE_ENABLE", 0);
+  Register("BBPID_SCHEDULE_POINT", 0);
+  Register("BBPID_SCHEDULE_CLEAR", 0);
+
+  // Runtime feedforward toggle
+  Register("BBPID_FF_ENABLE", 0);
 }
 
 //---------------------------------------------------------
@@ -384,6 +444,11 @@ bool BBPID::buildReport()
   } else {
     m_msgs << "Gain schedule: OFF (flat gains)" << endl;
   }
+  if(m_engine.feedforwardEnabled())
+    m_msgs << "Feedforward:   ON   ff_thrust=" << doubleToString(m_engine.getFFThrust(),2)
+           << "  ff_rudder=" << doubleToString(m_engine.getFFRudder(),2) << endl;
+  else
+    m_msgs << "Feedforward:   OFF" << endl;
   m_msgs << endl;
 
   ACTable atab(4);
