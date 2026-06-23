@@ -47,6 +47,10 @@ class DiffThrustPID_v2 : public AppCastingMOOSApp
    void registerVariables();
    bool dbg_print(const char *format, ...);
 
+   bool setParam(const std::string &key, const std::string &val);  // live-tunable knobs
+   void handleUpdates(const std::string &raw);                     // PDIFF_THRUST_UPDATES
+   void publishState();                                            // PDIFF_THRUST_STATE
+
  private: // Subscribed variable names
    std::string m_setpoint_heading_var;
    std::string m_feedback_heading_var;
@@ -79,6 +83,7 @@ class DiffThrustPID_v2 : public AppCastingMOOSApp
 
    double m_Jv, m_Jr;       // integral terms [% thrust / % differential]
    double m_prev_time;
+   double m_last_state_pub; // last PDIFF_THRUST_STATE heartbeat time
 
    double m_T, m_D, m_TL, m_TR, m_m, m_r_des;  // for the report
 
