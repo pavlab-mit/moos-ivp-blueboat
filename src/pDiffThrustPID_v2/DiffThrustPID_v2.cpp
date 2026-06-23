@@ -96,11 +96,84 @@ DiffThrustPID_v2::DiffThrustPID_v2()
   m_deploy = false;
   m_Jv = m_Jr = 0.0;
   m_prev_time = 0.0;
+  m_last_state_pub = 0.0;
   m_T = m_D = m_TL = m_TR = m_m = m_r_des = 0.0;
 
   m_debug = false;
   m_debug_stream = 0;
   memset(m_fname, 0, m_fname_buff_size);
+}
+
+//---------------------------------------------------------
+// setParam  — apply one live-tunable knob (shared by startup + updates).
+//             Returns false for anything not live-tunable (wiring stays
+//             startup-only, so updates can't repoint subscriptions).
+
+bool DiffThrustPID_v2::setParam(const string &key_in, const string &val)
+{
+  string key = tolower(key_in);
+  if      (key == "speed_ff_points")  m_ff_surge.set(val);
+  else if (key == "speed_ki")         m_speed_ki     = atof(val.c_str());
+  else if (key == "speed_i_max")      m_speed_i_max  = atof(val.c_str());
+  else if (key == "theta_b")          m_theta_b      = atof(val.c_str());
+  else if (key == "max_yaw_rate")     m_max_yaw_rate = atof(val.c_str());
+  else if (key == "yaw_ff_c0")        m_yaw_c0       = atof(val.c_str());
+  else if (key == "yaw_ff_c1")        m_yaw_c1       = atof(val.c_str());
+  else if (key == "yaw_ki")           m_yaw_ki       = atof(val.c_str());
+  else if (key == "yaw_i_max")        m_yaw_i_max    = atof(val.c_str());
+  else if (key == "delta_cap_points") m_delta_cap.set(val);
+  else if (key == "u_max")            m_u_max        = atof(val.c_str());
+  else return false;
+  return true;
+}
+
+//---------------------------------------------------------
+// handleUpdates  — PDIFF_THRUST_UPDATES = key=val ; key=val ; ...
+//   ';' separates pairs so schedule tables (which use ',' and ':') survive.
+//   Reserved values: "query" (re-publish state), "reset_integrators".
+
+void DiffThrustPID_v2::handleUpdates(const string &raw)
+{
+  string low = tolower(stripBlankEnds(raw));
+  if (low == "query")             { publishState(); return; }
+  if (low == "reset_integrators") { m_Jv = m_Jr = 0.0; reportEvent("integrators reset"); publishState(); return; }
+
+  vector<string> pairs = parseString(raw, ';');
+  unsigned applied = 0;
+  for (unsigned i = 0; i < pairs.size(); i++) {
+    string kv = stripBlankEnds(pairs[i]);
+    if (kv.empty()) continue;
+    string key = stripBlankEnds(biteStringX(kv, '='));
+    string val = stripBlankEnds(kv);
+    if (key.empty() || val.empty()) continue;
+    if (setParam(key, val)) applied++;
+    else reportRunWarning("update: unknown/locked param '" + key + "'");
+  }
+  if (applied) {
+    reportEvent("applied " + uintToString(applied) + " update(s)");
+    publishState();
+  }
+}
+
+//---------------------------------------------------------
+// publishState  — echo every tunable as PDIFF_THRUST_STATE (same ';' format
+//                 as updates, so a dashboard can round-trip it).
+
+void DiffThrustPID_v2::publishState()
+{
+  string s = "theta_b="          + doubleToStringX(m_theta_b, 3)
+           + ";max_yaw_rate="    + doubleToStringX(m_max_yaw_rate, 3)
+           + ";yaw_ff_c0="       + doubleToStringX(m_yaw_c0, 3)
+           + ";yaw_ff_c1="       + doubleToStringX(m_yaw_c1, 3)
+           + ";yaw_ki="          + doubleToStringX(m_yaw_ki, 4)
+           + ";yaw_i_max="       + doubleToStringX(m_yaw_i_max, 2)
+           + ";speed_ki="        + doubleToStringX(m_speed_ki, 4)
+           + ";speed_i_max="     + doubleToStringX(m_speed_i_max, 2)
+           + ";u_max="           + doubleToStringX(m_u_max, 1)
+           + ";speed_ff_points=" + m_ff_surge.repr()
+           + ";delta_cap_points="+ m_delta_cap.repr();
+  Notify("PDIFF_THRUST_STATE", s);
+  m_last_state_pub = MOOSTime();
 }
 
 //---------------------------------------------------------
@@ -126,6 +199,8 @@ bool DiffThrustPID_v2::OnNewMail(MOOSMSG_LIST &NewMail)
       m_r = msg.GetDouble() * 180.0 / M_PI;          // rad/s -> deg/s
     else if (key == "DEPLOY")
       m_deploy = (tolower(msg.GetAsString()) == "true");
+    else if (key == "PDIFF_THRUST_UPDATES")
+      handleUpdates(msg.GetAsString());
     else if (key != "APPCAST_REQ")
       reportRunWarning("Unhandled Mail: " + key);
   }
@@ -186,6 +261,9 @@ bool DiffThrustPID_v2::Iterate()
   dbg_print("t=%.2f v=%.2f/%.2f psi=%.1f/%.1f m=%.2f T=%.1f D=%.1f L=%.1f R=%.1f\n",
             now, m_v_des, m_v, m_psi_des, m_psi, m_m, m_T, m_D, m_TL, m_TR);
 
+  if (now - m_last_state_pub >= 1.0)        // heartbeat so late-joining tuners sync
+    publishState();
+
   AppCastingMOOSApp::PostReport();
   return true;
 }
@@ -218,18 +296,9 @@ bool DiffThrustPID_v2::OnStartUp()
     string value = line;
     bool handled = true;
 
-    if      (param == "speed_ff_points")   m_ff_surge.set(value);
-    else if (param == "speed_ki")          m_speed_ki = atof(value.c_str());
-    else if (param == "speed_i_max")       m_speed_i_max = atof(value.c_str());
-    else if (param == "theta_b")           m_theta_b = atof(value.c_str());
-    else if (param == "max_yaw_rate")      m_max_yaw_rate = atof(value.c_str());
-    else if (param == "yaw_ff_c0")         m_yaw_c0 = atof(value.c_str());
-    else if (param == "yaw_ff_c1")         m_yaw_c1 = atof(value.c_str());
-    else if (param == "yaw_ki")            m_yaw_ki = atof(value.c_str());
-    else if (param == "yaw_i_max")         m_yaw_i_max = atof(value.c_str());
-    else if (param == "delta_cap_points")  m_delta_cap.set(value);
-    else if (param == "u_max")             m_u_max = atof(value.c_str());
-    else if (param == "setpoint_heading_var") m_setpoint_heading_var = value;
+    if (setParam(param, value)) continue;        // any live-tunable knob
+
+    if      (param == "setpoint_heading_var") m_setpoint_heading_var = value;
     else if (param == "feedback_heading_var") m_feedback_heading_var = value;
     else if (param == "setpoint_speed_var")   m_setpoint_speed_var = value;
     else if (param == "feedback_speed_var")   m_feedback_speed_var = value;
@@ -267,6 +336,7 @@ void DiffThrustPID_v2::registerVariables()
   Register(m_feedback_speed_var, 0);
   Register(m_feedback_yaw_var, 0);
   Register("DEPLOY", 0);
+  Register("PDIFF_THRUST_UPDATES", 0);
 }
 
 //---------------------------------------------------------
@@ -306,7 +376,19 @@ bool DiffThrustPID_v2::buildReport()
   tab << "THRUST_L / THRUST_R"           << doubleToString(m_TL, 1) + " / " + doubleToString(m_TR, 1);
   tab << "DEPLOY"                        << boolToString(m_deploy);
   m_msgs << tab.getFormattedString() << endl << endl;
+
+  ACTable pt(2);
+  pt << "Param" << "Value";
+  pt.addHeaderLines();
+  pt << "theta_b / max_yaw_rate" << doubleToString(m_theta_b, 1) + " / " + doubleToString(m_max_yaw_rate, 1);
+  pt << "yaw c0 / c1"            << doubleToString(m_yaw_c0, 2) + " / " + doubleToString(m_yaw_c1, 2);
+  pt << "speed_ki / i_max"       << doubleToString(m_speed_ki, 2) + " / " + doubleToString(m_speed_i_max, 1);
+  pt << "yaw_ki / i_max"         << doubleToString(m_yaw_ki, 2) + " / " + doubleToString(m_yaw_i_max, 1);
+  pt << "u_max"                  << doubleToString(m_u_max, 1);
+  m_msgs << pt.getFormattedString() << endl << endl;
   m_msgs << "FF_surge:  " << m_ff_surge.repr() << endl;
-  m_msgs << "delta_cap: " << m_delta_cap.repr() << endl;
+  m_msgs << "delta_cap: " << m_delta_cap.repr() << endl << endl;
+  m_msgs << "tune: PDIFF_THRUST_UPDATES=theta_b=50;max_yaw_rate=18  (query | reset_integrators)" << endl;
+  m_msgs << "state: PDIFF_THRUST_STATE (echoed on change + 1 Hz)" << endl;
   return true;
 }
