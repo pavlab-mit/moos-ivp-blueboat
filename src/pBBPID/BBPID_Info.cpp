@@ -73,6 +73,9 @@ void showExampleConfigAndExit()
   blk("  heading_pid = 1.0, 0, 0      // outer: hdg err -> yaw rate    ");
   blk("  yawrate_pid = 2.0, 0.1, 0    // inner: rate err -> rudder     ");
   blk("                                                                ");
+  blk("  des_yawrate_filter = 0.3     // LPF time const [s] on desired ");
+  blk("                               // yaw rate (0=off); tames FF noise");
+  blk("                                                                ");
   blk("  // Limits                                                     ");
   blk("  max_thrust             = 100                                  ");
   blk("  max_rudder             = 100                                  ");

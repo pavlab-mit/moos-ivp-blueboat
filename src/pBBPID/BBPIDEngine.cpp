@@ -39,6 +39,11 @@ BBPIDEngine::BBPIDEngine()
   m_ff_rudder_scale = 1.0;
   m_ff_thrust = m_ff_rudder = 0.0;
 
+  m_des_yawrate_tau   = 0.0;     // desired-yaw-rate LPF time const (0 = off)
+  m_des_yawrate_filt  = 0.0;
+  m_des_lpf_prev_time = 0.0;
+  m_have_des_lpf      = false;
+
   m_speed_error    = 0.0;
   m_heading_error  = 0.0;
   m_yawrate_error  = 0.0;
@@ -170,6 +175,26 @@ void BBPIDEngine::update(double curr_time,
   m_heading_pid.Run(m_heading_error, curr_time, des_rate);
   if(des_rate >  m_max_yawrate) des_rate =  m_max_yawrate;
   if(des_rate < -m_max_yawrate) des_rate = -m_max_yawrate;
+
+  // Low-pass the desired yaw rate (dt-aware first order, time const tau).
+  // Heading-loop / sensor noise here is amplified ~dr-fold in the yaw FF
+  // (ff_diff = d0 + dr*des_rate), so smoothing it cleans the rudder FF and
+  // the inner-loop setpoint. tau=0 disables.
+  if(m_des_yawrate_tau > 0.0) {
+    if(m_have_des_lpf) {
+      double dt = curr_time - m_des_lpf_prev_time;
+      if(dt > 0.0) {
+        double alpha = dt / (m_des_yawrate_tau + dt);
+        m_des_yawrate_filt += alpha * (des_rate - m_des_yawrate_filt);
+      }
+    }
+    else {
+      m_des_yawrate_filt = des_rate;
+      m_have_des_lpf = true;
+    }
+    m_des_lpf_prev_time = curr_time;
+    des_rate = m_des_yawrate_filt;
+  }
   m_desired_yawrate = des_rate;
 
   // ---------- Feedforward (identified from field data) ----------

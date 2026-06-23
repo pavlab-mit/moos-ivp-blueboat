@@ -73,6 +73,20 @@ class BBPIDEngine
   void setFeedforwardRudderScale(double s) { m_ff_rudder_scale = s; }
   double getFFThrust() const { return m_ff_thrust; }
   double getFFRudder() const { return m_ff_rudder; }
+  // FF coefficient accessors (for the param snapshot)
+  double ffC0()  const { return m_ff_c0;  }
+  double ffCv()  const { return m_ff_cv;  }
+  double ffCrr() const { return m_ff_crr; }
+  double ffD0()  const { return m_ff_d0;  }
+  double ffDr()  const { return m_ff_dr;  }
+  double ffDvr() const { return m_ff_dvr; }
+  double ffRudderScale() const { return m_ff_rudder_scale; }
+
+  // Low-pass time constant [s] on the desired yaw rate (0 = off). Smooths
+  // the value used by the yaw FF and the inner-loop setpoint.
+  void setDesYawRateFilter(double tau) { m_des_yawrate_tau = tau; }
+  double getDesYawRateFilter() const { return m_des_yawrate_tau; }
+  double getYawRateFilter()    const { return m_yr_lpf_alpha; }
 
   // --- Speed-scheduled gain table (yaw-rate loop + turn-rate cap) ---
   // Each breakpoint pins the inner yaw-rate PID gains and the max
@@ -149,6 +163,12 @@ class BBPIDEngine
   double m_ff_d0, m_ff_dr, m_ff_dvr;     // differential (yaw) FF
   double m_ff_rudder_scale;              // differential-% -> rudder units
   double m_ff_thrust, m_ff_rudder;       // last FF terms (telemetry)
+
+  // Desired-yaw-rate low-pass (dt-aware first order)
+  double m_des_yawrate_tau;              // time constant [s], 0 = off
+  double m_des_yawrate_filt;             // filter state
+  double m_des_lpf_prev_time;
+  bool   m_have_des_lpf;
 
   // Limits / conventions
   double m_max_thrust;
