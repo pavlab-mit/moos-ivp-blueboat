@@ -1,0 +1,224 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>pDiffThrustPID_v2 — tuner</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 16px; background:#fafafa; color:#222; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 13px; margin: 14px 0 4px; color:#556; text-transform:uppercase; letter-spacing:.04em; }
+  #status { color:#666; font-size:12px; margin-bottom:12px; }
+  .wrap { display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; }
+  .panel { background:#fff; border:1px solid #ddd; border-radius:8px; padding:14px; }
+  table { border-collapse:collapse; }
+  td { padding:3px 8px; }
+  .pname { font-family:ui-monospace, monospace; color:#334; }
+  .pval  { font-family:ui-monospace, monospace; color:#888; text-align:right; min-width:110px; }
+  input.f { width:140px; font-family:ui-monospace, monospace; padding:3px 5px;
+            border:1px solid #ccc; border-radius:4px; }
+  input.t { width:340px; }
+  tr.dirty input.f, .tbl.dirty input.f { border-color:#e08; background:#fff3f8; }
+  tr.dirty .pval  { color:#e08; }
+  .tbl { margin:8px 0; }
+  .tbl label { font-family:ui-monospace, monospace; color:#334; display:block; margin-bottom:3px; }
+  .tbl .cur { font-family:ui-monospace, monospace; color:#999; font-size:12px; margin-left:8px; }
+  button { font:13px system-ui; padding:6px 12px; margin:10px 6px 0 0; cursor:pointer;
+           border:1px solid #bbb; border-radius:6px; background:#f4f4f4; }
+  button.apply { background:#2563eb; color:#fff; border-color:#2563eb; }
+  canvas { display:block; background:#fff; border:1px solid #eee; border-radius:6px; }
+  canvas.tv { margin-top:5px; }
+  .plots canvas { margin-bottom:10px; }
+</style>
+</head>
+<body>
+  <h1>pDiffThrustPID_v2 — live tuner</h1>
+  <div id="status">connecting…</div>
+
+  <div class="wrap">
+    <div class="panel">
+      <h2>Scalars</h2>
+      <table id="params"></table>
+      <h2>Lookup tables</h2>
+      <div id="tables"></div>
+      <div>
+        <button class="apply" onclick="applyChanged()">Apply changed</button>
+        <button onclick="refresh()">Refresh from controller</button>
+        <button onclick="cmd('reset_integrators')">Reset integrators</button>
+      </div>
+    </div>
+    <div class="panel plots">
+      <canvas id="spd" width="540" height="150"></canvas>
+      <canvas id="hdg" width="540" height="150"></canvas>
+      <canvas id="thr" width="540" height="150"></canvas>
+    </div>
+  </div>
+
+<script>
+let state = { params:{}, signals:{}, now:0, history:90, params_age:null };
+let built = "";          // signature of param keys currently rendered
+let resync = false;      // pull inputs back to controller values on next render
+
+const isTable = k => k.endsWith("_points");
+
+async function poll() {
+  try {
+    state = await (await fetch('/state')).json();
+    document.getElementById('status').textContent =
+      'params ' + (state.params_age==null ? '— none yet' : state.params_age + 's ago')
+      + ' · ' + Object.keys(state.params).length + ' fields';
+    renderParams();
+    drawAll();
+  } catch (e) {
+    document.getElementById('status').textContent = 'disconnected — ' + e;
+  }
+}
+
+function renderParams() {
+  const keys = Object.keys(state.params);
+  const sig = keys.join(',');
+  if (sig !== built) {                       // (re)build only when the key set changes
+    const tbl = document.getElementById('params'); tbl.innerHTML = '';
+    const tdiv = document.getElementById('tables'); tdiv.innerHTML = '';
+    for (const k of keys) {
+      const v = state.params[k];
+      if (isTable(k)) {
+        const d = document.createElement('div'); d.className = 'tbl'; d.id = 'row_' + k;
+        d.innerHTML =
+          `<label>${k} <span class="cur" id="cur_${k}"></span></label>`
+          + `<input class="f t" id="in_${k}" value="${v}" oninput="preview('${k}')">`
+          + `<canvas class="tv" id="pv_${k}" width="360" height="120"></canvas>`;
+        tdiv.appendChild(d);
+      } else {
+        const tr = document.createElement('tr'); tr.id = 'row_' + k;
+        tr.innerHTML = `<td class="pname">${k}</td>`
+          + `<td><input class="f" id="in_${k}" value="${v}"></td>`
+          + `<td class="pval" id="cur_${k}">${v}</td>`;
+        tbl.appendChild(tr);
+      }
+    }
+    built = sig; resync = false;
+  }
+  for (const k of keys) {                     // refresh value cell + dirty flag (don't clobber typing)
+    const cur = state.params[k];
+    const inp = document.getElementById('in_' + k);
+    if (resync) inp.value = cur;
+    const dirty = inp.value.trim() !== cur.trim();
+    const row = document.getElementById('row_' + k);
+    if (isTable(k)) {
+      document.getElementById('cur_' + k).textContent = '(controller: ' + cur + ')';
+      row.className = 'tbl' + (dirty ? ' dirty' : '');
+      preview(k);
+    } else {
+      document.getElementById('cur_' + k).textContent = cur;
+      row.className = dirty ? 'dirty' : '';
+    }
+  }
+  resync = false;
+}
+
+function applyChanged() {
+  const upd = [];
+  for (const k of Object.keys(state.params)) {
+    const inp = document.getElementById('in_' + k);
+    if (inp.value.trim() !== state.params[k].trim())
+      upd.push(k + '=' + inp.value.trim());
+  }
+  if (upd.length) post(upd.join(';'));
+}
+function cmd(c) { post(c); }
+function refresh() { resync = true; post('query'); }
+async function post(body) { await fetch('/apply', { method:'POST', body }); }
+
+// parse "x,y:x,y:..." -> sorted [[x,y],...]
+function parseTable(s) {
+  const pts = [];
+  for (const seg of (s||'').split(':')) {
+    const p = seg.split(',');
+    if (p.length === 2) {
+      const x = parseFloat(p[0]), y = parseFloat(p[1]);
+      if (isFinite(x) && isFinite(y)) pts.push([x, y]);
+    }
+  }
+  pts.sort((a,b) => a[0]-b[0]);
+  return pts;
+}
+
+// live preview: typed curve (color) over controller's current curve (gray)
+function preview(k) {
+  const cv = document.getElementById('pv_' + k); if (!cv) return;
+  const typed = parseTable(document.getElementById('in_' + k).value);
+  const ref   = parseTable(state.params[k]);
+  drawTable(cv, typed, ref, k.startsWith('delta') ? '#7c3aed' : '#0d9488');
+}
+
+function drawTable(cv, pts, ref, color) {
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height, pad = 28;
+  g.clearRect(0,0,W,H);
+  const all = pts.concat(ref);
+  if (!all.length) { g.fillStyle='#bbb'; g.font='12px system-ui'; g.fillText('— invalid table —', pad, H/2); return; }
+  let x0=Math.min(...all.map(p=>p[0])), x1=Math.max(...all.map(p=>p[0]));
+  let y0=Math.min(0,...all.map(p=>p[1])), y1=Math.max(...all.map(p=>p[1]));
+  const xs=(x1-x0)||1, ys=(y1-y0)||1; x0-=xs*0.06; x1+=xs*0.06; y0-=ys*0.08; y1+=ys*0.08;
+  const X=x=>pad+(x-x0)/(x1-x0)*(W-pad-8), Y=y=>H-pad-(y-y0)/(y1-y0)*(H-pad-16);
+  // axes
+  g.strokeStyle='#eee'; g.beginPath(); g.moveTo(pad,8); g.lineTo(pad,H-pad); g.lineTo(W,H-pad); g.stroke();
+  g.fillStyle='#aaa'; g.font='10px system-ui';
+  g.fillText(y1.toFixed(0), 2, 14); g.fillText(y0.toFixed(0), 2, H-pad);
+  g.fillText(x0.toFixed(1), pad, H-12); g.fillText(x1.toFixed(1), W-22, H-12);
+  const curve = (P, col, w, dash) => {        // clamped-end interp (matches Schedule::eval)
+    if (!P.length) return;
+    g.strokeStyle=col; g.lineWidth=w; g.setLineDash(dash||[]);
+    g.beginPath(); g.moveTo(X(x0), Y(P[0][1]));
+    for (const [x,y] of P) g.lineTo(X(x), Y(y));
+    g.lineTo(X(x1), Y(P[P.length-1][1])); g.stroke(); g.setLineDash([]);
+  };
+  curve(ref, '#cbd5e1', 1.4, [4,3]);          // controller's current (gray dashed)
+  curve(pts, color, 1.8);                      // typed (color)
+  g.fillStyle=color;                           // typed points
+  for (const [x,y] of pts) { g.beginPath(); g.arc(X(x),Y(y),2.5,0,7); g.fill(); }
+}
+
+// ---- time plots: actual (red solid, under) then desired (blue dotted, on top) ----
+function drawAll() {
+  draw('spd','speed [m/s]', [
+    {n:'NAV_SPEED',     c:'#dc2626', lab:'actual'},
+    {n:'DESIRED_SPEED', c:'#2563eb', dash:true, lab:'desired'}]);
+  draw('hdg','heading [deg]', [
+    {n:'NAV_HEADING',     c:'#dc2626', lab:'actual'},
+    {n:'DESIRED_HEADING', c:'#2563eb', dash:true, lab:'desired'}]);
+  draw('thr','thrust L/R [%]', [
+    {n:'DESIRED_THRUST_L', c:'#0d9488', lab:'L'},
+    {n:'DESIRED_THRUST_R', c:'#d97706', lab:'R'}]);
+}
+
+function draw(id, title, series) {
+  const cv = document.getElementById(id), g = cv.getContext('2d');
+  const W = cv.width, H = cv.height, pad = 28;
+  g.clearRect(0,0,W,H);
+  const now = state.now, hist = state.history;
+  let lo=Infinity, hi=-Infinity;
+  for (const s of series) for (const [,v] of (state.signals[s.n]||[])) { if(v<lo)lo=v; if(v>hi)hi=v; }
+  if (!isFinite(lo)) { lo=0; hi=1; }
+  if (hi-lo<1e-6) { hi+=0.5; lo-=0.5; }
+  const pd=(hi-lo)*0.1; lo-=pd; hi+=pd;
+  const X=t=>pad+(1-(now-t)/hist)*(W-pad-6), Y=v=>H-pad-(v-lo)/(hi-lo)*(H-pad-14);
+  g.strokeStyle='#eee'; g.beginPath(); g.moveTo(pad,H-pad); g.lineTo(W,H-pad); g.stroke();
+  g.fillStyle='#999'; g.font='11px system-ui'; g.fillText(title, pad, 12);
+  g.fillText(hi.toFixed(1), 2, 16); g.fillText(lo.toFixed(1), 2, H-pad);
+  if (lo<0 && hi>0) { g.strokeStyle='#f0f0f0'; g.beginPath(); g.moveTo(pad,Y(0)); g.lineTo(W,Y(0)); g.stroke(); }
+  for (const s of series) {                    // array order = z-order (last on top)
+    const pts = state.signals[s.n]||[];
+    g.strokeStyle=s.c; g.lineWidth = s.dash ? 1.9 : 1.5; g.setLineDash(s.dash ? [4,3] : []);
+    g.beginPath(); pts.forEach(([t,v],i)=> i ? g.lineTo(X(t),Y(v)) : g.moveTo(X(t),Y(v))); g.stroke();
+  }
+  g.setLineDash([]);
+  let lx = W-8; g.font='11px system-ui'; g.textAlign='right';   // legend, top-right
+  for (let i=series.length-1; i>=0; i--) { g.fillStyle=series[i].c; g.fillText(series[i].lab, lx, 12); lx-=g.measureText(series[i].lab).width+14; }
+  g.textAlign='left';
+}
+
+poll();
+setInterval(poll, 250);
+</script>
+</body>
+</html>
