@@ -79,14 +79,18 @@ DiffThrustPID_v2::DiffThrustPID_v2()
   m_desired_thrust_r_var = "DESIRED_THRUST_R";
 
   m_ff_surge.set("0,0 : 0.5,4.25 : 1.0,17 : 1.5,38 : 2.0,68 : 2.4,98");
+  m_speed_kp    = 0.0;
   m_speed_ki    = 0.0;
+  m_speed_kd    = 0.0;
   m_speed_i_max = 15.0;
 
   m_theta_b      = 30.0;
   m_max_yaw_rate = 30.0;
   m_yaw_c0       = 1.5;
   m_yaw_c1       = 2.4;
+  m_yaw_kp       = 0.0;
   m_yaw_ki       = 0.0;
+  m_yaw_kd       = 0.0;
   m_yaw_i_max    = 25.0;
 
   m_delta_cap.set("0,100 : 0.6,100 : 0.8,11 : 1.2,25 : 1.7,50 : 2.4,50");
@@ -95,6 +99,7 @@ DiffThrustPID_v2::DiffThrustPID_v2()
   m_v_des = m_v = m_psi_des = m_psi = m_r = 0.0;
   m_deploy = false;
   m_Jv = m_Jr = 0.0;
+  m_prev_v = m_prev_r = 0.0;
   m_prev_time = 0.0;
   m_last_state_pub = 0.0;
   m_T = m_D = m_TL = m_TR = m_m = m_r_des = 0.0;
@@ -113,13 +118,17 @@ bool DiffThrustPID_v2::setParam(const string &key_in, const string &val)
 {
   string key = tolower(key_in);
   if      (key == "speed_ff_points")  m_ff_surge.set(val);
+  else if (key == "speed_kp")         m_speed_kp     = atof(val.c_str());
   else if (key == "speed_ki")         m_speed_ki     = atof(val.c_str());
+  else if (key == "speed_kd")         m_speed_kd     = atof(val.c_str());
   else if (key == "speed_i_max")      m_speed_i_max  = atof(val.c_str());
   else if (key == "theta_b")          m_theta_b      = atof(val.c_str());
   else if (key == "max_yaw_rate")     m_max_yaw_rate = atof(val.c_str());
   else if (key == "yaw_ff_c0")        m_yaw_c0       = atof(val.c_str());
   else if (key == "yaw_ff_c1")        m_yaw_c1       = atof(val.c_str());
+  else if (key == "yaw_kp")           m_yaw_kp       = atof(val.c_str());
   else if (key == "yaw_ki")           m_yaw_ki       = atof(val.c_str());
+  else if (key == "yaw_kd")           m_yaw_kd       = atof(val.c_str());
   else if (key == "yaw_i_max")        m_yaw_i_max    = atof(val.c_str());
   else if (key == "delta_cap_points") m_delta_cap.set(val);
   else if (key == "u_max")            m_u_max        = atof(val.c_str());
@@ -165,9 +174,13 @@ void DiffThrustPID_v2::publishState()
            + ";max_yaw_rate="    + doubleToStringX(m_max_yaw_rate, 3)
            + ";yaw_ff_c0="       + doubleToStringX(m_yaw_c0, 3)
            + ";yaw_ff_c1="       + doubleToStringX(m_yaw_c1, 3)
+           + ";yaw_kp="          + doubleToStringX(m_yaw_kp, 4)
            + ";yaw_ki="          + doubleToStringX(m_yaw_ki, 4)
+           + ";yaw_kd="          + doubleToStringX(m_yaw_kd, 4)
            + ";yaw_i_max="       + doubleToStringX(m_yaw_i_max, 2)
+           + ";speed_kp="        + doubleToStringX(m_speed_kp, 4)
            + ";speed_ki="        + doubleToStringX(m_speed_ki, 4)
+           + ";speed_kd="        + doubleToStringX(m_speed_kd, 4)
            + ";speed_i_max="     + doubleToStringX(m_speed_i_max, 2)
            + ";u_max="           + doubleToStringX(m_u_max, 1)
            + ";speed_ff_points=" + m_ff_surge.repr()
@@ -219,16 +232,23 @@ bool DiffThrustPID_v2::Iterate()
   if (dt <= 0.0) dt = 1.0 / (GetAppFreq() > 0 ? GetAppFreq() : 10.0);
   m_prev_time = now;
 
-  // Step 1: surge -> total thrust
-  double e_v = m_v_des - m_v;
-  m_T = clampd(m_ff_surge.eval(m_v_des) + m_Jv, 0.0, m_u_max);
+  // Derivatives on the *measurement* (no setpoint-change kick); damp the response.
+  double dv = (m_v - m_prev_v) / dt;
+  double dr = (m_r - m_prev_r) / dt;
+  m_prev_v = m_v; m_prev_r = m_r;
 
-  // Step 2: yaw -> differential  (FF from heading only; gyro r only in integral)
+  // Step 1: surge -> total thrust   (FF + P*e_v - Kd*dv + I)
+  double e_v = m_v_des - m_v;
+  m_T = clampd(m_ff_surge.eval(m_v_des) + m_speed_kp * e_v - m_speed_kd * dv + m_Jv,
+               0.0, m_u_max);
+
+  // Step 2: yaw -> differential   (FF + P*e_r - Kd*dr + I; e_r,r from the gyro)
   double e_psi = wrap180(m_psi_des - m_psi);
   m_m = clampd(e_psi / m_theta_b, -1.0, 1.0);
   m_r_des = m_max_yaw_rate * m_m;
   double e_r = m_r_des - m_r;
-  double d_raw = (m_yaw_c0 + m_yaw_c1 * m_v) * m_r_des + m_Jr;
+  double d_raw = (m_yaw_c0 + m_yaw_c1 * m_v) * m_r_des
+               + m_yaw_kp * e_r - m_yaw_kd * dr + m_Jr;
   double dcap = m_delta_cap.eval(m_v);
   m_D = clampd(d_raw, -dcap, dcap);
 
@@ -382,8 +402,8 @@ bool DiffThrustPID_v2::buildReport()
   pt.addHeaderLines();
   pt << "theta_b / max_yaw_rate" << doubleToString(m_theta_b, 1) + " / " + doubleToString(m_max_yaw_rate, 1);
   pt << "yaw c0 / c1"            << doubleToString(m_yaw_c0, 2) + " / " + doubleToString(m_yaw_c1, 2);
-  pt << "speed_ki / i_max"       << doubleToString(m_speed_ki, 2) + " / " + doubleToString(m_speed_i_max, 1);
-  pt << "yaw_ki / i_max"         << doubleToString(m_yaw_ki, 2) + " / " + doubleToString(m_yaw_i_max, 1);
+  pt << "yaw  P/I/D"             << doubleToString(m_yaw_kp, 2) + " / " + doubleToString(m_yaw_ki, 2) + " / " + doubleToString(m_yaw_kd, 2) + "  (i_max " + doubleToString(m_yaw_i_max, 0) + ")";
+  pt << "speed P/I/D"            << doubleToString(m_speed_kp, 2) + " / " + doubleToString(m_speed_ki, 2) + " / " + doubleToString(m_speed_kd, 2) + "  (i_max " + doubleToString(m_speed_i_max, 0) + ")";
   pt << "u_max"                  << doubleToString(m_u_max, 1);
   m_msgs << pt.getFormattedString() << endl << endl;
   m_msgs << "FF_surge:  " << m_ff_surge.repr() << endl;
