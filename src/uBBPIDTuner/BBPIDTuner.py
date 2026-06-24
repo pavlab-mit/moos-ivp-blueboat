@@ -36,7 +36,20 @@ PLOTS = [
     ("Heading  (deg)",    "DESIRED_HEADING",       "NAV_HEADING"),
     ("Yaw rate  (deg/s)", "BBPID_DESIRED_YAWRATE", "BBPID_MEAS_YAWRATE"),
 ]
-PLOT_VARS = sorted({v for _, a, b in PLOTS for v in (a, b)})
+# "Actuators" tab: each plot = (title, [(var, color, label), ...])
+EXTRA_PLOTS = [
+    ("Feedforward contribution [%]", [
+        ("BBPID_FF_THRUST", "tab:red",    "forward FF (-> thrust)"),
+        ("BBPID_FF_RUDDER", "tab:blue",   "yaw FF (-> rudder)"),
+    ]),
+    ("Left / Right thrust [%]", [
+        ("DESIRED_THRUST_L", "tab:green",  "left"),
+        ("DESIRED_THRUST_R", "tab:purple", "right"),
+    ]),
+]
+PLOT_VARS = sorted(
+    {v for _, a, b in PLOTS for v in (a, b)}
+    | {var for _, lines in EXTRA_PLOTS for var, _, _ in lines})
 
 # Triplet groups -> sent as "key=a,b,c"
 GAIN_GROUPS = [
@@ -395,6 +408,25 @@ class TunerGUI:
         self.canvas = FigureCanvasTkAgg(self.fig, master=sc)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
+        # Actuators tab: FF contributions + left/right thrust (time series)
+        ac = ttk.Frame(nb); nb.add(ac, text="Actuators")
+        self.extra_fig = Figure(figsize=(6.5, 6.0), dpi=100)
+        self.extra_axes = []     # [(ax, [(line2d, var), ...]), ...]
+        n = len(EXTRA_PLOTS)
+        for i, (title, lines) in enumerate(EXTRA_PLOTS):
+            ax = self.extra_fig.add_subplot(n, 1, i + 1)
+            ax.set_ylabel(title); ax.grid(True, alpha=0.3)
+            lns = []
+            for var, color, label in lines:
+                ln, = ax.plot([], [], lw=1.4, color=color, label=label)
+                lns.append((ln, var))
+            ax.legend(loc="upper right", fontsize=8)
+            self.extra_axes.append((ax, lns))
+        self.extra_axes[-1][0].set_xlabel("time [s]")
+        self.extra_fig.tight_layout()
+        self.extra_canvas = FigureCanvasTkAgg(self.extra_fig, master=ac)
+        self.extra_canvas.get_tk_widget().pack(fill="both", expand=True)
+
         fm = ttk.Frame(nb); nb.add(fm, text="FF map")
         self.ff_fig = Figure(figsize=(6.5, 6.0), dpi=100)
         self.ff_ax_r = self.ff_fig.add_subplot(2, 1, 1)
@@ -427,25 +459,31 @@ class TunerGUI:
             self._ff_cbars.append(self.ff_fig.colorbar(cf, ax=ax))
         self.ff_canvas.draw_idle()
 
+    def _update_axis(self, ax, line_vars, t_lo, now):
+        ymin = ymax = None
+        for line, var in line_vars:
+            buf = self.app.buf[var]
+            xs = [t for t, _ in buf if t >= t_lo]
+            ys = [val for t, val in buf if t >= t_lo]
+            line.set_data(xs, ys)
+            if ys:
+                lo, hi = min(ys), max(ys)
+                ymin = lo if ymin is None else min(ymin, lo)
+                ymax = hi if ymax is None else max(ymax, hi)
+        ax.set_xlim(max(0.0, t_lo), max(self.history, now))
+        if ymin is not None:
+            pad = max(0.5, 0.1 * (ymax - ymin))
+            ax.set_ylim(ymin - pad, ymax + pad)
+
     def refresh(self):
         now = moos_time() - self.app.t0
         t_lo = now - self.history
         for ax, (ld, dvar, lm, mvar) in zip(self.axes, self.lines):
-            ymin = ymax = None
-            for line, var in ((ld, dvar), (lm, mvar)):
-                buf = self.app.buf[var]
-                xs = [t for t, _ in buf if t >= t_lo]
-                ys = [val for t, val in buf if t >= t_lo]
-                line.set_data(xs, ys)
-                if ys:
-                    lo, hi = min(ys), max(ys)
-                    ymin = lo if ymin is None else min(ymin, lo)
-                    ymax = hi if ymax is None else max(ymax, hi)
-            ax.set_xlim(max(0.0, t_lo), max(self.history, now))
-            if ymin is not None:
-                pad = max(0.5, 0.1 * (ymax - ymin))
-                ax.set_ylim(ymin - pad, ymax + pad)
+            self._update_axis(ax, ((ld, dvar), (lm, mvar)), t_lo, now)
         self.canvas.draw_idle()
+        for ax, lns in self.extra_axes:
+            self._update_axis(ax, lns, t_lo, now)
+        self.extra_canvas.draw_idle()
 
     def pump(self):
         if self.alive:
