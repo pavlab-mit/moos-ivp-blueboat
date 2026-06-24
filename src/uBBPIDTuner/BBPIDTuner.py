@@ -34,7 +34,7 @@ from tkinter import ttk
 PLOTS = [
     ("Speed  (m/s)",      "DESIRED_SPEED",         "NAV_SPEED"),
     ("Heading  (deg)",    "DESIRED_HEADING",       "NAV_HEADING"),
-    ("Yaw rate  (deg/s)", "BBPID_DESIRED_YAWRATE", "BBPID_MEAS_YAWRATE"),
+    ("Yaw rate  (rad/s)", "BBPID_DESIRED_YAWRATE", "BBPID_MEAS_YAWRATE"),
 ]
 # "Actuators" tab: each plot = (title, [(var, color, label), ...])
 EXTRA_PLOTS = [
@@ -55,17 +55,17 @@ PLOT_VARS = sorted(
 GAIN_GROUPS = [
     ("Speed PID  (Kp,Ki,Kd)",   "speed_pid",   [("Kp", 0, 10), ("Ki", 0, 2), ("Kd", 0, 2)]),
     ("Heading PID  (Kp,Ki,Kd)", "heading_pid", [("Kp", 0, 5),  ("Ki", 0, 2), ("Kd", 0, 2)]),
-    ("YawRate PID  (Kp,Ki,Kd)", "yawrate_pid", [("Kp", 0, 10), ("Ki", 0, 2), ("Kd", 0, 2)]),
+    ("YawRate PID  (Kp,Ki,Kd)", "yawrate_pid", [("Kp", 0, 400), ("Ki", 0, 100), ("Kd", 0, 100)]),
 ]
 FF_GROUPS = [
-    ("FF speed  (c0,cv,crr)", "ff_speed", [("c0", -20, 20), ("cv", -20, 20), ("crr", -2, 2)]),
-    ("FF yaw  (d0,dr,dvr)",   "ff_yaw",   [("d0", -20, 20), ("dr", 0, 30),  ("dvr", -20, 20)]),
+    ("FF speed  (c0,cv,crr)", "ff_speed", [("c0", -50, 50), ("cv", -50, 50), ("crr", -400, 400)]),
+    ("FF yaw  (d0,dr,dvr)",   "ff_yaw",   [("d0", -50, 50), ("dr", 0, 400),  ("dvr", -100, 100)]),
 ]
 # Scalars -> sent as "key=v"
 LIMIT_SCALARS = [
     ("max_thrust",      "max_thrust",             0, 100),
     ("max_rudder",      "max_rudder",             0, 100),
-    ("max_yawrate",     "max_yawrate",            0, 60),
+    ("max_yawrate[r/s]", "max_yawrate",           0, 1.5),
     ("speed_ilim",      "speed_integral_limit",   0, 200),
     ("yawrate_ilim",    "yawrate_integral_limit", 0, 200),
     ("des_yaw_filt[s]", "des_yawrate_filter",     0, 2),
@@ -78,18 +78,19 @@ FF_SCALARS = [
 # Initial display values (overwritten by the plug snapshot when it arrives)
 INIT = {
     "speed_pid": [3.0, 0.5, 0.0], "heading_pid": [1.3, 0.2, 0.0],
-    "yawrate_pid": [4.0, 0.5, 0.0],
-    "max_thrust": 100, "max_rudder": 100, "max_yawrate": 25,
+    "yawrate_pid": [229.18, 28.648, 0.0],
+    "max_thrust": 100, "max_rudder": 100, "max_yawrate": 0.43633,
     "speed_integral_limit": 100, "yawrate_integral_limit": 50,
     "des_yawrate_filter": 0.3, "yawrate_filter": 0.5,
-    "ff_speed": [4.428, 4.96, 0.4505], "ff_yaw": [4.145, 10.3, 0.0],
+    "ff_speed": [20.0, 15.0, -164.14], "ff_yaw": [2.5806, 235.65, 0.0],
     "ff_rudder_scale": 1.0, "ff_enable": True,
+    "ff_speed_enable": True, "ff_yaw_enable": True,
 }
 
-DEFAULT_SCHEDULE = [
-    (0.5, 3.0, 0.10, 0.0, 30.0),
-    (1.5, 2.0, 0.10, 0.0, 20.0),
-    (3.0, 1.2, 0.05, 0.2, 12.0),
+DEFAULT_SCHEDULE = [   # speed [m/s], kp, ki, kd (rad/s), max_yawrate [rad/s]
+    (0.5, 171.89, 5.7296, 0.0,    0.5236),
+    (1.5, 114.59, 5.7296, 0.0,    0.34907),
+    (3.0, 68.755, 2.8648, 11.459, 0.20944),
 ]
 SPEED_RANGE = (0.0, 2.5)   # expected speed range for the FF map [m/s]
 
@@ -183,11 +184,26 @@ class TunerGUI:
                    command=self._reset).pack(side="left")
         ttk.Button(bar, text="💾 Save config",
                    command=self._save_config).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="∫ Reset integrators",
+                   command=lambda: self.app.set_param("reset_integrators", "1")
+                   ).pack(side="left", padx=(6, 0))
         self.ff_enable = tk.BooleanVar(value=INIT["ff_enable"])
         ttk.Checkbutton(bar, text="FF enabled", variable=self.ff_enable,
                         command=lambda: self.app.set_param(
                             "ff_enable", "true" if self.ff_enable.get() else "false")
                         ).pack(side="left", padx=(10, 0))
+        self.ff_speed_enable = tk.BooleanVar(value=INIT["ff_speed_enable"])
+        ttk.Checkbutton(bar, text="speed FF", variable=self.ff_speed_enable,
+                        command=lambda: self.app.set_param(
+                            "ff_speed_enable",
+                            "true" if self.ff_speed_enable.get() else "false")
+                        ).pack(side="left", padx=(6, 0))
+        self.ff_yaw_enable = tk.BooleanVar(value=INIT["ff_yaw_enable"])
+        ttk.Checkbutton(bar, text="yaw FF", variable=self.ff_yaw_enable,
+                        command=lambda: self.app.set_param(
+                            "ff_yaw_enable",
+                            "true" if self.ff_yaw_enable.get() else "false")
+                        ).pack(side="left", padx=(6, 0))
         self._save_status = ttk.Label(parent, text="", foreground="gray30",
                                       wraplength=360, justify="left")
         self._save_status.pack(fill="x", pady=(0, 4))
@@ -230,6 +246,10 @@ class TunerGUI:
         L.append("")
         L.append(f"  ff_enable              = "
                  f"{'true' if self.ff_enable.get() else 'false'}")
+        L.append(f"  ff_speed_enable = "
+                 f"{'true' if self.ff_speed_enable.get() else 'false'}")
+        L.append(f"  ff_yaw_enable   = "
+                 f"{'true' if self.ff_yaw_enable.get() else 'false'}")
         L.append(f"  ff_speed        = {grp('ff_speed')}")
         L.append(f"  ff_yaw          = {grp('ff_yaw')}")
         L.append(f"  ff_rudder_scale = {sca('ff_rudder_scale')}")
@@ -330,11 +350,13 @@ class TunerGUI:
                 c.set_silent(self.defaults[key])
                 if publish:
                     self._send_scalar(key)
-        if "ff_enable" in self.defaults:
-            self.ff_enable.set(bool(self.defaults["ff_enable"]))
-            if publish:
-                self.app.set_param("ff_enable",
-                                   "true" if self.ff_enable.get() else "false")
+        for key, var in (("ff_enable", self.ff_enable),
+                         ("ff_speed_enable", self.ff_speed_enable),
+                         ("ff_yaw_enable", self.ff_yaw_enable)):
+            if key in self.defaults:
+                var.set(bool(self.defaults[key]))
+                if publish:
+                    self.app.set_param(key, "true" if var.get() else "false")
         self._refresh_ff_map()
 
     def _reset(self):
@@ -455,7 +477,7 @@ class TunerGUI:
             ax.clear()
             cf = ax.contourf(V, R, Z, levels=18, cmap="RdBu_r")
             ax.set(xlabel="desired speed v* [m/s]",
-                   ylabel="desired yaw rate r* [deg/s]", title=title)
+                   ylabel="desired yaw rate r* [rad/s]", title=title)
             self._ff_cbars.append(self.ff_fig.colorbar(cf, ax=ax))
         self.ff_canvas.draw_idle()
 

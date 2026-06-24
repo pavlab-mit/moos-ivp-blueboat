@@ -47,6 +47,9 @@ class BBPIDEngine
   void setHeadingLimits(double integral_limit, double max_yawrate);
   void setYawRateLimits(double integral_limit, double max_rudder);
 
+  // Clear the accumulated integral (and derivative history) of all loops.
+  void resetIntegrators();
+
   void setMaxThrust(double v)     { m_max_thrust = v;  }
   void setMaxRudder(double v)     { m_max_rudder = v;  }
   void setMaxYawRate(double v)    { m_max_yawrate = v; }
@@ -66,6 +69,12 @@ class BBPIDEngine
   //   diff   d = d0 + dr*r* + dvr*v* * r*  (-> DESIRED_RUDDER, scaled)
   void setFeedforwardEnable(bool v)      { m_ff_enable = v; }
   bool feedforwardEnabled() const        { return m_ff_enable; }
+  // Per-axis FF toggles (ANDed under the master ff_enable): speed term ->
+  // DESIRED_THRUST, yaw term -> DESIRED_RUDDER. Disable one to isolate.
+  void setFeedforwardSpeedEnable(bool v) { m_ff_speed_enable = v; }
+  void setFeedforwardYawEnable(bool v)   { m_ff_yaw_enable = v;   }
+  bool ffSpeedEnabled() const            { return m_ff_speed_enable; }
+  bool ffYawEnabled() const              { return m_ff_yaw_enable;   }
   void setFeedforwardSpeed(double c0, double cv, double crr)
        { m_ff_c0 = c0; m_ff_cv = cv; m_ff_crr = crr; }
   void setFeedforwardYaw(double d0, double dr, double dvr)
@@ -164,6 +173,8 @@ class BBPIDEngine
 
   // Feedforward (identified from field data)
   bool   m_ff_enable;
+  bool   m_ff_speed_enable;              // gate the common (speed) FF term
+  bool   m_ff_yaw_enable;                // gate the differential (yaw) FF term
   double m_ff_c0, m_ff_cv, m_ff_crr;     // common-mode (speed) FF
   double m_ff_d0, m_ff_dr, m_ff_dvr;     // differential (yaw) FF
   double m_ff_rudder_scale;              // differential-% -> rudder units
@@ -178,7 +189,9 @@ class BBPIDEngine
   // Limits / conventions
   double m_max_thrust;
   double m_max_rudder;
-  double m_max_yawrate;      // deg/s, clamp on outer-loop output
+  double m_max_yawrate;      // rad/s, clamp on outer-loop output
+  double m_speed_ilim;       // speed-PID integral limit (for resetIntegrators)
+  double m_yawrate_ilim;     // yaw-rate-PID integral limit
   double m_yawrate_scale;    // multiply raw feedback -> deg/s (sign-correcting)
   double m_rudder_polarity;  // +1 / -1 to match hull/mixer convention
   bool   m_allow_reverse;    // allow negative thrust
