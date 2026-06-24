@@ -36,6 +36,13 @@
 
   <div class="wrap">
     <div class="panel">
+      <h2>Setpoint</h2>
+      <div class="tbl">
+        <label>desired speed [m/s] <span class="cur" id="cur_spd"></span></label>
+        <input class="f" id="in_spd" placeholder="e.g. 1.2"
+               onkeydown="if(event.key==='Enter')setSpeed()">
+        <button class="apply" onclick="setSpeed()">Set speed</button>
+      </div>
       <h2>Scalars</h2>
       <table id="params"></table>
       <h2>Lookup tables</h2>
@@ -66,6 +73,9 @@ async function poll() {
     document.getElementById('status').textContent =
       'params ' + (state.params_age==null ? '— none yet' : state.params_age + 's ago')
       + ' · ' + Object.keys(state.params).length + ' fields';
+    const ds = state.signals.DESIRED_SPEED;
+    document.getElementById('cur_spd').textContent =
+      (ds && ds.length) ? '(now ' + ds[ds.length-1][1].toFixed(2) + ' via ' + (state.speed_var||'') + ')' : '';
     renderParams();
     drawAll();
   } catch (e) {
@@ -128,6 +138,10 @@ function applyChanged() {
 function cmd(c) { post(c); }
 function refresh() { resync = true; post('query'); }
 async function post(body) { await fetch('/apply', { method:'POST', body }); }
+async function setSpeed() {
+  const v = document.getElementById('in_spd').value.trim();
+  if (v !== '' && isFinite(+v)) await fetch('/speed', { method:'POST', body:v });
+}
 
 // parse "x,y:x,y:..." -> sorted [[x,y],...]
 function parseTable(s) {
