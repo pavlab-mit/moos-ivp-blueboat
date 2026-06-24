@@ -39,6 +39,11 @@ BBPIDEngine::BBPIDEngine()
   m_ff_rudder_scale = 1.0;
   m_ff_thrust = m_ff_rudder = 0.0;
 
+  m_des_yawrate_tau   = 0.0;     // desired-yaw-rate LPF time const (0 = off)
+  m_des_yawrate_filt  = 0.0;
+  m_des_lpf_prev_time = 0.0;
+  m_have_des_lpf      = false;
+
   m_speed_error    = 0.0;
   m_heading_error  = 0.0;
   m_yawrate_error  = 0.0;
@@ -148,6 +153,34 @@ void BBPIDEngine::applySchedule(double speed)
 }
 
 //---------------------------------------------------------
+// computeMeasYawRate(): update m_meas_yawrate from the configured source
+// (external gyro scaled, or derived from heading: r ~= dpsi/dt, angle-wrapped
+// and low-pass filtered). Safe to call every iterate even when the controller
+// is idle, so the yaw-rate scope stays live.
+
+double BBPIDEngine::computeMeasYawRate(double curr_time, double nav_heading,
+                                       double nav_yawrate_raw)
+{
+  if(m_yawrate_derive) {
+    if(m_have_prev_heading) {
+      double dt = curr_time - m_prev_heading_time;
+      if(dt > 1e-6) {
+        double raw_rate = angle180(nav_heading - m_prev_heading) / dt; // deg/s
+        m_meas_yawrate  = m_yr_lpf_alpha * raw_rate +
+                          (1.0 - m_yr_lpf_alpha) * m_meas_yawrate;
+      }
+    }
+    m_prev_heading      = nav_heading;
+    m_prev_heading_time = curr_time;
+    m_have_prev_heading = true;
+  }
+  else {
+    m_meas_yawrate = nav_yawrate_raw * m_yawrate_scale;
+  }
+  return m_meas_yawrate;
+}
+
+//---------------------------------------------------------
 // update(): one full control tick
 
 void BBPIDEngine::update(double curr_time,
@@ -170,6 +203,26 @@ void BBPIDEngine::update(double curr_time,
   m_heading_pid.Run(m_heading_error, curr_time, des_rate);
   if(des_rate >  m_max_yawrate) des_rate =  m_max_yawrate;
   if(des_rate < -m_max_yawrate) des_rate = -m_max_yawrate;
+
+  // Low-pass the desired yaw rate (dt-aware first order, time const tau).
+  // Heading-loop / sensor noise here is amplified ~dr-fold in the yaw FF
+  // (ff_diff = d0 + dr*des_rate), so smoothing it cleans the rudder FF and
+  // the inner-loop setpoint. tau=0 disables.
+  if(m_des_yawrate_tau > 0.0) {
+    if(m_have_des_lpf) {
+      double dt = curr_time - m_des_lpf_prev_time;
+      if(dt > 0.0) {
+        double alpha = dt / (m_des_yawrate_tau + dt);
+        m_des_yawrate_filt += alpha * (des_rate - m_des_yawrate_filt);
+      }
+    }
+    else {
+      m_des_yawrate_filt = des_rate;
+      m_have_des_lpf = true;
+    }
+    m_des_lpf_prev_time = curr_time;
+    des_rate = m_des_yawrate_filt;
+  }
   m_desired_yawrate = des_rate;
 
   // ---------- Feedforward (identified from field data) ----------
@@ -199,32 +252,16 @@ void BBPIDEngine::update(double curr_time,
   if(thrust >  m_max_thrust) thrust =  m_max_thrust;
   if(thrust < -m_max_thrust) thrust = -m_max_thrust;
 
-  // ---------- Inner yaw loop: yaw-rate error -> rudder.
-  // Feedback is either an external gyro (nav_yawrate_raw, scaled) or, when
-  // no gyro is available (e.g. sim), derived from heading: r ~= dpsi/dt,
-  // angle-wrapped and low-pass filtered to tame the numerical derivative.
-  if(m_yawrate_derive) {
-    if(m_have_prev_heading) {
-      double dt = curr_time - m_prev_heading_time;
-      if(dt > 1e-6) {
-        double raw_rate = angle180(nav_heading - m_prev_heading) / dt; // deg/s
-        m_meas_yawrate  = m_yr_lpf_alpha * raw_rate +
-                          (1.0 - m_yr_lpf_alpha) * m_meas_yawrate;
-      }
-    }
-    m_prev_heading      = nav_heading;
-    m_prev_heading_time = curr_time;
-    m_have_prev_heading = true;
-  }
-  else {
-    m_meas_yawrate = nav_yawrate_raw * m_yawrate_scale;
-  }
+  // ---------- Inner yaw loop: yaw-rate error -> rudder ----------
+  computeMeasYawRate(curr_time, nav_heading, nav_yawrate_raw);
   m_yawrate_error = des_rate - m_meas_yawrate;
 
   double rudder = 0.0;
   m_yawrate_pid.Run(m_yawrate_error, curr_time, rudder);
 
-  rudder = rudder * m_rudder_polarity + m_ff_rudder;   // feedback + feedforward
+  // rudder_polarity reverses the ENTIRE command (PID + feedforward) to match
+  // the mixer/hardware convention -- set rudder_polarity = -1 to flip.
+  rudder = (rudder + m_ff_rudder) * m_rudder_polarity;
   if(rudder >  m_max_rudder) rudder =  m_max_rudder;
   if(rudder < -m_max_rudder) rudder = -m_max_rudder;
 

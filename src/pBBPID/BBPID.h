@@ -37,6 +37,7 @@ class BBPID : public AppCastingMOOSApp
    bool parseSchedulePoint(const std::string& value);
    void handleLiveGainMail(const std::string& key, double dval);
    void applyEngineLimits();
+   std::string buildParamSnapshot();   // ';'-separated key=value of all params
 
  private: // Engine
    BBPIDEngine m_engine;
@@ -76,6 +77,8 @@ class BBPID : public AppCastingMOOSApp
    unsigned int m_iterations_run;
    double m_tstamp_last_cmd; // time of last fresh desired command
    double m_cmd_stale_thresh;// s; zero outputs if no fresh desired beyond this
+   std::string m_params_default;  // snapshot of plug-loaded params (for tuner reset)
+   double m_last_params_pub; // last time BBPID_PARAMS_DEFAULT was published
 
  private: // Limit configuration (applied to engine after startup)
    double m_max_thrust;

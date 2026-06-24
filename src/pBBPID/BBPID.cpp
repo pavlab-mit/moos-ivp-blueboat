@@ -45,6 +45,7 @@ BBPID::BBPID()
   m_iterations_run    = 0;
   m_tstamp_last_cmd   = 0.0;
   m_cmd_stale_thresh  = 1.5;  // s
+  m_last_params_pub   = 0.0;
 
   m_max_thrust            = 100.0;
   m_max_rudder            = 100.0;
@@ -104,6 +105,20 @@ bool BBPID::OnNewMail(MOOSMSG_LIST &NewMail)
       m_engine.setFeedforwardEnable(on);
       reportEvent("Feedforward " + string(on ? "ENABLED" : "DISABLED"));
     }
+    // Generic runtime parameter channel: "key=value" (reuses the config
+    // parser, so any plug param can be retuned live -- gains, limits,
+    // filters, FF coeffs). Used by uBBPIDTuner.
+    else if(key == "BBPID_SET") {
+      string line  = msg.GetString();
+      string param = tolower(biteStringX(line, '='));
+      string value = line;
+      if(handleConfigLine(param, value)) {
+        applyEngineLimits();             // push any deferred limit changes
+        reportEvent("set " + param + " = " + value);
+      }
+      else
+        reportRunWarning("BBPID_SET unknown param: " + param);
+    }
     else if(strBegins(key, "BBPID_")) {
       handleLiveGainMail(key, dval);
     }
@@ -162,6 +177,13 @@ bool BBPID::Iterate()
   AppCastingMOOSApp::Iterate();
   m_iterations_run++;
 
+  // Heartbeat the plug-default param snapshot (~every 5s) so a tuner that
+  // connects at any time can initialize its controls and "reset to defaults".
+  if((MOOSTime() - m_last_params_pub) > 5.0) {
+    Notify("BBPID_PARAMS_DEFAULT", m_params_default);
+    m_last_params_pub = MOOSTime();
+  }
+
   // In derive_heading mode the yaw rate comes from NAV_HEADING, so don't
   // wait on a separate (never-published) yaw-rate variable.
   bool have_yawrate = m_have_nav_yawrate || m_yawrate_derive;
@@ -174,13 +196,18 @@ bool BBPID::Iterate()
     return(true);
   }
 
-  // Safety: if the helm stopped commanding, coast to zero.
+  // Safety: if the helm stopped commanding, coast to zero -- but keep the
+  // measured-yaw-rate scope alive (desired = 0 while idle) so the tuner
+  // doesn't go blank when the boat isn't being driven.
   bool stale = (MOOSTime() - m_tstamp_last_cmd) > m_cmd_stale_thresh;
   if(stale) {
     m_last_thrust = 0.0;
     m_last_rudder = 0.0;
     Notify(m_thrust_var, 0.0);
     Notify(m_rudder_var, 0.0);
+    m_engine.computeMeasYawRate(MOOSTime(), m_nav_heading, m_nav_yawrate);
+    Notify("BBPID_MEAS_YAWRATE",    m_engine.getMeasYawRate());
+    Notify("BBPID_DESIRED_YAWRATE", 0.0);
     AppCastingMOOSApp::PostReport();
     return(true);
   }
@@ -238,7 +265,42 @@ bool BBPID::OnStartUp()
 
   applyEngineLimits();
   registerVariables();
+  m_params_default = buildParamSnapshot();   // plug values, for tuner reset
   return(true);
+}
+
+//---------------------------------------------------------
+// buildParamSnapshot: ';'-separated key=value of all tunable params, in
+// the same config-line syntax the tuner sends back via BBPID_SET.
+
+string BBPID::buildParamSnapshot()
+{
+  string s;
+  s += "speed_pid=" + doubleToStringX(m_engine.speedKp(),4) + ","
+                    + doubleToStringX(m_engine.speedKi(),4) + ","
+                    + doubleToStringX(m_engine.speedKd(),4);
+  s += ";heading_pid=" + doubleToStringX(m_engine.headingKp(),4) + ","
+                       + doubleToStringX(m_engine.headingKi(),4) + ","
+                       + doubleToStringX(m_engine.headingKd(),4);
+  s += ";yawrate_pid=" + doubleToStringX(m_engine.yawrateKp(),4) + ","
+                       + doubleToStringX(m_engine.yawrateKi(),4) + ","
+                       + doubleToStringX(m_engine.yawrateKd(),4);
+  s += ";max_thrust="  + doubleToStringX(m_max_thrust,4);
+  s += ";max_rudder="  + doubleToStringX(m_max_rudder,4);
+  s += ";max_yawrate=" + doubleToStringX(m_max_yawrate,4);
+  s += ";speed_integral_limit="   + doubleToStringX(m_speed_integral_limit,4);
+  s += ";yawrate_integral_limit=" + doubleToStringX(m_yawrate_integral_limit,4);
+  s += ";des_yawrate_filter=" + doubleToStringX(m_engine.getDesYawRateFilter(),4);
+  s += ";yawrate_filter="     + doubleToStringX(m_engine.getYawRateFilter(),4);
+  s += ";ff_speed=" + doubleToStringX(m_engine.ffC0(),4) + ","
+                    + doubleToStringX(m_engine.ffCv(),4) + ","
+                    + doubleToStringX(m_engine.ffCrr(),5);
+  s += ";ff_yaw="   + doubleToStringX(m_engine.ffD0(),4) + ","
+                    + doubleToStringX(m_engine.ffDr(),4) + ","
+                    + doubleToStringX(m_engine.ffDvr(),4);
+  s += ";ff_rudder_scale=" + doubleToStringX(m_engine.ffRudderScale(),4);
+  s += ";ff_enable=" + string(m_engine.feedforwardEnabled() ? "true" : "false");
+  return(s);
 }
 
 //---------------------------------------------------------
@@ -318,6 +380,10 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
   }
   else if(param == "ff_rudder_scale") {
     m_engine.setFeedforwardRudderScale(dval);
+    return(true);
+  }
+  else if(param == "des_yawrate_filter") {   // LPF time const [s] on desired yaw rate
+    m_engine.setDesYawRateFilter(dval);
     return(true);
   }
 
@@ -422,6 +488,9 @@ void BBPID::registerVariables()
 
   // Runtime feedforward toggle
   Register("BBPID_FF_ENABLE", 0);
+
+  // Generic runtime parameter channel (key=value), used by uBBPIDTuner
+  Register("BBPID_SET", 0);
 }
 
 //---------------------------------------------------------
