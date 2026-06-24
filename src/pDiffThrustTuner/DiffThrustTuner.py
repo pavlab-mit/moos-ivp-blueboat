@@ -60,16 +60,18 @@ ProcessConfig = pDiffThrustTuner
         self.web_port = 8080
         self.history = 90.0
         self.publish_suffix = ""               # "_ALL" -> uFldShoreBroker qbridge to vehicle
+        self.speed_update_var = "LEGRUN_UPDATE"  # behavior updates var for desired speed
         self.params = {}                       # latest PDIFF_THRUST_STATE
         self.params_ts = 0.0
         self.buffers = {s: deque() for s in SIGNALS}
         self.lock = threading.Lock()
-        self.apply_q = queue.Queue()           # web thread -> MOOS thread
+        self.apply_q = queue.Queue()           # web thread -> MOOS thread; items are (var, value)
 
     def on_startup(self):
         self.web_port = self.config("web_port", 8080, int)
         self.history = self.config("history", 90.0, float)
         self.publish_suffix = self.config("publish_suffix", "")
+        self.speed_update_var = self.config("speed_update_var", "LEGRUN_UPDATE")
         self._start_server()
         self.report_event(f"dashboard on http://localhost:{self.web_port}")
 
@@ -96,11 +98,11 @@ ProcessConfig = pDiffThrustTuner
         # publish queued applies from the UI (only the MOOS thread touches the DB)
         while True:
             try:
-                upd = self.apply_q.get_nowait()
+                var, val = self.apply_q.get_nowait()
             except queue.Empty:
                 break
-            self.notify("PDIFF_THRUST_UPDATES" + self.publish_suffix, upd)
-            self.report_event("sent: " + upd)
+            self.notify(var + self.publish_suffix, val)
+            self.report_event(f"sent {var}={val}")
         # ask the controller to announce itself until we've heard from it
         if not self.params and (self.m_iteration % 8 == 0):
             self.notify("PDIFF_THRUST_UPDATES" + self.publish_suffix, "query")
@@ -126,6 +128,7 @@ ProcessConfig = pDiffThrustTuner
                 "signals": {s: list(self.buffers[s]) for s in SIGNALS},
                 "now": moos_time(),
                 "history": self.history,
+                "speed_var": self.speed_update_var,
             }
 
     def _start_server(self):
@@ -153,11 +156,15 @@ ProcessConfig = pDiffThrustTuner
                     self._send(404, "text/plain", b"not found")
 
             def do_POST(self):
-                if self.path == "/apply":
-                    n = int(self.headers.get("Content-Length", 0))
-                    body = self.rfile.read(n).decode().strip()
+                n = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(n).decode().strip() if n else ""
+                if self.path == "/apply":                       # controller params
                     if body:
-                        app.apply_q.put(body)
+                        app.apply_q.put(("PDIFF_THRUST_UPDATES", body))
+                    self._send(200, "application/json", b'{"ok":true}')
+                elif self.path == "/speed":                     # leg speed setpoint
+                    if body:
+                        app.apply_q.put((app.speed_update_var, "speed=" + body))
                     self._send(200, "application/json", b'{"ok":true}')
                 else:
                     self._send(404, "text/plain", b"not found")
