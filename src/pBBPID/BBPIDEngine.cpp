@@ -19,6 +19,8 @@ BBPIDEngine::BBPIDEngine()
   m_max_thrust     = 100.0;
   m_max_rudder     = 100.0;
   m_max_yawrate    = 25.0;    // deg/s
+  m_speed_ilim     = 50.0;
+  m_yawrate_ilim   = 50.0;
   m_yawrate_scale  = 1.0;     // assume feedback already deg/s; flip sign here
   m_rudder_polarity= 1.0;
   m_allow_reverse  = false;
@@ -34,6 +36,8 @@ BBPIDEngine::BBPIDEngine()
 
   // Feedforward (identified model); disabled until configured.
   m_ff_enable       = false;
+  m_ff_speed_enable = true;
+  m_ff_yaw_enable   = true;
   m_ff_c0 = m_ff_cv = m_ff_crr = 0.0;
   m_ff_d0 = m_ff_dr = m_ff_dvr = 0.0;
   m_ff_rudder_scale = 1.0;
@@ -80,13 +84,35 @@ void BBPIDEngine::setYawRateGains(double kp, double ki, double kd)
 { m_yawrate_pid.SetGains(kp, kd, ki); }
 
 void BBPIDEngine::setSpeedLimits(double il, double ol)
-{ m_speed_pid.SetLimits(il, ol); m_max_thrust = ol; }
+{ m_speed_pid.SetLimits(il, ol); m_max_thrust = ol; m_speed_ilim = il; }
 
 void BBPIDEngine::setHeadingLimits(double il, double ol)
 { m_heading_pid.SetLimits(il, ol); m_max_yawrate = ol; }
 
 void BBPIDEngine::setYawRateLimits(double il, double ol)
-{ m_yawrate_pid.SetLimits(il, ol); m_max_rudder = ol; }
+{ m_yawrate_pid.SetLimits(il, ol); m_max_rudder = ol; m_yawrate_ilim = il; }
+
+//---------------------------------------------------------
+// resetIntegrators(): clear the accumulated integral (and derivative
+// history) of all three PID loops by rebuilding them with the current
+// gains + limits. Use after a big retune or windup to start clean.
+
+static void rebuildPID(ScalarPID& pid, const std::string& name,
+                       double ilim, double olim)
+{
+  double kp = pid.getKP(), kd = pid.getKD(), ki = pid.getKI();
+  pid = ScalarPID();                 // clears m_dfeSum, diff history, iter count
+  pid.SetGains(kp, kd, ki);          // ScalarPID order is (Kp, Kd, Ki)
+  pid.SetLimits(ilim, olim);
+  pid.SetName(name);
+}
+
+void BBPIDEngine::resetIntegrators()
+{
+  rebuildPID(m_speed_pid,   "bbpid_speed",   m_speed_ilim,   m_max_thrust);
+  rebuildPID(m_heading_pid, "bbpid_heading", m_max_yawrate,  m_max_yawrate);
+  rebuildPID(m_yawrate_pid, "bbpid_yawrate", m_yawrate_ilim, m_max_rudder);
+}
 
 //---------------------------------------------------------
 // addSchedulePoint(): insert a breakpoint, keeping the table
@@ -165,7 +191,8 @@ double BBPIDEngine::computeMeasYawRate(double curr_time, double nav_heading,
     if(m_have_prev_heading) {
       double dt = curr_time - m_prev_heading_time;
       if(dt > 1e-6) {
-        double raw_rate = angle180(nav_heading - m_prev_heading) / dt; // deg/s
+        double raw_rate = angle180(nav_heading - m_prev_heading)
+                          * (M_PI / 180.0) / dt;                       // rad/s
         m_meas_yawrate  = m_yr_lpf_alpha * raw_rate +
                           (1.0 - m_yr_lpf_alpha) * m_meas_yawrate;
       }
@@ -197,7 +224,9 @@ void BBPIDEngine::update(double curr_time,
 
   // ---------- Outer heading loop: heading error -> desired yaw rate ----------
   // Computed first so the feedforward (turning-drag term) can use des_rate.
-  m_heading_error = angle180(desired_heading - nav_heading);
+  // Units: heading arrives in degrees (MOOS); convert the error to RADIANS so
+  // the whole yaw-rate path (des_rate, FF, inner loop) is in rad and rad/s.
+  m_heading_error = angle180(desired_heading - nav_heading) * (M_PI / 180.0);
 
   double des_rate = 0.0;
   m_heading_pid.Run(m_heading_error, curr_time, des_rate);
@@ -233,11 +262,14 @@ void BBPIDEngine::update(double curr_time,
   m_ff_thrust = 0.0;
   m_ff_rudder = 0.0;
   if(m_ff_enable) {
-    m_ff_thrust = m_ff_c0 + m_ff_cv * desired_speed
-                + m_ff_crr * des_rate * des_rate;
-    double ff_diff = m_ff_d0 + m_ff_dr * des_rate
-                   + m_ff_dvr * desired_speed * des_rate;
-    m_ff_rudder = m_ff_rudder_scale * ff_diff;
+    if(m_ff_speed_enable)
+      m_ff_thrust = m_ff_c0 + m_ff_cv * desired_speed
+                  + m_ff_crr * des_rate * des_rate;
+    if(m_ff_yaw_enable) {
+      double ff_diff = m_ff_d0 + m_ff_dr * des_rate
+                     + m_ff_dvr * desired_speed * des_rate;
+      m_ff_rudder = m_ff_rudder_scale * ff_diff;
+    }
   }
 
   // ---------- Speed loop (true positional PID) + speed FF ----------

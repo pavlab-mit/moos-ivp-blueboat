@@ -300,6 +300,8 @@ string BBPID::buildParamSnapshot()
                     + doubleToStringX(m_engine.ffDvr(),4);
   s += ";ff_rudder_scale=" + doubleToStringX(m_engine.ffRudderScale(),4);
   s += ";ff_enable=" + string(m_engine.feedforwardEnabled() ? "true" : "false");
+  s += ";ff_speed_enable=" + string(m_engine.ffSpeedEnabled() ? "true" : "false");
+  s += ";ff_yaw_enable="   + string(m_engine.ffYawEnabled()   ? "true" : "false");
   return(s);
 }
 
@@ -362,6 +364,14 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
     m_engine.setFeedforwardEnable(tolower(value) == "true");
     return(true);
   }
+  else if(param == "ff_speed_enable") {    // gate the common (speed) FF term
+    m_engine.setFeedforwardSpeedEnable(tolower(value) == "true");
+    return(true);
+  }
+  else if(param == "ff_yaw_enable") {      // gate the differential (yaw) FF term
+    m_engine.setFeedforwardYawEnable(tolower(value) == "true");
+    return(true);
+  }
   else if(param == "ff_speed") {           // c0, cv, crr
     string v = value;
     double c0  = atof(biteStringX(v, ',').c_str());
@@ -384,6 +394,10 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
   }
   else if(param == "des_yawrate_filter") {   // LPF time const [s] on desired yaw rate
     m_engine.setDesYawRateFilter(dval);
+    return(true);
+  }
+  else if(param == "reset_integrators") {    // runtime command (value ignored)
+    m_engine.resetIntegrators();
     return(true);
   }
 
