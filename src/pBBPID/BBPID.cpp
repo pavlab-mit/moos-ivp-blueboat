@@ -196,13 +196,18 @@ bool BBPID::Iterate()
     return(true);
   }
 
-  // Safety: if the helm stopped commanding, coast to zero.
+  // Safety: if the helm stopped commanding, coast to zero -- but keep the
+  // measured-yaw-rate scope alive (desired = 0 while idle) so the tuner
+  // doesn't go blank when the boat isn't being driven.
   bool stale = (MOOSTime() - m_tstamp_last_cmd) > m_cmd_stale_thresh;
   if(stale) {
     m_last_thrust = 0.0;
     m_last_rudder = 0.0;
     Notify(m_thrust_var, 0.0);
     Notify(m_rudder_var, 0.0);
+    m_engine.computeMeasYawRate(MOOSTime(), m_nav_heading, m_nav_yawrate);
+    Notify("BBPID_MEAS_YAWRATE",    m_engine.getMeasYawRate());
+    Notify("BBPID_DESIRED_YAWRATE", 0.0);
     AppCastingMOOSApp::PostReport();
     return(true);
   }

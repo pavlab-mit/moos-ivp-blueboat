@@ -101,6 +101,11 @@ class BBPIDEngine
   unsigned int scheduleSize() const { return (unsigned int)m_schedule.size(); }
   double getSchedSpeed() const { return m_sched_speed; }
 
+  // Update + return the measured yaw rate from the configured source
+  // (independent of the control loop, so the scope works when idle).
+  double computeMeasYawRate(double curr_time, double nav_heading,
+                            double nav_yawrate_raw);
+
   // --- Main computation: one control tick ---
   // nav_yawrate_raw is the unscaled feedback (e.g. GYRO_Z_LVL_IMU).
   void update(double curr_time,

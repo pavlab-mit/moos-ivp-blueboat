@@ -153,6 +153,34 @@ void BBPIDEngine::applySchedule(double speed)
 }
 
 //---------------------------------------------------------
+// computeMeasYawRate(): update m_meas_yawrate from the configured source
+// (external gyro scaled, or derived from heading: r ~= dpsi/dt, angle-wrapped
+// and low-pass filtered). Safe to call every iterate even when the controller
+// is idle, so the yaw-rate scope stays live.
+
+double BBPIDEngine::computeMeasYawRate(double curr_time, double nav_heading,
+                                       double nav_yawrate_raw)
+{
+  if(m_yawrate_derive) {
+    if(m_have_prev_heading) {
+      double dt = curr_time - m_prev_heading_time;
+      if(dt > 1e-6) {
+        double raw_rate = angle180(nav_heading - m_prev_heading) / dt; // deg/s
+        m_meas_yawrate  = m_yr_lpf_alpha * raw_rate +
+                          (1.0 - m_yr_lpf_alpha) * m_meas_yawrate;
+      }
+    }
+    m_prev_heading      = nav_heading;
+    m_prev_heading_time = curr_time;
+    m_have_prev_heading = true;
+  }
+  else {
+    m_meas_yawrate = nav_yawrate_raw * m_yawrate_scale;
+  }
+  return m_meas_yawrate;
+}
+
+//---------------------------------------------------------
 // update(): one full control tick
 
 void BBPIDEngine::update(double curr_time,
@@ -224,32 +252,16 @@ void BBPIDEngine::update(double curr_time,
   if(thrust >  m_max_thrust) thrust =  m_max_thrust;
   if(thrust < -m_max_thrust) thrust = -m_max_thrust;
 
-  // ---------- Inner yaw loop: yaw-rate error -> rudder.
-  // Feedback is either an external gyro (nav_yawrate_raw, scaled) or, when
-  // no gyro is available (e.g. sim), derived from heading: r ~= dpsi/dt,
-  // angle-wrapped and low-pass filtered to tame the numerical derivative.
-  if(m_yawrate_derive) {
-    if(m_have_prev_heading) {
-      double dt = curr_time - m_prev_heading_time;
-      if(dt > 1e-6) {
-        double raw_rate = angle180(nav_heading - m_prev_heading) / dt; // deg/s
-        m_meas_yawrate  = m_yr_lpf_alpha * raw_rate +
-                          (1.0 - m_yr_lpf_alpha) * m_meas_yawrate;
-      }
-    }
-    m_prev_heading      = nav_heading;
-    m_prev_heading_time = curr_time;
-    m_have_prev_heading = true;
-  }
-  else {
-    m_meas_yawrate = nav_yawrate_raw * m_yawrate_scale;
-  }
+  // ---------- Inner yaw loop: yaw-rate error -> rudder ----------
+  computeMeasYawRate(curr_time, nav_heading, nav_yawrate_raw);
   m_yawrate_error = des_rate - m_meas_yawrate;
 
   double rudder = 0.0;
   m_yawrate_pid.Run(m_yawrate_error, curr_time, rudder);
 
-  rudder = rudder * m_rudder_polarity + m_ff_rudder;   // feedback + feedforward
+  // rudder_polarity reverses the ENTIRE command (PID + feedforward) to match
+  // the mixer/hardware convention -- set rudder_polarity = -1 to flip.
+  rudder = (rudder + m_ff_rudder) * m_rudder_polarity;
   if(rudder >  m_max_rudder) rudder =  m_max_rudder;
   if(rudder < -m_max_rudder) rudder = -m_max_rudder;
 
