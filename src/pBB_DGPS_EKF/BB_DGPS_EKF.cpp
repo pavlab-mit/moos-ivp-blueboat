@@ -273,9 +273,8 @@ bool BB_DGPS_EKF::Iterate()
 
   // ---- Passthrough: publish raw DGPS straight to the helm, no EKF ----
   if (m_passthrough) {
-    gps.heading_valid
       //if (m_gps_valid && m_latest_gps.isValid() && m_geodesy_initialized) {
-    if (m_gps_valid && m_latest_gps.isValid() && m_geodesy_initialized && gps.heading_valid) {
+    if (m_gps_valid && m_latest_gps.isValid() && m_geodesy_initialized && m_latest_gps.heading_valid) {
       Notify(outName("NAV_X"),       m_latest_gps.nav_x);
       Notify(outName("NAV_Y"),       m_latest_gps.nav_y);
       Notify(outName("NAV_HEADING"), m_latest_gps.heading);  // deg true [0,360)
