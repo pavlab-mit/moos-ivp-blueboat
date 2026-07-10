@@ -488,6 +488,7 @@ bool UnicoreParser::parseUniHeadingA(const std::string& line) {
                                     (uniheadinga_.posType == "NARROW_INT" ||
                                      uniheadinga_.posType == "WIDE_INT" ||
                                      uniheadinga_.posType == "NARROW_FLOAT" ||
+				     uniheadinga_.posType == "L1_FLOAT" ||
                                      uniheadinga_.posType == "WIDE_FLOAT");
         uniheadinga_.headingAcc = uniheadinga_.headingSigma;
         uniheadinga_.carrSoln = uniheadinga_.posType;
