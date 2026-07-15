@@ -125,6 +125,16 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_last_rc_good_time = 0.0;
   m_rc_deadman_active = false;
 
+  // Teleop defaults: inactive, 1-second freshness timeout.
+  // Last-teleop-time starts at 0 so teleop can never engage before
+  // the first TELEOP_ACTIVE=true mail arrives.
+  m_teleop_active = false;
+  m_teleop_thrust_left = 0.0;
+  m_teleop_thrust_right = 0.0;
+  m_last_teleop_time = 0.0;
+  m_teleop_command_timeout = 1.0;
+  m_teleop_engaged = false;
+
   set_rgb_led_strip_size(24);
   init();
 
@@ -349,6 +359,34 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
       m_all_stop = (msg.GetString() == "true");
       dbg_print("ALL_STOP received: %s\n", m_all_stop ? "true" : "false");
     }
+    // Handle laptop teleop messages (from iTeleop). Thrust values
+    // are stored raw in the wire convention; the -1 * invert
+    // transform is applied in the Iterate() teleop branch so the
+    // convention matches DESIRED_THRUST_L/R and RC exactly.
+    else if (key == "TELEOP_ACTIVE")
+    {
+      bool was_active = m_teleop_active;
+      m_teleop_active = (msg.GetString() == "true");
+      m_last_teleop_time = MOOSTime();
+      if (m_teleop_active != was_active)
+      {
+        reportEvent(std::string("Teleop ") +
+                    (m_teleop_active ? "ACTIVE" : "inactive") + " via MOOS");
+        dbg_print("Teleop active: %s\n", m_teleop_active ? "true" : "false");
+      }
+    }
+    else if (key == "TELEOP_THRUST_L")
+    {
+      m_teleop_thrust_left = msg.GetDouble();
+      m_last_teleop_time = MOOSTime();
+      dbg_print("Teleop Left Thrust: %0.2f\n", m_teleop_thrust_left);
+    }
+    else if (key == "TELEOP_THRUST_R")
+    {
+      m_teleop_thrust_right = msg.GetDouble();
+      m_last_teleop_time = MOOSTime();
+      dbg_print("Teleop Right Thrust: %0.2f\n", m_teleop_thrust_right);
+    }
     // Handle RC channel messages
     else if (key == "RC_CONNECTED")
     {
@@ -569,12 +607,31 @@ bool BBNavigatorInterface::Iterate()
   // Get the change in time for updating the virtual actuators
   double dt = MOOSTime() - m_last_update;
 
-  // Check for thrust command timeout if enabled
+  // Teleop engagement, evaluated after mail so an RC takeover or a
+  // TELEOP_ACTIVE=false in this cycle's mail is honored immediately.
+  // Freshness doubles as a vehicle-side deadman: iTeleop re-publishes
+  // TELEOP_ACTIVE/TELEOP_THRUST_* every iterate, so stale mail means
+  // iTeleop is hung or dead and teleop must disengage. Priority:
+  // RC (m_rc_mode) > teleop > backseat autonomy.
+  const bool teleop_fresh =
+      (MOOSTime() - m_last_teleop_time) < m_teleop_command_timeout;
+  const bool teleop_was_engaged = m_teleop_engaged;
+  m_teleop_engaged = m_teleop_active && teleop_fresh && !m_rc_mode;
+  if (m_teleop_engaged && !teleop_was_engaged)
+    reportEvent("Teleop ENGAGED - ignoring backseat thrust");
+  if (!m_teleop_engaged && teleop_was_engaged)
+    reportEvent("Teleop disengaged");
+
+  // Check for thrust command timeout if enabled. Teleop refreshes
+  // m_last_thrust_command_time in its branch below, so the timeout
+  // cannot fire mid-teleop; the exemption here covers the same
+  // cycle boundary case as the RC exemption.
   if (m_thrust_timeout_enabled && m_thrust_command_timeout > 0)
   {
     double time_since_last_command = MOOSTime() - m_last_thrust_command_time;
 
-    if (time_since_last_command > m_thrust_command_timeout && !m_rc_mode)
+    if (time_since_last_command > m_thrust_command_timeout && !m_rc_mode &&
+        !m_teleop_engaged)
     {
       // Timeout occurred, set thrusts to zero
       m_desired_thrust_left = 0;
@@ -592,8 +649,11 @@ bool BBNavigatorInterface::Iterate()
     }
   }
 
-  // Check for ALL_STOP condition - only affects autonomous control
-  if (m_all_stop && !m_rc_mode)
+  // Check for ALL_STOP condition - only affects autonomous control.
+  // Teleop is exempt like RC: it is a manual rescue mode, and a
+  // latched backseat ALL_STOP must not paralyze the rescue. The GUI
+  // E-STOP arrives as zero teleop thrust, not via ALL_STOP.
+  if (m_all_stop && !m_rc_mode && !m_teleop_engaged)
   {
     m_desired_thrust_left = 0;
     m_desired_thrust_right = 0;
@@ -620,6 +680,29 @@ bool BBNavigatorInterface::Iterate()
     m_desired_thrust_right = 0;
     dbg_print("RC frame invalid - setting thrusts to zero\n");
   }
+  // Teleop thrust path (only reachable when not in RC mode).
+  // Same sign/invert transform as the DESIRED_THRUST_L/R mail
+  // handlers so all three command sources share one convention.
+  else if (m_teleop_engaged)
+  {
+    m_desired_thrust_left = -1.0 * m_teleop_thrust_left * m_left_thruster_invert;
+    m_desired_thrust_right = -1.0 * m_teleop_thrust_right * m_right_thruster_invert;
+
+    // Teleop counts as a thrust command (mirrors calculateRCThrust)
+    m_last_thrust_command_time = MOOSTime();
+
+    dbg_print("Teleop Control - Left: %0.2f, Right: %0.2f\n",
+              m_desired_thrust_left, m_desired_thrust_right);
+  }
+  // Teleop claimed the vehicle but its mail went stale (iTeleop hung
+  // or died with TELEOP_ACTIVE latched true): zero thrust this cycle
+  // rather than falling through to stale backseat/teleop values.
+  else if (m_teleop_active && !teleop_fresh)
+  {
+    m_desired_thrust_left = 0;
+    m_desired_thrust_right = 0;
+    dbg_print("Teleop mail stale - setting thrusts to zero\n");
+  }
 
   // RC deadman watchdog (final override). When enabled, requires
   // a "good" RC tick (RC_CONNECTED=true or any RC_CH* mail) within
@@ -628,9 +711,15 @@ bool BBNavigatorInterface::Iterate()
   // rc_deadman_enabled=false (config) or RC_DEADMAN_ENABLED=false
   // (runtime) for over-the-horizon missions where RC range loss is
   // expected.
+  //
+  // Teleop exemption: while teleop is engaged, the GUI link is the
+  // deadman (iTeleop's gui_deadman_timeout plus the teleop freshness
+  // check above - two independent layers). Requiring the SBUS
+  // transmitter to also be alive would make laptop teleop useless
+  // exactly when it is needed: RC out of range or transmitter dead.
   bool deadman_was_active = m_rc_deadman_active;
   m_rc_deadman_active = false;
-  if (m_rc_deadman_enabled)
+  if (m_rc_deadman_enabled && !m_teleop_engaged)
   {
     double rc_age = MOOSTime() - m_last_rc_good_time;
     if (rc_age > m_rc_deadman_timeout)
@@ -728,9 +817,20 @@ bool BBNavigatorInterface::Iterate()
   Notify("NVGR_THRUST_LEFT", new_thrust_left);
   Notify("NVGR_THRUST_RIGHT", new_thrust_right);
 
+  // Applied thrust converted back to the wire convention (the
+  // DESIRED_THRUST_L/R frame of reference). The invert flags are
+  // +/-1, so multiplying by -1 * invert exactly undoes the input
+  // transform. Consumed by iTeleop for GUI acks and useful for
+  // backseat-side logging in the command convention.
+  Notify("NVGR_THRUST_LEFT_WIRE", -1.0 * new_thrust_left * m_left_thruster_invert);
+  Notify("NVGR_THRUST_RIGHT_WIRE", -1.0 * new_thrust_right * m_right_thruster_invert);
+
   // Publish RC control status
   Notify("NVGR_RC_MODE", m_rc_mode ? "true" : "false");
   Notify("NVGR_RC_CONNECTED", m_rc_connected ? "true" : "false");
+
+  // Publish teleop status (dashboards, pBB_Status mode fusion)
+  Notify("NVGR_TELEOP_ENGAGED", m_teleop_engaged ? "true" : "false");
 
   // IPT Sensing
   // Read temperature and pressure values
@@ -899,6 +999,13 @@ bool BBNavigatorInterface::OnStartUp()
       m_rc_deadman_timeout = stod(value);
       if (m_rc_deadman_timeout < 0.1)
         m_rc_deadman_timeout = 0.1;
+      handled = true;
+    }
+    else if (param == "teleop_command_timeout")
+    {
+      m_teleop_command_timeout = stod(value);
+      if (m_teleop_command_timeout < 0.1)
+        m_teleop_command_timeout = 0.1;
       handled = true;
     }
     else if (param == "theta_b")
@@ -1123,6 +1230,11 @@ void BBNavigatorInterface::registerVariables()
   // set by rc_deadman_enabled config; this lets backseat or operator
   // override at runtime, e.g. for over-the-horizon autonomy).
   Register("RC_DEADMAN_ENABLED", 0);
+
+  // Laptop teleop (published by iTeleop)
+  Register("TELEOP_ACTIVE", 0);
+  Register("TELEOP_THRUST_L", 0);
+  Register("TELEOP_THRUST_R", 0);
 }
 
 //------------------------------------------------------------
@@ -1166,6 +1278,13 @@ bool BBNavigatorInterface::buildReport()
   actab << "RC Channel 1 (Turning):" << m_rc_channels[0];
   actab << "RC Channel 3 (Speed):" << m_rc_channels[2];
   actab << "RC Channel 6 (Mode Switch):" << m_rc_channels[5];
+  actab << "Teleop Active:" << (m_teleop_active ? "true" : "false");
+  actab << "Teleop Engaged:" << (m_teleop_engaged ? "true" : "false");
+  actab << "Teleop Timeout (sec):" << m_teleop_command_timeout;
+  double teleop_age = MOOSTime() - m_last_teleop_time;
+  actab << "Teleop Mail Age (sec):" << teleop_age;
+  actab << "Teleop Thrust L (wire):" << m_teleop_thrust_left;
+  actab << "Teleop Thrust R (wire):" << m_teleop_thrust_right;
   actab << "Turn Scale:" << m_turn_scale;
   actab << "Bank Angle Limit:" << m_theta_b;
 

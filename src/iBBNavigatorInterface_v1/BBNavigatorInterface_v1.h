@@ -169,6 +169,23 @@ private: // Configuration variables
   double m_last_rc_good_time;  // last RC_CONNECTED=true or RC_CH* mail
   bool m_rc_deadman_active;
 
+  // Laptop teleop (via iTeleop). Priority: RC > teleop > autonomy.
+  //   m_teleop_active  - latest TELEOP_ACTIVE mail (iTeleop
+  //                      re-publishes it every iterate while a GUI
+  //                      session is live).
+  //   m_teleop_engaged - derived each Iterate(): active AND mail
+  //                      fresh within m_teleop_command_timeout AND
+  //                      not in RC mode. Stale teleop mail (hung or
+  //                      dead iTeleop) zeros thrust - a second
+  //                      deadman layer behind iTeleop's own GUI
+  //                      deadman.
+  bool m_teleop_active;
+  double m_teleop_thrust_left;   // raw wire values from mail
+  double m_teleop_thrust_right;  // (inversion applied at use)
+  double m_last_teleop_time;
+  double m_teleop_command_timeout;
+  bool m_teleop_engaged;
+
 private: // State variables
   // Pulse width range, microseconds
   std::atomic<bool> m_running{true};
