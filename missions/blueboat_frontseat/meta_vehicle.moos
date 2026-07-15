@@ -16,6 +16,7 @@ ProcessConfig = ANTLER
   Run = iUnicore               @ NewConsole = false
   Run = iBBNavigatorInterface  @ NewConsole = false
   Run = iFrontSeatBroker       @ NewConsole = false
+  Run = iTeleop                @ NewConsole = false
   Run = pBB_Status             @ NewConsole = false
 
   #ifdef DEBUG true
@@ -31,6 +32,7 @@ ProcessConfig = ANTLER
 #include plugs/blueboat_fs/plug_iUnicore.moos
 #include plugs/blueboat_fs/plug_iRCReader.moos
 #include plugs/blueboat_fs/plug_iBBNavigatorInterface.moos
+#include plugs/blueboat_fs/plug_iTeleop.moos
 #include plugs/blueboat_fs/plug_uProcessWatch.moos
 #include plugs/blueboat_fs/plug_pBB_Status.moos
 
@@ -39,5 +41,5 @@ ProcessConfig = ANTLER
 #include plugs/blueboat_fs/plug_pRealm.moos
 #include plugs/blueboat_fs/plug_uFldNodeBroker.moos
 #include plugs/blueboat_fs/plug_pHostInfo.moos
-#inlcude plugs/blueboat_fs/plug_pLogger.moos
+#include plugs/blueboat_fs/plug_pLogger.moos
 #endif

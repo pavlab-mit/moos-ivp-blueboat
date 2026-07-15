@@ -54,6 +54,17 @@ ProcessConfig = iBBNavigatorInterface
   rc_deadman_timeout = 2.0
 
   //=========================================================
+  // LAPTOP TELEOP (commands published by iTeleop)
+  //=========================================================
+  // Priority: physical RC (CH6==2) > teleop > backseat autonomy.
+  // Teleop engages only while TELEOP_ACTIVE=true AND teleop mail
+  // is fresher than teleop_command_timeout seconds; stale mail
+  // (hung/dead iTeleop) zeroes thrust. While teleop is engaged
+  // the RC deadman is exempted - the GUI link (iTeleop's
+  // gui_deadman_timeout + this freshness check) is the deadman.
+  teleop_command_timeout = 1.0
+
+  //=========================================================
   // RC THRUST MIXER (engaged when RC_CH6 == 2)
   //=========================================================
   theta_b     = 90.0    // bank-angle limit (deg) for turn mix

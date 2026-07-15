@@ -1,0 +1,31 @@
+//------------------------------------------------
+// iTeleop example config
+//
+// Front-seat endpoint for emergency laptop teleoperation.
+// Listens on UDP for the shore teleop GUI, holds a single-client
+// session with a deadman timeout, and publishes TELEOP_ACTIVE /
+// TELEOP_THRUST_L / TELEOP_THRUST_R. The navigator interface
+// arbitrates: physical RC (CH6==2) > teleop > backseat autonomy.
+//------------------------------------------------
+
+ProcessConfig = iTeleop
+{
+  AppTick     = 20
+  CommsTick   = 20
+
+  listen_ip   = 0.0.0.0
+  listen_port = 9310
+
+  // Seconds without an owner GUI frame before the session is
+  // released and the vehicle returns to autonomy.
+  gui_deadman_timeout = 1.0
+
+  // Clamp on inbound |thrust| commands.
+  max_thrust  = 100
+
+  // Idle ack rate to the GUI while a session is active, so the
+  // GUI can track link health even when its frames are lost.
+  ack_heartbeat_hz = 5
+
+  debug       = false
+}

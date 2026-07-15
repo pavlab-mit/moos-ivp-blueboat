@@ -73,6 +73,10 @@ class BB_Status : public AppCastingMOOSApp
    double m_rc_ch6;
    double m_rc_time;
 
+ private: // ---- Laptop teleop (native front seat: iTeleop/Navigator) ----
+   bool   m_teleop_engaged;    // NVGR_TELEOP_ENGAGED
+   double m_teleop_time;
+
  private: // ---- Propulsion (applied native; commanded brokered) ----
    double m_thr_l, m_thr_r;        // applied (NVGR_THRUST_*)
    double m_des_l, m_des_r;        // commanded from backseat (DESIRED_THRUST_*)

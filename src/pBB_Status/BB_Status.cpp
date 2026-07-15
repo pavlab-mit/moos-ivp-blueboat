@@ -68,6 +68,10 @@ BB_Status::BB_Status()
   m_rc_ch6       = 0.0;
   m_rc_time      = 0.0;
 
+  // Laptop teleop
+  m_teleop_engaged = false;
+  m_teleop_time    = 0.0;
+
   // Propulsion
   m_thr_l = m_thr_r = m_des_l = m_des_r = 0.0;
   m_thr_timeout = false;
@@ -161,6 +165,9 @@ bool BB_Status::OnNewMail(MOOSMSG_LIST &NewMail)
     else if(key == "NVGR_RC_DEADMAN_ACTIVE")  { m_rc_deadman = msgBool(msg);   m_rc_time = mtime; }
     else if(key == "RC_CH6")                  { m_rc_ch6 = dval;               m_rc_time = mtime; }
 
+    // ---- Laptop teleop (native front seat) ----
+    else if(key == "NVGR_TELEOP_ENGAGED")     { m_teleop_engaged = msgBool(msg); m_teleop_time = mtime; }
+
     // ---- Propulsion ----
     else if(key == "NVGR_THRUST_LEFT")   { m_thr_l = dval; m_thr_time = mtime; }
     else if(key == "NVGR_THRUST_RIGHT")  { m_thr_r = dval; m_thr_time = mtime; }
@@ -223,6 +230,13 @@ string BB_Status::deriveMode() const
   bool rc_manual = (fabs(m_rc_ch6 - 2.0) < 0.01) && m_rc_connected;
   if(rc_manual)
     return "MANUAL";
+
+  // Laptop teleop (the navigator interface only engages it when
+  // RC override is not active, so ordering below MANUAL is exact).
+  bool teleop = m_teleop_engaged &&
+                ((MOOSTime() - m_teleop_time) < m_stale_time);
+  if(teleop)
+    return "TELEOP";
 
   if(!m_stale_helm && m_all_stop)
     return "ALLSTOP";
@@ -290,6 +304,7 @@ string BB_Status::buildStatusString()
   f.push_back("rc=" + string(m_rc_connected ? "conn" : "disc"));
   f.push_back("failsafe=" + string(m_rc_failsafe ? "true" : "false"));
   f.push_back("deadman=" + string(m_rc_deadman ? "true" : "false"));
+  f.push_back("teleop=" + string(m_teleop_engaged ? "true" : "false"));
 
   // Propulsion: commanded (backseat) vs applied (front seat)
   f.push_back("des_l=" + doubleToString(m_des_l, 0));
@@ -437,6 +452,9 @@ void BB_Status::registerVariables()
   Register("RC_FAILSAFE", 0);
   Register("NVGR_RC_DEADMAN_ACTIVE", 0);
   Register("RC_CH6", 0);
+
+  // Laptop teleop (native front seat)
+  Register("NVGR_TELEOP_ENGAGED", 0);
 
   // Propulsion (applied native; commanded brokered)
   Register("NVGR_THRUST_LEFT", 0);
