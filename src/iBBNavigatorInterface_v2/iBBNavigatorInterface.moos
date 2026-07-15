@@ -56,6 +56,14 @@ ProcessConfig = iBBNavigatorInterface
   rc_deadman_enabled = true
   rc_deadman_timeout = 2.0
 
+  // Laptop teleop (commands published by iTeleop). Priority:
+  // physical RC (CH6==2) > teleop > backseat autonomy. Teleop
+  // engages only while TELEOP_ACTIVE=true AND the teleop mail is
+  // fresher than teleop_command_timeout seconds - stale mail
+  // (hung/dead iTeleop) zeroes thrust. While teleop is engaged the
+  // RC deadman is exempted: the GUI link is the deadman instead.
+  teleop_command_timeout = 1.0
+
   //=========================================================
   // RC CONTROL CONFIGURATION
   //=========================================================

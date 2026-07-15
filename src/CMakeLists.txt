@@ -34,6 +34,7 @@ ADD_SUBDIRECTORY(iBackSeatBroker)
 ADD_SUBDIRECTORY(uBBBundler)
 ADD_SUBDIRECTORY(iUnicore)
 ADD_SUBDIRECTORY(iRCReader)
+ADD_SUBDIRECTORY(iTeleop)
 
 # Armadillo-dependent processes
 IF(${ARMA_AVAIL})

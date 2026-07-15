@@ -34,6 +34,10 @@ ProcessConfig = iFrontSeatBroker
 
    // RC variables (no suffix - iRCReader leaves these bare)
    tx_vars = RC_CONNECTED, RC_CH6, RC_CH7, RC_CH8, RC_CH9
+
+   // Laptop teleop status (from iTeleop / iBBNavigatorInterface) so
+   // the backseat helm and its logs can see a teleop takeover.
+   tx_vars = TELEOP_ACTIVE, NVGR_TELEOP_ENGAGED
    
 
    // Optional inbound remap: WIRE_VAR:MOOS_VAR
