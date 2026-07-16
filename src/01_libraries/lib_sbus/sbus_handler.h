@@ -57,6 +57,11 @@
      bool initialize();
      void close();
 
+     // Change the UART device. Only honored before initialize()
+     // (or after close()); returns false if the port is open.
+     bool setDevice(const std::string& device);
+     std::string getDevice() const;
+
      // Update method - call this regularly to process new data
      bool update();
 
