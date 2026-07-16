@@ -155,9 +155,10 @@ static void printPiUartHints(const std::string &dev) {
   if (dev.find("ttyS") != std::string::npos) {
     printf("  WARNING: %s is the Pi *mini UART* on most Pi models.\n"
            "           The mini UART has NO parity support; SBUS is\n"
-           "           8E2 and will never frame correctly on it. If\n"
-           "           frames below decode as garbage, move the\n"
-           "           receiver to a PL011 UART (/dev/ttyAMA*).\n",
+           "           8E2 and cannot be framed reliably on it. It\n"
+           "           may partially decode on some board revisions\n"
+           "           (timing luck), but expect heavy frame loss or\n"
+           "           total garbage. Use a PL011 UART (/dev/ttyAMA*).\n",
            dev.c_str());
   }
 #else
@@ -631,6 +632,33 @@ static void printVerdict(const ProbeStats &s, double seconds) {
              "on this pin (e.g. i-BUS/PPM).\n");
     }
     return;
+  }
+
+  // Wire-level yield: how many of the frames the receiver SENT
+  // actually survived to a valid decode? The shortest observed
+  // interval between valid frames is the true frame period, so
+  // seconds/interval_min estimates the sent count. A link can look
+  // "healthy" from the valid frames alone while losing half of
+  // them (classic mini-UART / marginal-clock behavior).
+  if (s.interval_n >= 10 && s.interval_min > 1.0) {
+    double sent_est = seconds * 1000.0 / s.interval_min;
+    double yield = s.frames_valid / sent_est;
+    if (yield < 0.85) {
+      printf("\nVERDICT: DECODES, BUT HEAVY WIRE-LEVEL FRAME LOSS\n\n");
+      printf("  ~%.0f frames sent, %llu decoded valid (%.0f%% yield)\n",
+             sent_est, (unsigned long long)s.frames_valid, yield * 100.0);
+      printf("  assembled-but-rejected: %llu   incomplete: %llu\n\n",
+             (unsigned long long)(s.frames_complete - s.frames_valid),
+             (unsigned long long)s.incomplete);
+      printf("The frames that decode are fine, but a large share die\n"
+             "on the wire. On a mini UART (parity refused in the\n"
+             "readback above) this is expected: it tolerates SBUS only\n"
+             "by timing luck, which drifts with board revision, core\n"
+             "clock, and temperature. RC_CONNECTED will flap in the\n"
+             "field. Move to a PL011 (/dev/ttyAMA*) for a 100%% yield\n"
+             "link. If this IS a PL011, suspect wiring/signal quality.\n");
+      return;
+    }
   }
 
   double clean_pct = 100.0 * s.frames_clean / s.frames_valid;
