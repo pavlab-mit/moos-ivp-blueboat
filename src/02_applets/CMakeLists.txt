@@ -4,6 +4,9 @@
 # DESCRIPTION: CMakeLists.txt for moos-ivp-blueboat applets/test utilities
 ##############################################################################
 
+# SBUS / RC-link diagnostic (builds everywhere; runs on the vehicle)
+ADD_SUBDIRECTORY(sbus_probe)
+
 # Doodle Radio utility (requires JSON library)
 IF(${DOODLE_RADIO_AVAIL})
     ADD_SUBDIRECTORY(doodle_radio_utility)
