@@ -304,7 +304,16 @@ bool RCReader::OnStartUp()
     string value = line;
 
     bool handled = false;
-    if (param == "debug")
+    if (param == "device")
+    {
+      // UART the SBUS receiver is wired to, e.g. /dev/ttyAMA0.
+      // Must be a parity-capable UART (PL011 on a Pi); the mini
+      // UART (ttyS0) cannot frame SBUS's 8E2.
+      if (!m_sbus.setDevice(value))
+        reportConfigWarning("device set after port opened: " + value);
+      handled = true;
+    }
+    else if (param == "debug")
     {
       m_debug = (tolower(value) == "true") ? true : false;
       if (m_debug)
@@ -329,7 +338,8 @@ bool RCReader::OnStartUp()
 
   // Initialize SBUS handler
   if (!m_sbus.initialize()) {
-    reportRunWarning("Failed to initialize SBUS handler");
+    reportRunWarning("Failed to initialize SBUS handler on " +
+                     m_sbus.getDevice());
   } else {
     dbg_print("SBUS handler initialized\n");
   }
@@ -359,6 +369,7 @@ bool RCReader::buildReport()
   m_msgs << "============================================" << endl;
   m_msgs << "RC Controller Status" << endl;
   m_msgs << "============================================" << endl;
+  m_msgs << "Device: " << m_sbus.getDevice() << endl;
 
   m_msgs << "Frame Valid (per-frame):    " << (m_frame_valid  ? "YES" : "NO")  << endl;
   m_msgs << "RC Connected (debounced):   " << (m_rc_connected ? "YES" : "NO")  << endl << endl;

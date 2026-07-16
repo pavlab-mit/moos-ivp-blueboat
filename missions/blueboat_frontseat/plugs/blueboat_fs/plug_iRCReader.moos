@@ -6,5 +6,10 @@ ProcessConfig = iRCReader
   AppTick    = 16
   CommsTick  = 16
 
+  // UART wired to the SBUS receiver. Must be parity-capable:
+  // the Pi mini UART (ttyS0) cannot frame SBUS 8E2. This boat
+  // runs dtoverlay=disable-bt so the PL011 owns GPIO 14/15 as
+  // /dev/ttyAMA0 (serial0). Verify with: sbus_probe -d <dev>
+  device = /dev/ttyAMA0
 }
 

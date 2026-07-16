@@ -106,6 +106,26 @@
  }
  
  /**
+  * Change the UART device. Only honored while the port is closed.
+  */
+ bool SbusHandler::setDevice(const std::string& device) {
+     std::lock_guard<std::mutex> lock(mutex_);
+     if (initialized_) {
+         return false;
+     }
+     device_ = device;
+     return true;
+ }
+
+ /**
+  * Get the configured UART device path
+  */
+ std::string SbusHandler::getDevice() const {
+     std::lock_guard<std::mutex> lock(mutex_);
+     return device_;
+ }
+
+ /**
   * Get current time in microseconds
   */
  uint64_t SbusHandler::micros() const {

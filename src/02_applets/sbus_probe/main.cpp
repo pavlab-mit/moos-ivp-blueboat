@@ -674,8 +674,9 @@ static void printVerdict(const ProbeStats &s, double seconds) {
          s.lib_connected ? "TRUE" : "FALSE");
   printf("If iRCReader still reports not connected, the problem is\n"
          "app-side, not the link:\n"
-         "  - iRCReader reading a DIFFERENT device (it is hardcoded\n"
-         "    to %s in sbus_handler.h -- no config option)\n"
+         "  - iRCReader reading a DIFFERENT device: set 'device = <dev>'\n"
+         "    in its ProcessConfig block (default is %s); the\n"
+         "    appcast 'Device:' line shows what it actually opened\n"
          "  - iRCReader failed to open the port (check its appcast\n"
          "    run warnings for 'Failed to initialize SBUS handler')\n"
          "  - another process was competing for the port while\n"
@@ -716,6 +717,80 @@ static void printLiveFrame(const ProbeStats &s) {
            bad ? "<-- OUT OF RANGE" : "");
   }
   fflush(stdout);
+}
+
+//---------------------------------------------------------------
+// Mode: sweep all candidate UARTs and report which one carries
+// SBUS traffic. Answers "which /dev/tty* did the wire land on?"
+static int runScan(double seconds_per_port) {
+  const char *candidates[] = {
+    "/dev/ttyS0",   "/dev/ttyAMA0", "/dev/ttyAMA1", "/dev/ttyAMA2",
+    "/dev/ttyAMA3", "/dev/ttyAMA4", "/dev/ttyAMA5",
+  };
+  printf("Scanning candidate UARTs (%.0fs each) ...\n\n", seconds_per_port);
+  printf("  %-14s %-10s %-8s %-8s %s\n",
+         "device", "bytes", "headers", "valid", "note");
+
+  std::string best;
+  for (const char *dev : candidates) {
+    struct stat st;
+    if (stat(dev, &st) != 0 || !S_ISCHR(st.st_mode)) continue;
+    if (g_stop) break;
+
+    std::vector<PortHolder> holders = findPortHolders(dev);
+    if (!holders.empty()) {
+      printf("  %-14s %-10s %-8s %-8s in use by pid %d (%s) - skipped\n",
+             dev, "-", "-", "-", holders[0].pid, holders[0].comm.c_str());
+      continue;
+    }
+
+    int fd = open(dev, O_RDONLY | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0) {
+      printf("  %-14s %-10s %-8s %-8s open failed: %s\n",
+             dev, "-", "-", "-", strerror(errno));
+      continue;
+    }
+    close(fd);
+    // Reopen with full SBUS config, quietly.
+    fd = openSbusPort(dev, false);
+    if (fd < 0) continue;
+
+    ProbeStats stats;
+    ProbeParser parser(stats);
+    uint64_t t_end = microsNow() + (uint64_t)(seconds_per_port * 1e6);
+    while (!g_stop && microsNow() < t_end) {
+      if (waitReadable(fd, 100)) {
+        uint8_t buf[256];
+        ssize_t n = read(fd, buf, sizeof(buf));
+        if (n > 0) parser.feed(buf, n, microsNow());
+      }
+    }
+    close(fd);
+
+    const char *note = "";
+    if (stats.bytes_total == 0)
+      note = "silent";
+    else if (stats.frames_valid > 0) {
+      note = "SBUS TRAFFIC <-- use this port";
+      best = dev;
+    } else if (stats.frames_complete > 0)
+      note = "frames but none valid (run full diag here)";
+    else
+      note = "bytes but no SBUS framing (parity-less UART? noise?)";
+
+    printf("  %-14s %-10llu %-8llu %-8llu %s\n", dev,
+           (unsigned long long)stats.bytes_total,
+           (unsigned long long)stats.syncs,
+           (unsigned long long)stats.frames_valid, note);
+  }
+
+  if (!best.empty())
+    printf("\nNext: sbus_probe -d %s   (full diag + verdict)\n", best.c_str());
+  else
+    printf("\nNo port showed valid SBUS frames. If one showed bytes,\n"
+           "run the full diag on it; if all are silent, the receiver\n"
+           "is not outputting (mode/wiring/power).\n");
+  return 0;
 }
 
 //---------------------------------------------------------------
@@ -769,6 +844,7 @@ static void usage(const char *prog) {
   printf("Options:\n");
   printf("  -d, --device DEV   Serial device (default: %s)\n", SBUS_UART_DEV);
   printf("  -t, --time SEC     Capture duration for diag/record (default 5)\n");
+  printf("      --scan         Sweep all candidate UARTs, report which has SBUS\n");
   printf("      --raw          Live raw hex dump with gap markers\n");
   printf("      --frames       Live decoded channel view (instrumented parser)\n");
   printf("      --lib          Live view through the real SbusHandler class\n");
@@ -784,12 +860,14 @@ int main(int argc, char **argv) {
   std::string dev = SBUS_UART_DEV;
   double duration = 5.0;
   bool mode_raw = false, mode_frames = false, mode_lib = false, force = false;
+  bool mode_scan = false;
   std::string record_file, replay_file;
 
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
     if ((a == "-d" || a == "--device") && i + 1 < argc) dev = argv[++i];
     else if ((a == "-t" || a == "--time") && i + 1 < argc) duration = atof(argv[++i]);
+    else if (a == "--scan") mode_scan = true;
     else if (a == "--raw") mode_raw = true;
     else if (a == "--frames") mode_frames = true;
     else if (a == "--lib") mode_lib = true;
@@ -806,6 +884,8 @@ int main(int argc, char **argv) {
     ProbeStats stats;
     return runReplay(replay_file, stats);
   }
+
+  if (mode_scan) return runScan(3.0);
 
   printf("sbus_probe: device=%s\n", dev.c_str());
   printPiUartHints(dev);
