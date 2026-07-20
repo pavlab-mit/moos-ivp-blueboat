@@ -35,6 +35,7 @@ ADD_SUBDIRECTORY(uBBBundler)
 ADD_SUBDIRECTORY(iUnicore)
 ADD_SUBDIRECTORY(iRCReader)
 ADD_SUBDIRECTORY(iTeleop)
+ADD_SUBDIRECTORY(pBB_AthensLogger)
 
 # Armadillo-dependent processes
 IF(${ARMA_AVAIL})
