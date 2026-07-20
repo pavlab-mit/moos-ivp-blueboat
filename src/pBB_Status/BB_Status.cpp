@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include "MBUtils.h"
 #include "ACTable.h"
 #include "BB_Status.h"
@@ -49,6 +50,8 @@ BB_Status::BB_Status()
   m_tx_ip   = "";
   m_tx_port = 9300;
   m_sockfd  = -1;
+  m_dest_ok = false;
+  m_last_resolve_try = 0.0;
   m_tx_sent = 0;
   m_tx_errs = 0;
   memset(&m_dest, 0, sizeof(m_dest));
@@ -123,14 +126,34 @@ bool BB_Status::setupSocket()
   int flags = fcntl(m_sockfd, F_GETFL, 0);
   fcntl(m_sockfd, F_SETFL, flags | O_NONBLOCK);
 
-  m_dest.sin_family = AF_INET;
-  m_dest.sin_port   = htons((uint16_t)m_tx_port);
-  if(inet_pton(AF_INET, m_tx_ip.c_str(), &m_dest.sin_addr) != 1) {
-    reportConfigWarning("pBB_Status: bad tx_ip [" + m_tx_ip + "]");
-    close(m_sockfd);
-    m_sockfd = -1;
+  // A hostname may not resolve yet (e.g. boat boots before the shore
+  // host is up), so a failure here is not fatal -- Iterate() retries.
+  if(!resolveDest())
+    reportConfigWarning("pBB_Status: cannot resolve tx_ip [" + m_tx_ip +
+                        "], will keep retrying");
+  return true;
+}
+
+//---------------------------------------------------------
+// resolveDest -- fill m_dest from tx_ip, which may be a dotted
+// quad or a hostname (getaddrinfo handles both).
+
+bool BB_Status::resolveDest()
+{
+  struct addrinfo hints;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family   = AF_INET;
+  hints.ai_socktype = SOCK_DGRAM;
+
+  struct addrinfo *res = 0;
+  if(getaddrinfo(m_tx_ip.c_str(), 0, &hints, &res) != 0 || !res) {
+    m_dest_ok = false;
     return false;
   }
+  memcpy(&m_dest, res->ai_addr, sizeof(m_dest));
+  m_dest.sin_port = htons((uint16_t)m_tx_port);
+  freeaddrinfo(res);
+  m_dest_ok = true;
   return true;
 }
 
@@ -365,11 +388,20 @@ bool BB_Status::Iterate()
     Notify(m_status_var, status);
 
     // (2) Shoreside push -- fire-and-forget UDP to the collector.
+    // If tx_ip is a hostname that has not resolved yet, retry at most
+    // every 10s (getaddrinfo can block for a few seconds on failure,
+    // so don't hammer it every publish).
     if(m_sockfd >= 0) {
-      ssize_t n = sendto(m_sockfd, status.c_str(), status.size(), 0,
-                         (struct sockaddr *)&m_dest, sizeof(m_dest));
-      if(n < 0) m_tx_errs++;
-      else      m_tx_sent++;
+      if(!m_dest_ok && (now - m_last_resolve_try) >= 10.0) {
+        m_last_resolve_try = now;
+        resolveDest();
+      }
+      if(m_dest_ok) {
+        ssize_t n = sendto(m_sockfd, status.c_str(), status.size(), 0,
+                           (struct sockaddr *)&m_dest, sizeof(m_dest));
+        if(n < 0) m_tx_errs++;
+        else      m_tx_sent++;
+      }
     }
 
     m_last_publish_time = now;
@@ -490,9 +522,16 @@ bool BB_Status::buildReport()
          << "posts=" << m_posts << ")" << endl;
   if(m_tx_ip == "")
     m_msgs << "Shore push : disabled (MOOS-only; set tx_ip to enable)" << endl;
-  else
+  else if(!m_dest_ok)
     m_msgs << "Shore push : " << m_tx_ip << ":" << m_tx_port
+           << "  [UNRESOLVED - retrying]" << endl;
+  else {
+    char dest_ip[INET_ADDRSTRLEN] = "?";
+    inet_ntop(AF_INET, &m_dest.sin_addr, dest_ip, sizeof(dest_ip));
+    m_msgs << "Shore push : " << m_tx_ip << ":" << m_tx_port
+           << " (" << dest_ip << ")"
            << "  sent=" << m_tx_sent << " errs=" << m_tx_errs << endl;
+  }
   m_msgs << "============================================" << endl << endl;
 
   m_msgs << "Fused mode : " << deriveMode()
