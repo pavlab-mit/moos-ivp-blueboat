@@ -207,6 +207,9 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_gyro_y = 0.0;
   m_gyro_z = 0.0;
   m_yaw_rate = 0.0;
+  m_accel_x = 0.0;
+  m_accel_y = 0.0;
+  m_accel_z = 0.0;
   m_qw = 1.0; m_qx = 0.0; m_qy = 0.0; m_qz = 0.0;
 
   // Publication suffix defaults. AHRS for fused orientation
@@ -867,6 +870,7 @@ bool BBNavigatorInterface::Iterate()
   // AHRS output publishing
   double roll, pitch, yaw, heading;
   double gyro_x, gyro_y, gyro_z, yaw_rate;
+  double accel_x, accel_y, accel_z;
   {
     std::lock_guard<std::mutex> lock(m_ahrs_mutex);
     roll = m_roll;
@@ -877,6 +881,9 @@ bool BBNavigatorInterface::Iterate()
     gyro_y = m_gyro_y;
     gyro_z = m_gyro_z;
     yaw_rate = m_yaw_rate;
+    accel_x = m_accel_x;
+    accel_y = m_accel_y;
+    accel_z = m_accel_z;
   }
 
   Notify(ahrsName("NAV_ROLL"), roll);
@@ -887,6 +894,17 @@ bool BBNavigatorInterface::Iterate()
   Notify(imuName("GYRO_Y"), gyro_y);
   Notify(imuName("GYRO_Z"), gyro_z);
   Notify(imuName("GYRO_Z_LVL"), yaw_rate);
+
+  // Bundled, coherent IMU snapshot: one atomic message at a single
+  // timestamp so high-rate motion reconstructs without inter-variable
+  // skew. This is the only new published variable (IMU_STATE).
+  char imu_state[320];
+  snprintf(imu_state, sizeof(imu_state),
+           "t=%.3f,roll=%.4f,pitch=%.4f,yaw=%.4f,heading=%.4f,"
+           "gx=%.5f,gy=%.5f,gz=%.5f,yawrate=%.5f,ax=%.5f,ay=%.5f,az=%.5f",
+           MOOSTime(), roll, pitch, yaw, heading,
+           gyro_x, gyro_y, gyro_z, yaw_rate, accel_x, accel_y, accel_z);
+  Notify("IMU_STATE", std::string(imu_state));
 
   AppCastingMOOSApp::PostReport();
   return (true);
@@ -1547,6 +1565,10 @@ void BBNavigatorInterface::sensorSamplingThread()
         m_gyro_x = gyro_bff[0];
         m_gyro_y = gyro_bff[1];
         m_gyro_z = gyro_bff[2];
+
+        m_accel_x = acc_bff[0];
+        m_accel_y = acc_bff[1];
+        m_accel_z = acc_bff[2];
 
         const double p = gyro_bff[0];
         const double q = gyro_bff[1];
