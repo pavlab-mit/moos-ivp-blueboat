@@ -202,7 +202,7 @@ double BBPIDEngine::computeMeasYawRate(double curr_time, double nav_heading,
     m_have_prev_heading = true;
   }
   else {
-    m_meas_yawrate = nav_yawrate_raw * m_yawrate_scale;
+    m_meas_yawrate = nav_yawrate_raw * m_yawrate_scale * -1.0; // flip sign to match yaw rate convention
   }
   return m_meas_yawrate;
 }
