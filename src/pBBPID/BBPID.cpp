@@ -200,6 +200,7 @@ bool BBPID::Iterate()
   // measured-yaw-rate scope alive (desired = 0 while idle) so the tuner
   // doesn't go blank when the boat isn't being driven.
   bool stale = (MOOSTime() - m_tstamp_last_cmd) > m_cmd_stale_thresh;
+  Notify("BBPID_CMD_STALE", std::to_string(stale));
   if(stale) {
     m_last_thrust = 0.0;
     m_last_rudder = 0.0;
@@ -488,7 +489,13 @@ void BBPID::registerVariables()
   Register(m_desired_heading_var, 0);
   Register(m_nav_speed_var, 0);
   Register(m_nav_heading_var, 0);
-  Register(m_nav_yawrate_var, 0);
+  
+  if (m_yawrate_derive) {
+    // If yaw rate is derived from heading, we don't need to register the nav yaw rate variable.
+    reportEvent("Yaw rate is derived from heading; not registering " + m_nav_yawrate_var);
+  } else {
+    Register(m_nav_yawrate_var, 0);
+  }
 
   // Live gain retuning
   Register("BBPID_SPEED_KP", 0);   Register("BBPID_SPEED_KI", 0);   Register("BBPID_SPEED_KD", 0);
