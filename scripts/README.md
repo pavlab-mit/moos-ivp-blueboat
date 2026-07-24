@@ -38,16 +38,15 @@ not an error — the script signals idle and exits 0.
 
 | Helper        | Purpose                                   | Kind |
 |---------------|-------------------------------------------|------|
-| `bb_attitude` | IMU → roll/pitch (pitch gate)             | C++, navigator-lib (NAVOS v1/v2 gated) |
-| `bb_adc`      | Navigator ADC → pack voltage (batt gate)  | C++, navigator-lib (NAVOS v1/v2 gated) |
-| `bb_neopixel` | LED-strip status (future hardware)        | C++, navigator-lib (NAVOS v1/v2 gated) |
+| `bb_attitude` | IMU → roll/pitch (pitch gate)             | C++, navigator-cpp |
+| `test_bb_adc` | Navigator ADC → pack voltage (batt gate)  | C++, navigator-cpp |
+| `bb_neopixel` | LED-strip status (future hardware)        | C++, navigator-cpp |
 | `bb_led.sh`   | PWM0 status LED on/off/flash              | shell, Pi GPIO18 via pinctrl (no build) |
 
-The three C++ helpers select the navigator-lib API at compile time from
-`NAVOS_VERSION` / `RASPBERRY_PI_VERSION` (see top-level `CMakeLists.txt`). On a V2
-board they call `set_navigator_version(NavigatorVersion::Version2)` before
-`init()`; without it `init()` fails on BMP390 hardware. `bb_led.sh` is pure Pi
-GPIO and uses neither.
+The three C++ helpers link against navigator-cpp, which auto-detects the
+Navigator board revision (V1/BMP280 vs V2/BMP390) and Pi model (4/5) at
+runtime — there is no per-version build selection anymore. `bb_led.sh` is
+pure Pi GPIO and uses neither.
 
 ## Install
 
@@ -65,9 +64,10 @@ standalone. Per-boat overrides go in **`Environment=` lines in
 `bb-init.service`** (uncomment the ones you need) — no separate config file. The
 one you'll almost always set is **`BOAT_VOLT_MIN`** (calibrate for your pack).
 
-The build-time vars `NAVOS_VERSION` / `RASPBERRY_PI_VERSION` / `NAV_PLATFORM_TYPE`
-are **not** here — they live in the pi login profile (where you set them to build
-the repo), and the boot-time rebuild inherits them via `sudo -u pi -H bash -lc`.
+The old build-time vars `NAVOS_VERSION` / `RASPBERRY_PI_VERSION` /
+`NAV_PLATFORM_TYPE` are gone: navigator-cpp detects the hardware at runtime.
+The only build-time requirement is that navigator-cpp is installed
+(`/usr/local`) or checked out and built beside this repo.
 
 ## Testing without going through a reboot
 

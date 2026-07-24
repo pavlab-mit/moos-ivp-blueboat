@@ -11,7 +11,7 @@
         with different numbers of batteries.
 *************************************************************/
 
-#include "bindings.h"
+#include "nav_bindings.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,6 +24,22 @@
 #include <string>
 
 using namespace std;
+
+static Navigator g_nav;
+
+// navigator-lib compatibility shim: keep the ADCData/read_adc_all()
+// call shape the rest of this file was written against.
+struct ADCData {
+  float channel[4] = {0, 0, 0, 0};
+};
+
+static ADCData read_adc_all() {
+  NavADCData d;
+  g_nav.read_adc_all(d);
+  ADCData out;
+  for (int i = 0; i < 4; i++) out.channel[i] = d.channel[i];
+  return out;
+}
 
 // Local time helpers (replaces lib_rpi_utils dependency)
 namespace {
@@ -159,7 +175,11 @@ int main(int ac, char* av[]) {
     }
   }
 
-  init();
+  {
+    std::string err = g_nav.init();
+    if (!err.empty())
+      fprintf(stderr, "navigator init warnings: %s\n", err.c_str());
+  }
 
   // Get calibration parameters for the specified number of batteries
   CalibrationParams cal = BATTERY_CALIBRATIONS[num_batteries - 1];

@@ -1,28 +1,53 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name: Raymond Turrisi (orig.), Jeremy Wenger (navigator-cpp port)
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface_v2/BBNavigatorInterface_v2.cpp
-   Last Ed:  2025-03-30
+      File: iBBNavigatorInterface/BBNavigatorInterface.cpp
+   Last Ed:  2026-07-24
      Brief:
-        Combined Navigator Interface for Blueboat ASV for Navigator version 0.1.2.
-        Handles dual thruster PWM control with safety features
-        and AHRS using Madgwick filter.
+        Unified Navigator Interface for the BlueBoat ASV, built on
+        navigator-cpp. See BBNavigatorInterface.h for the overview.
 *************************************************************/
 
 #include <iterator>
 #include <fstream>
 #include "MBUtils.h"
 #include "ACTable.h"
-#include "BBNavigatorInterface_v2.h"
+#include "BBNavigatorInterface.h"
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <csignal>
 #include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <numeric>
 
 using namespace std;
-using namespace arma;
+
+//---------------------------------------------------------
+// Shared Navigator instance + async shutdown state.
+//
+// Design note (OO vs direct-call): navigator-cpp exposes a Navigator
+// class rather than navigator-lib's free functions with hidden global
+// state. The app owns exactly one instance. It lives at file scope
+// (not as a class member) for one reason: the signal/atexit shutdown
+// path must be able to neutralize the ESCs without an object pointer,
+// exactly like the old free-function design - but now the global is
+// explicit instead of hidden inside the library.
+
+static Navigator g_nav;
+static std::atomic<bool> g_disarm_on_exit{false};
+static std::atomic<int> g_left_pin{BBNavigatorInterface::kPwmIndexCh14};
+static std::atomic<int> g_right_pin{BBNavigatorInterface::kPwmIndexCh16};
+static std::atomic<bool> g_shutdown_done{false};
+static char g_esc_marker_path[256] = "/dev/shm/bb_esc_armed";
+
+// Commanded pulse range. Globals (not members) because the static
+// setPinPulseWidth() must work from the signal/atexit shutdown path.
+// Configured via pwm_min_us / pwm_max_us in OnStartUp().
+static std::atomic<double> g_pwm_min_us{BBNavigatorInterface::PWM_MIN_US};
+static std::atomic<double> g_pwm_max_us{BBNavigatorInterface::PWM_MAX_US};
 
 void rclamp(double &val, double min, double max)
 {
@@ -36,18 +61,50 @@ void rclamp(double &val, double min, double max)
   }
 }
 
+void BBNavigatorInterface::setPinPulseWidth(int pin_num, double target)
+{
+  const double pwm_min = g_pwm_min_us.load();
+  const double pwm_max = g_pwm_max_us.load();
+
+  // Map normalized command [-100,100] to pulse range
+  double pulse_us_span = (pwm_max - pwm_min) / 2.0;
+  double pulse_us = PWM_CENTER_US + (target / 100.0) * pulse_us_span;
+
+  // Clamp to allowable range
+  if (pulse_us < pwm_min) pulse_us = pwm_min;
+  if (pulse_us > pwm_max) pulse_us = pwm_max;
+
+  g_nav.pwm_set_pulse_us(pin_num, static_cast<float>(pulse_us));
+}
+
 void safePwmShutdown()
 {
-  // Run at 50 Hz sending zero signal for about 2 seconds
-  for (int i = 0; i < 100; ++i)
+  // Runs from the destructor, atexit, or a signal handler - guard so
+  // the neutral hold only executes once no matter how we got here.
+  if (g_shutdown_done.exchange(true))
+    return;
+
+  // Hold neutral at 50 Hz for 1 second so the ESCs see a clean,
+  // sustained stop command before we exit (or cut the signal).
+  for (int i = 0; i < 50; ++i)
   {
-    BBNavigatorInterface::setPinPulseWidth(BBNavigatorInterface::kPwmIndexCh14, 0);
-    BBNavigatorInterface::setPinPulseWidth(BBNavigatorInterface::kPwmIndexCh16, 0);
+    BBNavigatorInterface::setPinPulseWidth(g_left_pin.load(), 0);
+    BBNavigatorInterface::setPinPulseWidth(g_right_pin.load(), 0);
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
 
-  // Ensure the PWM values have been applied before disabling PWM
-  // set_pwm_enable(false);
+  if (g_disarm_on_exit.load())
+  {
+    // Full disarm: OE high cuts all PCA9685 outputs; the ESCs lose
+    // their signal and disarm. Clear the per-boot marker so the next
+    // launch runs the arm sequence again.
+    g_nav.pwm_enable(false);
+    ::unlink(g_esc_marker_path);
+  }
+  // Otherwise the PCA9685 keeps generating neutral autonomously after
+  // this process exits - the ESCs stay armed at zero thrust and a
+  // restarted app resumes without re-arming (and without the hazard
+  // of replaying an arm sequence into live, armed ESCs).
 }
 
 void signalHandler(int signum)
@@ -56,7 +113,6 @@ void signalHandler(int signum)
   exit(signum);
 };
 
-// ETHAN CHANGE #1 START
 struct CalibrationParams {
     double offset;
     double gain;
@@ -72,8 +128,6 @@ const CalibrationParams BATTERY_CALIBRATIONS[] = {
     {0.3235, 37.8788},  // 7 batteries - TODO: calibrate
     {0.3235, 37.8788}   // 8 batteries - TODO: calibrate
 };
-
-// ETHAN CHANGE #1 END
 
 //---------------------------------------------------------
 // Constructor()
@@ -135,15 +189,12 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_teleop_command_timeout = 1.0;
   m_teleop_engaged = false;
 
-  set_rgb_led_strip_size(24);
-  // navigator-lib 0.1.2: select hardware before init (see bindings.h).
-  set_navigator_version(NavigatorVersion::Version2);
-#if defined(IBBNAV_RASPBERRY_PI5) && IBBNAV_RASPBERRY_PI5
-  set_raspberry_pi_version(Raspberry::Pi5);
-#else
-  set_raspberry_pi_version(Raspberry::Pi4);
-#endif
-  init();
+  // Bring the hardware up. navigator-cpp auto-detects the Navigator
+  // board revision (BMP280 vs BMP390 chip id) and the Pi model - the
+  // NAVOS_VERSION / RASPBERRY_PI_VERSION build-time selection is gone.
+  // init() collects per-sensor warnings instead of aborting; they are
+  // surfaced in the appcast via m_last_sensor_error.
+  m_last_sensor_error = g_nav.init(NAV_AUTO, PI_AUTO);
 
   m_left_thruster_pin = kPwmIndexCh14;
   m_right_thruster_pin = kPwmIndexCh16;
@@ -151,6 +202,15 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_thruster_enabled = true;
   m_left_thruster_invert = 1;
   m_right_thruster_invert = 1;
+
+  // ESC lifecycle defaults (see header). The marker default lives on
+  // tmpfs so a reboot always clears it.
+  m_initialize_esc = false;
+  m_esc_arm_mode = "neutral";
+  m_esc_marker_path = g_esc_marker_path;
+  m_disarm_on_exit = false;
+  m_esc_armed = false;
+  m_pwm_output_enabled = false;
 
   // RGBW LED placeholders. All four-element vectors are sized
   // here so the rgbw_color config parser cannot land on an empty
@@ -192,8 +252,21 @@ BBNavigatorInterface::BBNavigatorInterface()
 
   // AHRS initialization
   m_sample_frequency = 150.0;
-  m_beta = 0.2;
-  m_ahrs = Madgwick(m_beta, m_sample_frequency);
+  m_use_mag = false;
+  m_ahrs_kp = 0.0;       // 0 => keep library defaults
+  m_ahrs_ti = 0.0;
+  m_ahrs_kp_quick = 0.0;
+  m_ahrs_ti_quick = 0.0;
+  m_yaw_rate_clamp = 10.0; // rad/s; loose gate for now, trim after shakeout
+  for (int i = 0; i < 3; i++)
+  {
+    m_gyro_bias[i] = 0.0;
+    m_accel_bias[i] = 0.0;
+    m_mag_bias[i] = 0.0;
+  }
+  for (int i = 0; i < 9; i++)
+    m_mag_scale[i] = (i % 4 == 0) ? 1.0 : 0.0; // identity
+  m_have_mag_cal = false;
   m_roll_offset = 0.0;
   m_pitch_offset = 0.0;
   m_yaw_offset = 0.0;
@@ -211,6 +284,12 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_accel_y = 0.0;
   m_accel_z = 0.0;
   m_qw = 1.0; m_qx = 0.0; m_qy = 0.0; m_qz = 0.0;
+  m_imu_read_errors = 0;
+
+  m_nav_temp = 0.0;
+  m_nav_pressure = 0.0;
+  m_rpi_temp = 0.0;
+  m_leak_detected = false;
 
   // Publication suffix defaults. AHRS for fused orientation
   // outputs, IMU for raw gyro / level-compensated outputs.
@@ -253,74 +332,128 @@ BBNavigatorInterface::~BBNavigatorInterface()
     m_sensor_thread.join();
     dbg_print("Joined sensor thread on shutdown\n");
   }
-  setPinPulseWidth(m_left_thruster_pin, 0);
-  setPinPulseWidth(m_right_thruster_pin, 0);
 
-  // Ensure the PWM values have been applied
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-  // set_pwm_enable(false);
+  // LEDs off before the (possibly blocking) neutral hold.
+  uint8_t rgb_array[24][4];
+  memset(rgb_array, 0, sizeof(rgb_array));
+  g_nav.neopixel_set_rgbw(rgb_array, 24);
 
-  m_led_color_quad = {0, 0, 0, 0};
-    uint8_t rgb_array[24][4];
-    for (int i = 0; i < 24; i++)
-    {
-      rgb_array[i][0] = m_led_color_quad[0];
-      rgb_array[i][1] = m_led_color_quad[1];
-      rgb_array[i][2] = m_led_color_quad[2];
-      rgb_array[i][3] = m_led_color_quad[3];
-    }
-  set_neopixel_rgbw(rgb_array, 24);
+  safePwmShutdown();
 
   dbg_print("Proper shutdown\n");
 }
 
-// Initialize multiple ESCs simultaneously in parallel
-void BBNavigatorInterface::initializeESCs(const std::vector<uintptr_t> &pins)
+//---------------------------------------------------------
+// ESC lifecycle
+
+bool BBNavigatorInterface::escMarkerExists() const
 {
-  if (pins.empty())
+  return ::access(m_esc_marker_path.c_str(), F_OK) == 0;
+}
+
+void BBNavigatorInterface::writeEscMarker() const
+{
+  FILE *f = fopen(m_esc_marker_path.c_str(), "w");
+  if (f != nullptr)
   {
+    fprintf(f, "armed\n");
+    fclose(f);
+  }
+}
+
+void BBNavigatorInterface::clearEscMarker() const
+{
+  ::unlink(m_esc_marker_path.c_str());
+}
+
+// Enable PWM output and arm the ESCs if this is the first launch since
+// boot. On restarts within the same boot (marker present) the ESCs are
+// already armed and holding neutral from the previous run - we only
+// re-enable output and go straight to neutral. This makes a live app
+// restart safe: the arm sequence (which can command full throttle in
+// "sweep" mode) can never replay into armed ESCs.
+void BBNavigatorInterface::armIfNeeded()
+{
+  std::string err;
+  err = g_nav.pwm_set_frequency(static_cast<float>(PWM_FREQ_HZ));
+  if (!err.empty())
+  {
+    reportRunWarning("PWM frequency set failed: " + err);
     return;
   }
 
-  // Set all to Maximum Throttle
-  for (const auto &pin : pins)
+  // Neutral BEFORE enabling output so the first pulse the ESCs ever
+  // see is 1500us, not a stale register value.
+  setPinPulseWidth(m_left_thruster_pin, 0);
+  setPinPulseWidth(m_right_thruster_pin, 0);
+  err = g_nav.pwm_enable(true);
+  if (!err.empty())
   {
-    setPinPulseWidth(pin, 100);
+    reportRunWarning("PWM enable failed: " + err);
+    return;
   }
-  this_thread::sleep_for(chrono::milliseconds(500)); // Wait for 0.5 seconds for all pins
+  m_pwm_output_enabled = true;
 
-  // Set all to Minimum Throttle
-  for (const auto &pin : pins)
+  if (escMarkerExists())
   {
-    setPinPulseWidth(pin, -100);
+    m_esc_armed = true;
+    reportEvent("ESCs already armed this boot (marker present); skipping arm sequence");
+    dbg_print("ESC arm skipped - marker %s present\n", m_esc_marker_path.c_str());
+    return;
   }
-  this_thread::sleep_for(chrono::milliseconds(500)); // Wait for 0.5 seconds for all pins
 
-  // Set all to Neutral Throttle
-  for (const auto &pin : pins)
+  if (!m_initialize_esc)
   {
-    setPinPulseWidth(pin, 0);
+    dbg_print("ESC initialization skipped (disabled in config)\n");
+    return;
   }
-  this_thread::sleep_for(chrono::milliseconds(250)); // Wait for 0.25 seconds for all pins
 
-  dbg_print("Initialized %d ESCs in parallel\n", pins.size());
+  if (m_esc_arm_mode == "sweep")
+  {
+    // Legacy max/min/neutral throttle sweep (both ESCs in parallel).
+    // Only reachable on the first launch per boot.
+    setPinPulseWidth(m_left_thruster_pin, 100);
+    setPinPulseWidth(m_right_thruster_pin, 100);
+    this_thread::sleep_for(chrono::milliseconds(500));
+    setPinPulseWidth(m_left_thruster_pin, -100);
+    setPinPulseWidth(m_right_thruster_pin, -100);
+    this_thread::sleep_for(chrono::milliseconds(500));
+    setPinPulseWidth(m_left_thruster_pin, 0);
+    setPinPulseWidth(m_right_thruster_pin, 0);
+    this_thread::sleep_for(chrono::milliseconds(250));
+    reportEvent("ESC arm sequence complete (sweep)");
+  }
+  else
+  {
+    // BlueRobotics Basic ESCs arm on a stable neutral signal; hold
+    // 1500us for 2 seconds. No throttle excursion at any point.
+    setPinPulseWidth(m_left_thruster_pin, 0);
+    setPinPulseWidth(m_right_thruster_pin, 0);
+    this_thread::sleep_for(chrono::milliseconds(2000));
+    reportEvent("ESC arm sequence complete (neutral hold)");
+  }
+
+  m_esc_armed = true;
+  writeEscMarker();
+  dbg_print("ESC arm sequence performed (%s); marker written\n",
+            m_esc_arm_mode.c_str());
 }
 
-void BBNavigatorInterface::initializeESC(uintptr_t pin)
+void BBNavigatorInterface::requestDisarm(const std::string &reason)
 {
-  // Set to Maximum Throttle
-  setPinPulseWidth(pin, 100);                        // Assuming 100% corresponds to 2000 microseconds
-  this_thread::sleep_for(chrono::milliseconds(500)); // Wait for 0.5 seconds
-
-  // Set to Minimum Throttle
-  setPinPulseWidth(pin, -100);                       // Assuming 0% corresponds to 1000 microseconds
-  this_thread::sleep_for(chrono::milliseconds(500)); // Wait for 0.5 seconds
-
-  // Optional: Set to Neutral Throttle (e.g., for ESCs that need this)
-  setPinPulseWidth(pin, 0);                          // Assuming 50% corresponds to 1500 microseconds
-  this_thread::sleep_for(chrono::milliseconds(250)); // Wait for 0.25 second
-
-  // The ESC should now be initialized and ready to accept normal operational commands
+  m_desired_thrust_left = 0;
+  m_desired_thrust_right = 0;
+  m_latest_set_thrust_left.store(0.0);
+  m_latest_set_thrust_right.store(0.0);
+  setPinPulseWidth(m_left_thruster_pin, 0);
+  setPinPulseWidth(m_right_thruster_pin, 0);
+  this_thread::sleep_for(chrono::milliseconds(100));
+  g_nav.pwm_enable(false);
+  m_pwm_output_enabled = false;
+  m_esc_armed = false;
+  clearEscMarker();
+  reportEvent("ESCs DISARMED (" + reason + ")");
+  dbg_print("ESCs disarmed: %s\n", reason.c_str());
 }
 
 //---------------------------------------------------------
@@ -362,7 +495,18 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
         dbg_print("Joined thread on shutdown\n");
       }
       dbg_print("mission_complete: %d\n", mission_complete);
-      exit(0);
+      exit(0); // atexit -> safePwmShutdown (honors disarm_on_exit)
+    }
+    else if (key == "NVGR_DISARM")
+    {
+      // Operator / backseat commanded full disarm: cut the PWM signal
+      // so the ESCs disarm, and clear the per-boot marker so the next
+      // launch re-arms. Re-arm within this run by publishing
+      // NVGR_DISARM=false.
+      if (msg.GetString() == "true")
+        requestDisarm("NVGR_DISARM via MOOS");
+      else if (!m_pwm_output_enabled)
+        armIfNeeded();
     }
     else if (key == "ALL_STOP")
     {
@@ -787,18 +931,17 @@ bool BBNavigatorInterface::Iterate()
 
   // ADC chip
   // Read ADC values
-  float adc_channels[4];
-  read_adc_all(adc_channels, 4);
-
-  m_adc_1 = adc_channels[0];
-  m_adc_2 = adc_channels[1];
-  m_adc_3 = adc_channels[2];
-  m_adc_4 = adc_channels[3];
-  // ETHAN CHANGE #3 START
-  // m_latest_current = (m_adc_3 - m_current_offset) * m_current_scale;
+  NavADCData adc;
+  std::string adc_err = g_nav.read_adc_all(adc);
+  if (adc_err.empty())
+  {
+    m_adc_1 = adc.channel[0];
+    m_adc_2 = adc.channel[1];
+    m_adc_3 = adc.channel[2];
+    m_adc_4 = adc.channel[3];
+  }
   CalibrationParams cal = BATTERY_CALIBRATIONS[m_num_batteries - 1];
   m_latest_current = (m_adc_3 - cal.offset) * cal.gain;
-  // ETHAN CHANGE #3 ENDS
   m_latest_voltage = (m_adc_4 - m_voltage_offset) * m_voltage_scale;
 
   m_rolling_voltage_window[m_apptick_idx] = m_latest_voltage;
@@ -843,15 +986,30 @@ bool BBNavigatorInterface::Iterate()
   // Publish teleop status (dashboards, pBB_Status mode fusion)
   Notify("NVGR_TELEOP_ENGAGED", m_teleop_engaged ? "true" : "false");
 
-  // IPT Sensing
-  // Read temperature and pressure values
-  m_nav_temp = read_temp();
-  m_nav_pressure = read_pressure();
+  // ESC arming state (dashboards / pBB_Status)
+  Notify("NVGR_ESC_ARMED", m_pwm_output_enabled ? "true" : "false");
 
-  // Read Pi CPU temperature directly from sysfs. Inlined to keep
-  // iBBNavigatorInterface free of an external rpi_utils dependency
-  // (only used here for this one reading). On non-Pi systems the
-  // file is absent and m_rpi_temp stays 0.
+  // IPT Sensing
+  // Read temperature and pressure values (one baro transaction gives both)
+  NavBaroData baro;
+  if (g_nav.read_baro(baro).empty())
+  {
+    m_nav_temp = baro.temperature_c;
+    m_nav_pressure = baro.pressure_kpa;
+  }
+
+  // Leak detector (GPIO). Newly surfaced with navigator-cpp.
+  bool leak = false;
+  if (g_nav.read_leak(leak).empty())
+  {
+    if (leak && !m_leak_detected)
+      reportRunWarning("LEAK DETECTED (navigator leak probe)");
+    m_leak_detected = leak;
+  }
+  Notify("NVGR_LEAK", m_leak_detected ? "true" : "false");
+
+  // Read Pi CPU temperature directly from sysfs. On non-Pi systems
+  // the file is absent and m_rpi_temp stays 0.
   m_rpi_temp = 0.0;
   {
     std::ifstream temp_file("/sys/class/thermal/thermal_zone0/temp");
@@ -897,7 +1055,7 @@ bool BBNavigatorInterface::Iterate()
 
   // Bundled, coherent IMU snapshot: one atomic message at a single
   // timestamp so high-rate motion reconstructs without inter-variable
-  // skew. This is the only new published variable (IMU_STATE).
+  // skew.
   char imu_state[320];
   snprintf(imu_state, sizeof(imu_state),
            "t=%.3f,roll=%.4f,pitch=%.4f,yaw=%.4f,heading=%.4f,"
@@ -945,15 +1103,14 @@ bool BBNavigatorInterface::OnStartUp()
     bool handled = false;
     if (param == "left_thruster_pin")
     {
-      m_left_thruster_pin = static_cast<uintptr_t>(stoi(value) - 1);
+      m_left_thruster_pin = stoi(value) - 1;
       handled = true;
     }
     else if (param == "right_thruster_pin")
     {
-      m_right_thruster_pin = static_cast<uintptr_t>(stoi(value) - 1);
+      m_right_thruster_pin = stoi(value) - 1;
       handled = true;
     }
-    //ETHAN CHANGE #2 STARTS
     else if (param == "nbats")
     {
       m_num_batteries = stoi(value);
@@ -971,7 +1128,6 @@ bool BBNavigatorInterface::OnStartUp()
       }
       handled = true;
     }
-    //ETHAN CHANGE #2 ENDS
     else if (param == "left_thruster_invert")
     {
       m_left_thruster_invert = (tolower(value) == "true") ? -1 : 1;
@@ -1069,6 +1225,49 @@ bool BBNavigatorInterface::OnStartUp()
       m_initialize_esc = (tolower(value) == "true") ? true : false;
       handled = true;
     }
+    else if (param == "pwm_min_us")
+    {
+      double v = stod(value);
+      if (v >= 500.0 && v < PWM_CENTER_US)
+      {
+        g_pwm_min_us.store(v);
+        handled = true;
+      }
+      else
+        reportConfigWarning("pwm_min_us must be in [500, 1500)");
+    }
+    else if (param == "pwm_max_us")
+    {
+      double v = stod(value);
+      if (v > PWM_CENTER_US && v <= 2500.0)
+      {
+        g_pwm_max_us.store(v);
+        handled = true;
+      }
+      else
+        reportConfigWarning("pwm_max_us must be in (1500, 2500]");
+    }
+    else if (param == "esc_arm_mode")
+    {
+      string v = tolower(value);
+      if (v == "neutral" || v == "sweep")
+      {
+        m_esc_arm_mode = v;
+        handled = true;
+      }
+      else
+        reportConfigWarning("esc_arm_mode must be 'neutral' or 'sweep'");
+    }
+    else if (param == "esc_armed_marker")
+    {
+      m_esc_marker_path = value;
+      handled = true;
+    }
+    else if (param == "disarm_on_exit")
+    {
+      m_disarm_on_exit = (tolower(value) == "true");
+      handled = true;
+    }
     else if (param == "rgbw_color")
     {
       vector<string> parts = parseString(value, ',');
@@ -1097,11 +1296,11 @@ bool BBNavigatorInterface::OnStartUp()
       {
         time_t rawtime;
         struct tm *timeinfo;
-        memset(m_fname, m_fname_buff_size, '\0');
+        memset(m_fname, '\0', m_fname_buff_size);
         time(&rawtime);
         timeinfo = localtime(&rawtime);
         char fmt[m_fname_buff_size];
-        memset(fmt, m_fname_buff_size, '\0');
+        memset(fmt, '\0', m_fname_buff_size);
         strftime(fmt, m_fname_buff_size, "%F_%T", timeinfo);
         snprintf(m_fname, m_fname_buff_size, "DBG_%s_%s_DATA.dbg",
                  m_app_name.c_str(), fmt);
@@ -1117,16 +1316,52 @@ bool BBNavigatorInterface::OnStartUp()
     else if (param == "mag_ak_cal_file")
     {
       m_ak09915_cal_file = value;
-      handled = readMagCalFile(value, m_mag_ak_bias, m_mag_ak_scaling_matrix);
+      handled = readMagCalFile(value);
     }
     else if (param == "imu_cal_file")
     {
       m_imu_cal_file = value;
       handled = readImuCalFile(value);
     }
+    else if (param == "use_mag")
+    {
+      m_use_mag = (tolower(value) == "true");
+      handled = true;
+    }
     else if (param == "gain" || param == "ahrs_gain")
     {
-      m_beta = stod(value);
+      // Madgwick beta - no longer meaningful for the Allgeuer
+      // estimator. Accepted so existing plugs don't warn-storm, but
+      // flagged so it gets cleaned out of mission configs.
+      reportConfigWarning("ahrs_gain (Madgwick beta) is ignored; tune "
+                          "ahrs_kp / ahrs_ti instead");
+      handled = true;
+    }
+    else if (param == "ahrs_kp")
+    {
+      m_ahrs_kp = stod(value);
+      handled = true;
+    }
+    else if (param == "ahrs_ti")
+    {
+      m_ahrs_ti = stod(value);
+      handled = true;
+    }
+    else if (param == "ahrs_kp_quick")
+    {
+      m_ahrs_kp_quick = stod(value);
+      handled = true;
+    }
+    else if (param == "ahrs_ti_quick")
+    {
+      m_ahrs_ti_quick = stod(value);
+      handled = true;
+    }
+    else if (param == "yaw_rate_clamp")
+    {
+      m_yaw_rate_clamp = stod(value);
+      if (m_yaw_rate_clamp <= 0.0)
+        m_yaw_rate_clamp = 10.0;
       handled = true;
     }
     else if (param == "roll_offset")
@@ -1169,41 +1404,58 @@ bool BBNavigatorInterface::OnStartUp()
       reportUnhandledConfigWarning(orig);
   }
 
-  // Use the new bulk initialization method if available
+  // Publish thruster pins / disarm policy / marker path to the async
+  // shutdown path before any arming happens.
+  g_left_pin.store(m_left_thruster_pin);
+  g_right_pin.store(m_right_thruster_pin);
+  g_disarm_on_exit.store(m_disarm_on_exit);
+  snprintf(g_esc_marker_path, sizeof(g_esc_marker_path), "%s",
+           m_esc_marker_path.c_str());
 
-  if (m_initialize_esc)
+  // Surface the detected hardware once at startup.
   {
-    set_pwm_freq_hz(static_cast<float>(PWM_FREQ_HZ));
-    set_pwm_enable(true);
-    initializeESC(m_left_thruster_pin);
-    initializeESC(m_right_thruster_pin);
-    dbg_print("ESC initialization performed\n");
+    NavVersion nv = g_nav.detected_version();
+    PiVersion pv = g_nav.detected_pi();
+    string hw = string("Navigator ") +
+                (nv == NAV_V1 ? "V1" : nv == NAV_V2 ? "V2" : "UNKNOWN") +
+                " on Raspberry Pi " + (pv == PI_5 ? "5" : "4");
+    reportEvent("Detected hardware: " + hw);
+    Notify("NVGR_HW_VERSION", hw);
+    if (!m_last_sensor_error.empty())
+      reportRunWarning("Navigator init warnings: " + m_last_sensor_error);
   }
-  else
-  {
-    dbg_print("ESC initialization skipped (disabled in config)\n");
-  }
+
+  // Enable PWM output; arm the ESCs only on the first launch per boot.
+  armIfNeeded();
 
   // Keep the worker threads joinable so the destructor can drive
   // a clean shutdown via m_running / m_ahrs_running flags.
   m_modulation_thread = std::thread(&BBNavigatorInterface::manageModulation, this);
 
-  // Reinitialize AHRS with configured parameters
-  m_ahrs = Madgwick(m_beta, m_sample_frequency);
+  // Configure the (built-in) Allgeuer attitude estimator. Zero gain
+  // params mean "keep the library defaults".
+  if (m_ahrs_kp > 0.0 && m_ahrs_ti > 0.0)
+    g_nav.ahrs_set_gains(m_ahrs_kp, m_ahrs_ti,
+                         (m_ahrs_kp_quick > 0.0) ? m_ahrs_kp_quick : 10.0,
+                         (m_ahrs_ti_quick > 0.0) ? m_ahrs_ti_quick : 1.25);
+  if (!m_use_mag)
+    g_nav.ahrs_set_mag_calib(0.0, 0.0, 0.0); // disables mag consideration
+  g_nav.ahrs_reset(true, true);
 
   // Start the AHRS sensor sampling thread
   m_ahrs_running = true;
   m_sensor_thread = std::thread(&BBNavigatorInterface::sensorSamplingThread, this);
   dbg_print("AHRS sensor thread started at %.1f Hz\n", m_sample_frequency);
 
-  dbg_print("Left thruster pin: %lu\n", static_cast<unsigned long>(m_left_thruster_pin));
-  dbg_print("Right thruster pin: %lu\n", static_cast<unsigned long>(m_right_thruster_pin));
-  dbg_print("Left thruster invert: %d\n", m_left_thruster_invert);
-  dbg_print("Right thruster invert: %d\n", m_right_thruster_invert);
+  dbg_print("Left thruster pin: %d\n", m_left_thruster_pin);
+  dbg_print("Right thruster pin: %d\n", m_right_thruster_pin);
+  dbg_print("Left thruster invert: %d\n", (int)m_left_thruster_invert);
+  dbg_print("Right thruster invert: %d\n", (int)m_right_thruster_invert);
   dbg_print("Thrust command timeout: %.2f seconds\n", m_thrust_command_timeout);
 
-  // Set the turttle to nav lights
+  // Set the turtle to nav lights
   uint8_t rgb_array[24][4];
+  memset(rgb_array, 0, sizeof(rgb_array));
   for (int i = 0; i < 12; i++)
   {
     // Left Side
@@ -1218,7 +1470,7 @@ bool BBNavigatorInterface::OnStartUp()
     rgb_array[2 * i][2] = m_starboard_side[2];
     rgb_array[2 * i][3] = m_starboard_side[3];
   }
-  set_neopixel_rgbw(rgb_array, 24);
+  g_nav.neopixel_set_rgbw(rgb_array, 24);
 
   registerVariables();
   return (true);
@@ -1235,6 +1487,9 @@ void BBNavigatorInterface::registerVariables()
   Register("DESIRED_THRUST_R", 0);
   Register("MISSION_COMPLETE", 0);
   Register("ALL_STOP", 0);
+
+  // ESC disarm/re-arm command (operator or backseat)
+  Register("NVGR_DISARM", 0);
 
   // Register for RC controller messages.
   //   RC_CONNECTED   - debounced link state (mode/UI logic).
@@ -1269,12 +1524,30 @@ void BBNavigatorInterface::registerVariables()
 bool BBNavigatorInterface::buildReport()
 {
   m_msgs << "============================================" << endl;
-  m_msgs << "File:                                       " << endl;
+  m_msgs << "iBBNavigatorInterface (navigator-cpp)       " << endl;
   m_msgs << "============================================" << endl;
 
   // Snapshot atomic thrust state once for the whole report.
   const double thrust_left_snap = m_latest_set_thrust_left.load();
   const double thrust_right_snap = m_latest_set_thrust_right.load();
+
+  {
+    NavVersion nv = g_nav.detected_version();
+    PiVersion pv = g_nav.detected_pi();
+    m_msgs << "Hardware: Navigator "
+           << (nv == NAV_V1 ? "V1" : nv == NAV_V2 ? "V2" : "UNKNOWN")
+           << " / Raspberry Pi " << (pv == PI_5 ? "5" : "4") << endl;
+  }
+  // m_last_sensor_error is written by the sensor thread; snapshot it
+  // under the AHRS mutex before streaming.
+  std::string sensor_err_snap;
+  {
+    std::lock_guard<std::mutex> lock(m_ahrs_mutex);
+    sensor_err_snap = m_last_sensor_error;
+  }
+  if (!sensor_err_snap.empty())
+    m_msgs << "Sensor errors: " << sensor_err_snap << endl;
+  m_msgs << "\n";
 
   ACTable actab(2);
   actab << "Thruster States | Values";
@@ -1283,7 +1556,12 @@ bool BBNavigatorInterface::buildReport()
   actab << "Current Right Thruster:" << thrust_right_snap;
   actab << "Thruster Dead Band:" << m_thruster_dead_band;
   actab << "Thruster Enabled:" << (m_thruster_enabled ? "true" : "false");
-  actab << "ESC Enabled:" << (m_initialize_esc ? "true" : "false");
+  actab << "Pulse Range (us):" << (doubleToString(g_pwm_min_us.load(), 0) + "-" +
+                                   doubleToString(g_pwm_max_us.load(), 0));
+  actab << "PWM Output Enabled:" << (m_pwm_output_enabled ? "true" : "false");
+  actab << "ESC Armed This Boot:" << (m_esc_armed ? "true" : "false");
+  actab << "ESC Arm Mode:" << m_esc_arm_mode;
+  actab << "Disarm On Exit:" << (m_disarm_on_exit ? "true" : "false");
 
   // Add thrust timeout information
   actab << "Thrust Timeout Enabled:" << (m_thrust_timeout_enabled ? "true" : "false");
@@ -1338,6 +1616,7 @@ bool BBNavigatorInterface::buildReport()
   actab_adc << "Rolling Current" << m_rolling_current;
   actab_adc << "Rolling Power" << m_rolling_power;
   actab_adc << "Number of Batteries" << m_num_batteries;
+  actab_adc << "Leak Detected" << (m_leak_detected ? "TRUE" : "false");
 
   m_msgs << actab_adc.getFormattedString();
   m_msgs << "\n";
@@ -1345,6 +1624,7 @@ bool BBNavigatorInterface::buildReport()
   // AHRS section
   double roll, pitch, yaw, heading;
   double gyro_x, gyro_y, gyro_z, yaw_rate;
+  uint64_t imu_errors;
   {
     std::lock_guard<std::mutex> lock(m_ahrs_mutex);
     roll = m_roll;
@@ -1355,6 +1635,7 @@ bool BBNavigatorInterface::buildReport()
     gyro_y = m_gyro_y;
     gyro_z = m_gyro_z;
     yaw_rate = m_yaw_rate;
+    imu_errors = m_imu_read_errors;
   }
 
   ACTable actab_ahrs(2);
@@ -1367,8 +1648,10 @@ bool BBNavigatorInterface::buildReport()
   actab_ahrs << "Gyro X (rad/s)" << gyro_x;
   actab_ahrs << "Gyro Y (rad/s)" << gyro_y;
   actab_ahrs << "Gyro Z (rad/s)" << gyro_z;
-  actab_ahrs << "Yaw Rate (rad/s)" << yaw_rate;
+  actab_ahrs << "Yaw Rate Lvl (rad/s)" << yaw_rate;
   actab_ahrs << "Sample Freq (Hz)" << m_sample_frequency;
+  actab_ahrs << "Mag Enabled" << (m_use_mag ? "true" : "false");
+  actab_ahrs << "IMU Read Errors" << (double)imu_errors;
   actab_ahrs << "AHRS Running" << (m_ahrs_running ? "true" : "false");
 
   m_msgs << actab_ahrs.getFormattedString();
@@ -1380,7 +1663,7 @@ bool BBNavigatorInterface::buildReport()
 // AHRS Methods
 //---------------------------------------------------------
 
-bool BBNavigatorInterface::readMagCalFile(std::string filename, arma::vec &mag_bias, arma::mat &mag_transform)
+bool BBNavigatorInterface::readMagCalFile(std::string filename)
 {
   std::ifstream file(filename);
   if (!file.is_open())
@@ -1391,9 +1674,6 @@ bool BBNavigatorInterface::readMagCalFile(std::string filename, arma::vec &mag_b
   }
 
   std::string line;
-  mag_bias.resize(3);
-  mag_transform.resize(3, 3);
-
   while (std::getline(file, line))
   {
     if (line.empty() || line[0] == '#')
@@ -1405,21 +1685,29 @@ bool BBNavigatorInterface::readMagCalFile(std::string filename, arma::vec &mag_b
     if (arg == "b")
     {
       std::vector<string> values = parseString(line, ',');
-      for (int i = 0; i < 3; i++)
-        mag_bias[i] = stod(values[i]);
+      if (values.size() >= 3)
+        for (int i = 0; i < 3; i++)
+          m_mag_bias[i] = stod(values[i]);
     }
     else if (arg == "A")
     {
       std::vector<string> values = parseString(line, ',');
-      for (int i = 0; i < 9; i++)
-        mag_transform[i] = stod(values[i]);
+      if (values.size() >= 9)
+        for (int i = 0; i < 9; i++)
+          m_mag_scale[i] = stod(values[i]);
     }
   }
 
   file.close();
+  m_have_mag_cal = true;
   return true;
 }
 
+// Accepts both cal-file formats:
+//   gyro_bias  = x,y,z   /  accel_bias = x,y,z   (interface format)
+//   bias_x = v / bias_y = v / bias_z = v          (calibration-script format)
+// The second form fixes the long-standing mismatch where the gyro cal
+// script's output couldn't be parsed and the bias silently stayed zero.
 bool BBNavigatorInterface::readImuCalFile(std::string filename)
 {
   std::ifstream file(filename);
@@ -1430,10 +1718,11 @@ bool BBNavigatorInterface::readImuCalFile(std::string filename)
   }
 
   std::string line;
-  m_gyro_bias.resize(3);
-  m_accel_bias.resize(3);
-  m_gyro_bias.zeros();
-  m_accel_bias.zeros();
+  for (int i = 0; i < 3; i++)
+  {
+    m_gyro_bias[i] = 0.0;
+    m_accel_bias[i] = 0.0;
+  }
 
   while (std::getline(file, line))
   {
@@ -1442,54 +1731,50 @@ bool BBNavigatorInterface::readImuCalFile(std::string filename)
 
     string arg = biteString(line, '=');
     arg = removeWhite(arg);
+    string rest = stripBlankEnds(line);
 
     if (arg == "gyro_bias")
     {
-      std::vector<string> values = parseString(line, ',');
+      std::vector<string> values = parseString(rest, ',');
       if (values.size() >= 3)
         for (int i = 0; i < 3; i++)
           m_gyro_bias[i] = stod(values[i]);
     }
     else if (arg == "accel_bias")
     {
-      std::vector<string> values = parseString(line, ',');
+      std::vector<string> values = parseString(rest, ',');
       if (values.size() >= 3)
         for (int i = 0; i < 3; i++)
           m_accel_bias[i] = stod(values[i]);
     }
+    else if (arg == "bias_x")
+      m_gyro_bias[0] = stod(rest);
+    else if (arg == "bias_y")
+      m_gyro_bias[1] = stod(rest);
+    else if (arg == "bias_z")
+      m_gyro_bias[2] = stod(rest);
   }
 
   file.close();
   return true;
 }
 
-arma::vec BBNavigatorInterface::adjust_gyro_cal(const arma::vec &gyro_raw)
+//---------------------------------------------------------
+// Small fixed-size linear algebra (replaces Armadillo).
+
+static void mat3_mult(const double A[9], const double B[9], double C[9])
 {
-  if (m_gyro_bias.n_elem == 3)
-    return gyro_raw - m_gyro_bias;
-  return gyro_raw;
+  for (int r = 0; r < 3; r++)
+    for (int c = 0; c < 3; c++)
+      C[3 * r + c] = A[3 * r + 0] * B[0 + c] +
+                     A[3 * r + 1] * B[3 + c] +
+                     A[3 * r + 2] * B[6 + c];
 }
 
-arma::vec BBNavigatorInterface::adjust_acc_cal(const arma::vec &acc_raw)
+static void mat3_vec(const double A[9], const double v[3], double out[3])
 {
-  if (m_accel_bias.n_elem == 3)
-    return acc_raw - m_accel_bias;
-  return acc_raw;
-}
-
-double BBNavigatorInterface::calculateYawRate(double roll_phi, double pitch_theta, double p, double q, double r)
-{
-  roll_phi = roll_phi * M_PI / 180.0;
-  pitch_theta = pitch_theta * M_PI / 180.0;
-
-  const double sphi = sin(roll_phi);
-  const double cphi = cos(roll_phi);
-  const double cth = cos(pitch_theta);
-
-  const double eps = 1e-9;
-  if (fabs(cth) < eps)
-    return (q * sphi + r * cphi) * (cth >= 0 ? 1.0 / eps : -1.0 / eps);
-  return (q * sphi + r * cphi) / cth;
+  for (int r = 0; r < 3; r++)
+    out[r] = A[3 * r] * v[0] + A[3 * r + 1] * v[1] + A[3 * r + 2] * v[2];
 }
 
 void BBNavigatorInterface::sensorSamplingThread()
@@ -1500,67 +1785,94 @@ void BBNavigatorInterface::sensorSamplingThread()
   double pitch_offset_rad = m_pitch_offset * M_PI / 180;
   double yaw_offset_rad = m_yaw_offset * M_PI / 180;
 
-  // Rotation matrices for offset
-  arma::mat R_roll = {{1, 0, 0},
-                      {0, cos(roll_offset_rad), -sin(roll_offset_rad)},
-                      {0, sin(roll_offset_rad), cos(roll_offset_rad)}};
+  // Mounting-offset rotation R_offset = R_yaw * R_pitch * R_roll
+  const double R_roll[9] = {1, 0, 0,
+                            0, cos(roll_offset_rad), -sin(roll_offset_rad),
+                            0, sin(roll_offset_rad), cos(roll_offset_rad)};
+  const double R_pitch[9] = {cos(pitch_offset_rad), 0, sin(pitch_offset_rad),
+                             0, 1, 0,
+                             -sin(pitch_offset_rad), 0, cos(pitch_offset_rad)};
+  const double R_yaw[9] = {cos(yaw_offset_rad), -sin(yaw_offset_rad), 0,
+                           sin(yaw_offset_rad), cos(yaw_offset_rad), 0,
+                           0, 0, 1};
+  double R_tmp[9], R_offset[9];
+  mat3_mult(R_pitch, R_roll, R_tmp);
+  mat3_mult(R_yaw, R_tmp, R_offset);
 
-  arma::mat R_pitch = {{cos(pitch_offset_rad), 0, sin(pitch_offset_rad)},
-                       {0, 1, 0},
-                       {-sin(pitch_offset_rad), 0, cos(pitch_offset_rad)}};
-
-  arma::mat R_yaw = {{cos(yaw_offset_rad), -sin(yaw_offset_rad), 0},
-                     {sin(yaw_offset_rad), cos(yaw_offset_rad), 0},
-                     {0, 0, 1}};
-
-  arma::mat R_offset = R_yaw * R_pitch * R_roll;
+  const double nominal_dt = 1.0 / m_sample_frequency;
 
   while (m_ahrs_running)
   {
     auto current_time = std::chrono::high_resolution_clock::now();
 
-    try
+    // Read sensor data from Navigator. navigator-cpp returns error
+    // strings instead of throwing; count failures and skip the fusion
+    // step for incomplete samples so a transient bus error can never
+    // inject zeros into the estimator.
+    NavAxisData accel_raw, gyro_raw;
+    std::string err_a = g_nav.read_accel(accel_raw);
+    std::string err_g = g_nav.read_gyro(gyro_raw);
+
+    NavAxisData mag_raw;
+    bool mag_ok = false;
+    if (m_use_mag)
+      mag_ok = g_nav.read_mag_ak09915(mag_raw).empty();
+
+    if (err_a.empty() && err_g.empty())
     {
-      // Read sensor data from Navigator
-      //AxisData mag_1 = read_mag();
-      // MAG DISABLED — stubbed to avoid navigator-rs DataNotReady panic.
-      // Madgwick falls back to IMU-only fusion when mag input is zero.
-      AxisData mag_1; mag_1.x = 0.0f; mag_1.y = 0.0f; mag_1.z = 0.0f;
-      AxisData imu = read_accel();
-      AxisData gyro = read_gyro();
-
-      arma::vec gyro_data_raw = {gyro.x, gyro.y, gyro.z};
-      arma::vec acc_data_raw = {imu.x, imu.y, imu.z};
-      arma::vec mag_1_data_raw = {mag_1.x, mag_1.y, mag_1.z};
-
-      // Apply calibrations
-      arma::vec gyro_data_cal = adjust_gyro_cal(gyro_data_raw);
-      arma::vec acc_data_cal = adjust_acc_cal(acc_data_raw);
-      arma::vec mag_1_data_cal = m_mag_ak_scaling_matrix * (mag_1_data_raw - m_mag_ak_bias);
+      // Apply calibrations (bias subtract) in the sensor frame
+      double gyro_cal[3] = {gyro_raw.x - m_gyro_bias[0],
+                            gyro_raw.y - m_gyro_bias[1],
+                            gyro_raw.z - m_gyro_bias[2]};
+      double acc_cal[3] = {accel_raw.x - m_accel_bias[0],
+                           accel_raw.y - m_accel_bias[1],
+                           accel_raw.z - m_accel_bias[2]};
 
       // Apply body frame rotation
-      arma::vec gyro_bff = R_offset * gyro_data_cal;
-      arma::vec acc_bff = R_offset * acc_data_cal;
-      arma::vec mag_1_bff = R_offset * mag_1_data_cal;
+      double gyro_bff[3], acc_bff[3];
+      mat3_vec(R_offset, gyro_cal, gyro_bff);
+      mat3_vec(R_offset, acc_cal, acc_bff);
 
-      // Update AHRS
+      double mag_bff[3] = {0.0, 0.0, 0.0};
+      if (m_use_mag && mag_ok)
+      {
+        double mag_c[3] = {mag_raw.x - m_mag_bias[0],
+                           mag_raw.y - m_mag_bias[1],
+                           mag_raw.z - m_mag_bias[2]};
+        double mag_cal[3];
+        mat3_vec(m_mag_scale, mag_c, mag_cal);
+        mat3_vec(R_offset, mag_cal, mag_bff);
+      }
+
+      // Coerce dt: wall-clock hiccups (scheduling, NTP steps) must not
+      // reach the integrator. Allgeuer recommends clamping to a band
+      // around the nominal period.
+      double dt = std::chrono::duration<double>(
+                      current_time - prev_time).count();
+      if (dt < 0.5 * nominal_dt) dt = 0.5 * nominal_dt;
+      if (dt > 3.0 * nominal_dt) dt = 3.0 * nominal_dt;
+
+      g_nav.ahrs_update(dt,
+                        gyro_bff[0], gyro_bff[1], gyro_bff[2],
+                        acc_bff[0], acc_bff[1], acc_bff[2],
+                        mag_bff[0], mag_bff[1], mag_bff[2]);
+
+      NavAttitudeData att;
+      g_nav.ahrs_get_attitude(att);
+
       {
         std::lock_guard<std::mutex> lock(m_ahrs_mutex);
-        m_ahrs.update(gyro_bff[0], gyro_bff[1], gyro_bff[2],
-                      acc_bff[0], acc_bff[1], acc_bff[2],
-                      mag_1_bff[0], mag_1_bff[1], mag_1_bff[2]);
-
-        m_roll = m_ahrs.getRoll();
-        m_pitch = m_ahrs.getPitch();
-        m_yaw = m_ahrs.getYaw();
+        m_roll = att.roll * 180.0 / M_PI;
+        m_pitch = att.pitch * 180.0 / M_PI;
+        m_yaw = att.yaw * 180.0 / M_PI;
         m_heading = fmod((m_yaw + m_declination_deg + m_operating_heading_offset), 360.0);
         if (m_heading < 0)
           m_heading += 360.0;
 
-        m_qw = m_ahrs.getQ0();
-        m_qx = m_ahrs.getQ1();
-        m_qy = m_ahrs.getQ2();
-        m_qz = m_ahrs.getQ3();
+        m_qw = att.qw;
+        m_qx = att.qx;
+        m_qy = att.qy;
+        m_qz = att.qz;
 
         m_gyro_x = gyro_bff[0];
         m_gyro_y = gyro_bff[1];
@@ -1570,25 +1882,30 @@ void BBNavigatorInterface::sensorSamplingThread()
         m_accel_y = acc_bff[1];
         m_accel_z = acc_bff[2];
 
-        const double p = gyro_bff[0];
-        const double q = gyro_bff[1];
-        const double r = gyro_bff[2];
-        const double roll_rad = m_roll * M_PI / 180.0;
-        const double pitch_rad = m_pitch * M_PI / 180.0;
-        const double sphi = sin(roll_rad);
-        const double cphi = cos(roll_rad);
-        const double cth = cos(pitch_rad);
-        const double eps = 1e-6;
+        // Level-frame yaw rate: rotate the body angular velocity into
+        // the world frame with the attitude quaternion and take the z
+        // component. Unlike the Euler yaw-rate projection
+        // (q*sin(phi)+r*cos(phi))/cos(theta), this is bounded by
+        // |omega| for ANY attitude - there is no cos(pitch)
+        // singularity to guard, which was failure mode B of the
+        // NAV_HEADING spike investigation. Third row of R(q):
+        const double zr0 = 2.0 * (m_qx * m_qz - m_qw * m_qy);
+        const double zr1 = 2.0 * (m_qy * m_qz + m_qw * m_qx);
+        const double zr2 = 1.0 - 2.0 * (m_qx * m_qx + m_qy * m_qy);
+        double yaw_rate = zr0 * gyro_bff[0] + zr1 * gyro_bff[1] +
+                          zr2 * gyro_bff[2];
 
-        if (fabs(cth) < eps)
-          m_yaw_rate = (q * sphi + r * cphi) * (cth >= 0 ? 1.0 / eps : -1.0 / eps);
-        else
-          m_yaw_rate = (q * sphi + r * cphi) / cth;
+        // Physical plausibility clamp (belt and suspenders - the
+        // projection above is already bounded by the gyro range).
+        rclamp(yaw_rate, -m_yaw_rate_clamp, m_yaw_rate_clamp);
+        m_yaw_rate = yaw_rate;
       }
     }
-    catch (const std::exception &e)
+    else
     {
-      reportRunWarning("Sensor sampling error: " + std::string(e.what()));
+      std::lock_guard<std::mutex> lock(m_ahrs_mutex);
+      m_imu_read_errors++;
+      m_last_sensor_error = !err_a.empty() ? err_a : err_g;
     }
 
     // Sleep to maintain sample rate

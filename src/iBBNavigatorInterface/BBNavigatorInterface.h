@@ -1,27 +1,42 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name: Raymond Turrisi (orig.), Jeremy Wenger (navigator-cpp port)
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface_v1/BBNavigatorInterface_v1.h
-   Last Ed:  2025-03-30
+      File: iBBNavigatorInterface/BBNavigatorInterface.h
+   Last Ed:  2026-07-24
      Brief:
-        Combined Navigator Interface for Blueboat ASV for Navigator version 0.0.6.
-        Handles dual thruster PWM control with safety features
-        and AHRS (Attitude Heading Reference System) using
-        Madgwick filter for IMU/magnetometer fusion.
+        Unified Navigator Interface for the BlueBoat ASV, built on
+        navigator-cpp (pavlab-mit). Replaces the navigator-lib
+        (Blue Robotics, Rust) based iBBNavigatorInterface_v1/_v2
+        pair with a single app: navigator-cpp auto-detects the
+        Navigator board revision (V1/BMP280 vs V2/BMP390) and the
+        Raspberry Pi model (4 vs 5) at runtime.
+
+        Owns:
+          - Dual-thruster PWM (left/right ESCs) with persistent
+            per-boot arming state, command watchdogs, and safe
+            shutdown / full-disarm paths
+          - AHRS via the vendored Allgeuer/NimbRo passive
+            complementary filter (replaces Madgwick)
+          - Raw gyro / level-frame yaw-rate publication
+            (singularity-free world-frame projection)
+          - ADC power monitoring (battery V / I)
+          - Internal pressure / temperature (baro)
+          - Leak detector
+          - Navigator-board NeoPixel LEDs
+          - RC / teleop / autonomy thrust arbitration
 *************************************************************/
 
-#ifndef BBNavigatorInterface_v1_HEADER
-#define BBNavigatorInterface_v1_HEADER
+#ifndef BBNavigatorInterface_HEADER
+#define BBNavigatorInterface_HEADER
 
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
 #include <string>
+#include <cstdint>
 #include <cstdarg> //va_list, va_start, va_end
-#include "bindings.h"
+#include "nav_bindings.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
-#include <armadillo>
-#include "MadgwickAHRS.h"
 
 class LPF
 {
@@ -65,32 +80,26 @@ public:
   BBNavigatorInterface();
   ~BBNavigatorInterface();
 
-  // PWM frequency and pulse range constants (full range, 100 Hz)
+  // PWM frequency and default pulse range (100 Hz). The min/max are
+  // runtime-configurable via pwm_min_us / pwm_max_us: the defaults
+  // preserve the legacy 800-2200 mapping, but the BlueBoat's Basic
+  // ESC 500 documents an 1100-1900 us input range - see the mission
+  // plug for the tradeoff (changing the range changes the thrust
+  // curve: with 800-2200, commands beyond ~57% already saturate the
+  // ESC's documented range).
   static constexpr double PWM_FREQ_HZ = 100.0;      // 100 Hz for smoother response
-  static constexpr double PWM_MIN_US = 800.0;       // Minimum pulse width (microseconds)
-  static constexpr double PWM_MAX_US = 2200.0;      // Maximum pulse width (microseconds)
+  static constexpr double PWM_MIN_US = 800.0;       // Default min pulse width (microseconds)
+  static constexpr double PWM_MAX_US = 2200.0;      // Default max pulse width (microseconds)
   static constexpr double PWM_CENTER_US = 1500.0;   // Neutral pulse width (microseconds)
 
-  // Convert normalized command [-100,100] to PCA9685 counts
-  // Works with any PWM frequency and pulse range
-  static void setPinPulseWidth(PwmChannel pin_num, double target)
-  {
-    // Map normalized command [-100,100] to pulse range
-    double pulse_us_span = (PWM_MAX_US - PWM_MIN_US) / 2.0;
-    double pulse_us = PWM_CENTER_US + (target / 100.0) * pulse_us_span;
+  // navigator-cpp PWM channels are 0-based indices (legacy ChN -> index N-1).
+  static constexpr int kPwmIndexCh14 = 13;
+  static constexpr int kPwmIndexCh16 = 15;
 
-    // Clamp to allowable range
-    if (pulse_us < PWM_MIN_US) pulse_us = PWM_MIN_US;
-    if (pulse_us > PWM_MAX_US) pulse_us = PWM_MAX_US;
-
-    // Convert microseconds to PCA9685 counts: counts = pulse_us * freq_hz * 4096 / 1e6
-    double counts = pulse_us * PWM_FREQ_HZ * 4096.0 / 1e6;
-
-    if (counts < 0.0) counts = 0.0;
-    if (counts > 4095.0) counts = 4095.0;
-
-    set_pwm_channel_value(pin_num, static_cast<uint16_t>(counts));
-  }
+  // Convert normalized command [-100,100] to a pulse width and drive
+  // the PCA9685 through the shared Navigator instance. Static so the
+  // signal-handler shutdown path can use it without an object.
+  static void setPinPulseWidth(int pin_num, double target);
 
 protected: // Standard MOOSApp functions to overload
   bool OnNewMail(MOOSMSG_LIST &NewMail);
@@ -108,29 +117,30 @@ protected:
   std::string imuName(const std::string &base) const;
 
   void manageModulation();
-  
-  // New method for RC thrust calculation
+
+  // RC thrust calculation
   void calculateRCThrust();
 
-  // Function to initialize multiple ESCs simultaneously
-  void initializeESCs(const std::vector<PwmChannel>& pins);
+  // ESC lifecycle. armIfNeeded() enables PWM and, only on the first
+  // launch since boot (tracked by a tmpfs marker file), runs the
+  // configured arm sequence. requestDisarm() cuts PWM output (OE
+  // high) and clears the marker so the next launch re-arms.
+  void armIfNeeded();
+  void requestDisarm(const std::string &reason);
+  bool escMarkerExists() const;
+  void writeEscMarker() const;
+  void clearEscMarker() const;
 
   // Helper function to compute heading error mixer similar to DiffThrustPID
   double calculateHeadingMixer(double desired_heading, double current_heading);
-
-
-  void initializeESC(PwmChannel pin);
 
   std::thread m_modulation_thread;
   std::thread m_sensor_thread;
 
   // AHRS methods
   void sensorSamplingThread();
-  bool readMagCalFile(std::string filepath, arma::vec &bias, arma::mat &scaling_matrix);
+  bool readMagCalFile(std::string filepath);
   bool readImuCalFile(std::string filepath);
-  arma::vec adjust_gyro_cal(const arma::vec &gyro_raw);
-  arma::vec adjust_acc_cal(const arma::vec &acc_raw);
-  double calculateYawRate(double roll_phi, double pitch_theta, double p, double q, double r);
 
 private: // Configuration variables
   bool m_debug;
@@ -191,7 +201,7 @@ private: // State variables
   std::atomic<bool> m_running{true};
 
   // Since the thrusters are open loop, maintain a virtual system and update
-  // the values with a lpf to prevent hard jerks, where the goal is to 
+  // the values with a lpf to prevent hard jerks, where the goal is to
   // avoid spikes in current and damaging the hardware
   double m_thruster_alpha;
 
@@ -200,8 +210,8 @@ private: // State variables
 
   double m_last_update;
 
-  PwmChannel m_left_thruster_pin;
-  PwmChannel m_right_thruster_pin;
+  int m_left_thruster_pin;
+  int m_right_thruster_pin;
 
   // desired states from mail
   double m_desired_thrust_left;
@@ -213,14 +223,37 @@ private: // State variables
   std::atomic<double> m_latest_set_thrust_right;
   bool m_all_stop;
 
-  double m_latest_set_thrust_left_pw;
-  double m_latest_set_thrust_right_pw;
-
   // Configured span for the ranges
   double m_thruster_range;
 
   double m_left_thruster_invert;
   double m_right_thruster_invert;
+
+  // ESC arming lifecycle.
+  //   m_initialize_esc   - allow an arm sequence on the first launch
+  //                        per boot (legacy param name kept).
+  //   m_esc_arm_mode     - "neutral" (hold 1500us; BlueRobotics Basic
+  //                        ESCs arm on a stable neutral signal) or
+  //                        "sweep" (legacy max/min/neutral throttle
+  //                        sweep - DANGEROUS if the ESCs are already
+  //                        armed, only runs when the per-boot marker
+  //                        is absent).
+  //   m_esc_marker_path  - tmpfs marker recording that the ESCs were
+  //                        armed this boot; presence skips the arm
+  //                        sequence on app restarts so a live restart
+  //                        can never replay a throttle sweep.
+  //   m_disarm_on_exit   - if true, safe shutdown ends with PWM output
+  //                        disabled (OE high -> ESCs lose signal and
+  //                        disarm) and the marker cleared. If false
+  //                        (default), the PCA9685 keeps holding neutral
+  //                        after exit and the ESCs stay armed for a
+  //                        fast restart.
+  bool m_initialize_esc;
+  std::string m_esc_arm_mode;
+  std::string m_esc_marker_path;
+  bool m_disarm_on_exit;
+  bool m_esc_armed;          // arming path completed this boot
+  bool m_pwm_output_enabled; // OE state as last commanded by this app
 
   // ADC Measurements (vbat, current, adc 1 and adc 2 - needs to be ran in same app as pwm chip)
   int m_num_batteries;
@@ -253,6 +286,7 @@ private: // State variables
   double m_nav_temp;
   double m_nav_pressure;
   double m_rpi_temp;
+  bool m_leak_detected;
 
   std::vector<uint16_t> m_port_side;
   std::vector<uint16_t> m_starboard_side;
@@ -264,7 +298,6 @@ private: // State variables
   double m_low_pressure_value;
   double m_high_pressure_value;
 
-
   // Thrust timeout parameters
   double m_thrust_command_timeout;  // Timeout in seconds, -1 to disable
   double m_last_thrust_command_time; // Time of last thrust command
@@ -274,13 +307,14 @@ private: // State variables
   double m_theta_b;  // Bank angle limit (degrees) for RC control
   double m_turn_scale; // Turn sensitivity for RC control
 
-  bool m_initialize_esc;  // Whether to perform ESC initialization on startup
-
-  // AHRS configuration
-  arma::vec m_mag_ak_bias;
-  arma::mat m_mag_ak_scaling_matrix;
-  arma::vec m_gyro_bias;
-  arma::vec m_accel_bias;
+  // AHRS configuration.
+  // The Allgeuer estimator lives inside the Navigator instance; the
+  // app feeds it calibrated, mounting-rotated body-frame samples.
+  double m_gyro_bias[3];
+  double m_accel_bias[3];
+  double m_mag_bias[3];
+  double m_mag_scale[9];     // row-major 3x3 soft-iron matrix
+  bool m_have_mag_cal;
   std::string m_ak09915_cal_file;
   std::string m_imu_cal_file;
   double m_roll_offset;
@@ -289,11 +323,18 @@ private: // State variables
   double m_declination_deg;
   double m_operating_heading_offset;
   double m_sample_frequency;
-  double m_beta;
+  bool m_use_mag;            // feed AK09915 into the estimator
+  // Estimator PI gains (Allgeuer: Ki = Kp/Ti). Zeros mean "library
+  // defaults" (2.20 / 2.65, quick-learn 10.0 / 1.25).
+  double m_ahrs_kp, m_ahrs_ti, m_ahrs_kp_quick, m_ahrs_ti_quick;
+  // Level-frame yaw-rate plausibility clamp (rad/s). The published
+  // GYRO_Z_LVL is the world-frame z component of the body angular
+  // velocity (bounded by |omega|), but clamp anyway so a corrupted
+  // sample can never reach the EKF.
+  double m_yaw_rate_clamp;
 
   // AHRS state
   std::atomic<bool> m_ahrs_running{false};
-  Madgwick m_ahrs;
   std::mutex m_ahrs_mutex;
   double m_roll;
   double m_pitch;
@@ -303,10 +344,15 @@ private: // State variables
   double m_gyro_y;
   double m_gyro_z;
   double m_yaw_rate;
+  double m_accel_x;
+  double m_accel_y;
+  double m_accel_z;
   double m_qw, m_qx, m_qy, m_qz;
+  uint64_t m_imu_read_errors;
+  std::string m_last_sensor_error;
 
   // Publication suffixes for the two source categories.
-  //   ahrs suffix - Madgwick-fused orientation outputs
+  //   ahrs suffix - fused orientation outputs
   //                 (NAV_ROLL, NAV_PITCH, NAV_YAW, NAV_HEADING)
   //   imu  suffix - raw gyro / level-compensated outputs
   //                 (GYRO_X, GYRO_Y, GYRO_Z, GYRO_Z_LVL)

@@ -1,17 +1,18 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name: Raymond Turrisi (orig.), Jeremy Wenger (navigator-cpp port)
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface_v2/main.cpp
-   Last Ed:  2025-03-30
+      File: iBBNavigatorInterface/main.cpp
+   Last Ed:  2026-07-24
      Brief:
-        Combined Navigator Interface for Blueboat ASV for Navigator version 0.1.2.
+        Unified Navigator Interface for the BlueBoat ASV
+        (navigator-cpp; runtime V1/V2 + Pi4/Pi5 detection).
 *************************************************************/
 
 #include <string>
 #include "MBUtils.h"
 #include "ColorParse.h"
-#include "BBNavigatorInterface_v2.h"
-#include "BBNavigatorInterface_v2_Info.h"
+#include "BBNavigatorInterface.h"
+#include "BBNavigatorInterface_Info.h"
 
 using namespace std;
 
@@ -51,4 +52,3 @@ int main(int argc, char *argv[])
 
   return(0);
 }
-

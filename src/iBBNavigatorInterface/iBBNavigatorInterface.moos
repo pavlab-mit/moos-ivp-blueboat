@@ -139,12 +139,12 @@ ProcessConfig = iBBNavigatorInterface
   // Per-vehicle magnetometer calibration. File expected at:
   //   b = bx,by,bz
   //   A = a11,a12,a13,a21,a22,a23,a31,a32,a33
-  mag_ak_cal_file = /home/pi/mag_cal/$(VNAME)/mag/mag_cal_nav.dat
+  mag_ak_cal_file = /home/pi/mag_cal/VEHICLE_NAME/mag/mag_cal_nav.dat
 
   // Optional IMU bias file. Both formats accepted:
   //   gyro_bias  = gx,gy,gz  /  accel_bias = ax,ay,az
   //   bias_x = gx / bias_y = gy / bias_z = gz  (gyro cal script)
-  // imu_cal_file = /home/pi/mag_cal/$(VNAME)/imu/imu_cal.txt
+  // imu_cal_file = /home/pi/mag_cal/VEHICLE_NAME/imu/imu_cal.txt
 
   // GYRO_Z_LVL plausibility clamp (rad/s). The published rate is the
   // world-frame z angular rate (bounded, no cos(pitch) singularity);
@@ -173,5 +173,5 @@ ProcessConfig = iBBNavigatorInterface
   //=========================================================
   // DEBUG
   //=========================================================
-  debug = $(LOG)
+  debug = false
 }
