@@ -164,75 +164,34 @@ endif()
 # lib_doodle_radio depends on nlohmann/json
 set(DOODLE_RADIO_AVAIL ${NLOHMANN_JSON_AVAIL})
 
-# Check NAV_PLATFORM_TYPE environment variable (defaults to DEVELOPER if not set)
-if("$ENV{NAV_PLATFORM_TYPE}" STREQUAL "BLUEBOAT")
-      set(ON_VEHICLE TRUE)
-      message(STATUS "NAV_PLATFORM_TYPE=$ENV{NAV_PLATFORM_TYPE} - Building vehicle components")
-else()
-      set(ON_VEHICLE FALSE)
-      if(DEFINED ENV{NAV_PLATFORM_TYPE})
-            message(STATUS "NAV_PLATFORM_TYPE=$ENV{NAV_PLATFORM_TYPE} - Skipping vehicle components")
-      else()
-            message(STATUS "NAV_PLATFORM_TYPE=DEVELOPER (default) - Skipping vehicle components")
-      endif()
-endif()
+#=======================================================================
+# Find navigator-cpp (pavlab-mit) - pure C++ Navigator hardware library
+#=======================================================================
+# Replaces the Blue Robotics navigator-lib prebuilt download. The
+# library auto-detects Navigator V1/V2 and Pi 4/5 at runtime, so the
+# old NAVOS_VERSION / RASPBERRY_PI_VERSION env vars are gone. On dev
+# machines the library builds with platform stubs, so Navigator apps
+# build (and link) everywhere the library is found.
+#
+# Search order:
+#   1. Installed copy (/usr/local via navigator-cpp's install.sh)
+#   2. Sibling checkout built in-tree (../navigator-cpp)
 
-IF(${ON_VEHICLE})
-   include(ExternalProject)
-   # Navigator version and download URL
-
-   if (DEFINED ENV{NAVOS_VERSION})
-      set(NAVOS_VERSION $ENV{NAVOS_VERSION})
-   else()
-      message(FATAL_ERROR "NAVOS_VERSION is not set, make sure the environment variable is set in PLACEHOLDER_PATH")
-   endif()
-
-   if (DEFINED ENV{RASPBERRY_PI_VERSION})
-      set(RASPBERRY_PI_VERSION $ENV{RASPBERRY_PI_VERSION})
-   else()
-      message(FATAL_ERROR "RASPBERRY_PI_VERSION is not set, make sure the environment variable is set in PLACEHOLDER_PATH")
-   endif()
-
-   IF (${NAVOS_VERSION} STREQUAL "1")
-      set(NAVIGATOR_VERSION "0.0.6")
-      message(STATUS "Downloading Navigator library version ${NAVIGATOR_VERSION}")
-      set(ZIP_URL "https://github.com/bluerobotics/navigator-lib/releases/download/${NAVIGATOR_VERSION}/cpp.zip")
-   ELSEIF (${NAVOS_VERSION} STREQUAL "2")
-      set(NAVIGATOR_VERSION "0.1.2")
-      message(STATUS "Downloading Navigator library version ${NAVIGATOR_VERSION}")
-      set(ZIP_URL "https://github.com/bluerobotics/navigator-lib/releases/download/${NAVIGATOR_VERSION}/cpp.zip")
-   ELSE ()
-      message(FATAL_ERROR "Unsupported navigator version: ${NAVOS_VERSION}")
-   ENDIF()
-
-   set(ZIP_UNPACK_DIR "${CMAKE_BINARY_DIR}/navigator_lib")
-   message(STATUS "Identified system processor: ${CMAKE_SYSTEM_PROCESSOR}")
-
-   # Download and unpack Navigator library
-   ExternalProject_Add( navigator_lib
-   URL ${ZIP_URL}
-   DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/navigator_lib_download"
-   SOURCE_DIR "${CMAKE_BINARY_DIR}/navigator_lib"
-   CONFIGURE_COMMAND ""
-   BUILD_COMMAND ""
-   INSTALL_COMMAND ""
-   TEST_COMMAND ""
-   BUILD_BYPRODUCTS "${NAVIGATOR_LIB}"  # Specify the expected library file as a byproduct
+find_library(NAVIGATOR_CPP_LIB navigator_cpp
+    PATHS "${CMAKE_SOURCE_DIR}/../navigator-cpp/lib"
+)
+find_path(NAVIGATOR_CPP_INCLUDE nav_bindings.h
+    PATHS "${CMAKE_SOURCE_DIR}/../navigator-cpp/include"
 )
 
-      if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "armv7l")
-         set(LIB_PATH_SUBDIR "armv7-unknown-linux-gnueabihf")
-      elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "armv8" OR ${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
-         set(LIB_PATH_SUBDIR "armv7-unknown-linux-gnueabihf")
-      else()
-         message(FATAL_ERROR "Unsupported architecture")
-   endif()
-
-   set(NAVIGATOR_LIB "${ZIP_UNPACK_DIR}/${LIB_PATH_SUBDIR}/libbluerobotics_navigator.so")
-   set(NAVIGATOR_INCLUDE "${ZIP_UNPACK_DIR}/")
-   include_directories(${NAVIGATOR_INCLUDE})
-
-ENDIF(${ON_VEHICLE})
+if(NAVIGATOR_CPP_LIB AND NAVIGATOR_CPP_INCLUDE)
+    set(NAVIGATOR_CPP_FOUND TRUE)
+    message(STATUS "Found navigator-cpp: ${NAVIGATOR_CPP_LIB}")
+    message(STATUS "navigator-cpp headers: ${NAVIGATOR_CPP_INCLUDE}")
+else()
+    set(NAVIGATOR_CPP_FOUND FALSE)
+    message(WARNING "navigator-cpp not found - Navigator hardware apps (iBBNavigatorInterface, vehicle applets) will not be built. \n Try: \n\t - clone https://github.com/pavlab-mit/navigator-cpp beside this repo, ./build.sh -r, and (on the vehicle) sudo ./install.sh")
+endif()
 
 #=======================================================================
 # Find navigator-common (sibling repository with shared utilities)

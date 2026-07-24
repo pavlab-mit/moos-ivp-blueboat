@@ -1,0 +1,177 @@
+//----------------------------------------------------------
+// iBBNavigatorInterface config block
+//
+// Unified Navigator Interface for Blueboat ASV, built on
+// navigator-cpp (board revision V1/V2 and Pi 4/5 detected at
+// runtime - one binary fleet-wide). Owns:
+//   - Dual-thruster PWM (left/right ESCs) with per-boot arming
+//   - AHRS (Allgeuer passive complementary filter, IMU +
+//     optional magnetometer)
+//   - Raw IMU / level-frame gyro publication
+//   - ADC power monitoring (battery V / I)
+//   - Internal pressure / temperature, leak detector
+//   - Navigator-board RGBW LEDs
+//   - RC-mode thrust mixing (when CH6 == 2)
+//----------------------------------------------------------
+
+ProcessConfig = iBBNavigatorInterface
+{
+  AppTick   = 10
+  CommsTick = 10
+
+  //=========================================================
+  // THRUST CONTROL
+  //=========================================================
+  // Pin assignments are 1-indexed (Navigator board PWM channels).
+  left_thruster_pin   = 14
+  right_thruster_pin  = 16
+
+  max_thrust          = 100
+  min_thrust          = -100
+  thruster_dead_band  = 5
+
+  // Commanded pulse range (us). Default 800-2200 preserves the
+  // legacy thrust mapping. NOTE: the BlueBoat's Basic ESC 500
+  // documents an 1100-1900 us input range - with 800-2200, commands
+  // beyond ~57% already saturate the ESC's documented range, and
+  // pulses outside 1100-1900 are undefined for its proprietary
+  // firmware. Switching to 1100/1900 makes the full command range
+  // linear BUT changes the thrust curve - retune before flipping
+  // this on a boat with tuned PID gains.
+  // pwm_min_us = 1100
+  // pwm_max_us = 1900
+
+  // Flip if a thruster spins the wrong direction
+  left_thruster_invert  = false
+  right_thruster_invert = true
+
+  thruster_enabled    = true
+  thruster_alpha      = 0.5     // LPF: alpha = dt/(tau+dt)
+
+  //---------------------------------------------------------
+  // ESC LIFECYCLE
+  //---------------------------------------------------------
+  // Arm the ESCs on startup - but only on the FIRST launch since
+  // boot. A tmpfs marker (esc_armed_marker) records that arming
+  // already happened this boot; app restarts skip the arm sequence
+  // and resume at neutral, so a live restart can never replay a
+  // throttle sweep into armed ESCs.
+  initialize_esc      = true
+
+  // neutral: hold 1500us for 2 s (BlueRobotics Basic ESCs arm on a
+  //          stable neutral signal - no throttle excursion).
+  // sweep:   legacy max/min/neutral throttle sweep.
+  esc_arm_mode        = neutral
+
+  // esc_armed_marker  = /dev/shm/bb_esc_armed
+
+  // false: on exit the PCA9685 keeps holding neutral autonomously -
+  //        ESCs stay armed at zero thrust for a fast app restart.
+  // true:  cut the PWM signal on exit (ESCs disarm) and clear the
+  //        marker so the next launch re-arms.
+  // Runtime override either way: publish NVGR_DISARM = true/false.
+  disarm_on_exit      = false
+
+  // Zero thrust if no DESIRED_THRUST_L/R for this many seconds
+  // (autonomous mode only; RC mode is excluded).
+  thrust_command_timeout = 2.0
+
+  //=========================================================
+  // RC DEADMAN WATCHDOG
+  //=========================================================
+  // Vehicle-side deadman on the RC link. Active in BOTH RC and
+  // autonomous mode. The boat boots SAFED until the first RC mail
+  // arrives. Disable for over-the-horizon missions where running
+  // outside RC range is acceptable, either at config time
+  // (rc_deadman_enabled = false) or at runtime by publishing
+  // RC_DEADMAN_ENABLED = "false" to the MOOSDB.
+  rc_deadman_enabled = false
+  rc_deadman_timeout = 2.0
+
+  //=========================================================
+  // LAPTOP TELEOP (commands published by iTeleop)
+  //=========================================================
+  // Priority: physical RC (CH6==2) > teleop > backseat autonomy.
+  // Teleop engages only while TELEOP_ACTIVE=true AND teleop mail
+  // is fresher than teleop_command_timeout seconds; stale mail
+  // (hung/dead iTeleop) zeroes thrust. While teleop is engaged
+  // the RC deadman is exempted - the GUI link (iTeleop's
+  // gui_deadman_timeout + this freshness check) is the deadman.
+  teleop_command_timeout = 1.0
+
+  //=========================================================
+  // RC THRUST MIXER (engaged when RC_CH6 == 2)
+  //=========================================================
+  theta_b     = 90.0    // bank-angle limit (deg) for turn mix
+  turn_scale  = 100     // turn sensitivity (percent)
+
+  //=========================================================
+  // POWER MONITORING
+  //=========================================================
+  // Only nbats=4 has measured calibration; others use placeholders
+  // and will trigger a config warning at startup.
+  nbats = 4
+
+  voltage_scale  = 11.132
+  voltage_offset = 0.0
+
+  rolling_window_period = 2.0
+
+  //=========================================================
+  // AHRS / IMU
+  //=========================================================
+  // Estimator: Allgeuer/NimbRo passive complementary filter
+  // (vendored in navigator-cpp). Numerically robust, provably
+  // stable, online gyro-bias learning. Replaces Madgwick.
+  sample_rate = 150       // Hz, IMU + estimator rate
+
+  // Estimator PI gains (Ki = Kp/Ti). Commented = library defaults.
+  // ahrs_kp       = 2.20
+  // ahrs_ti       = 2.65
+  // ahrs_kp_quick = 10.0
+  // ahrs_ti_quick = 1.25
+
+  // Magnetometer fusion (AK09915). Default off pending on-water
+  // characterization; when off, yaw is gyro-integrated (relative)
+  // and the mag never influences roll/pitch by filter design.
+  use_mag = false
+
+  // Per-vehicle magnetometer calibration. File expected at:
+  //   b = bx,by,bz
+  //   A = a11,a12,a13,a21,a22,a23,a31,a32,a33
+  mag_ak_cal_file = /home/pi/mag_cal/VEHICLE_NAME/mag/mag_cal_nav.dat
+
+  // Optional IMU bias file. Both formats accepted:
+  //   gyro_bias  = gx,gy,gz  /  accel_bias = ax,ay,az
+  //   bias_x = gx / bias_y = gy / bias_z = gz  (gyro cal script)
+  // imu_cal_file = /home/pi/mag_cal/VEHICLE_NAME/imu/imu_cal.txt
+
+  // GYRO_Z_LVL plausibility clamp (rad/s). The published rate is the
+  // world-frame z angular rate (bounded, no cos(pitch) singularity);
+  // this clamp is a final physical envelope for the EKF. Loose for
+  // now - trim down (~2 rad/s) once shakeout logs confirm margins.
+  yaw_rate_clamp = 10.0
+
+  // Sensor mounting offsets (rotate sensor frame to body frame)
+  roll_offset  = 0.0
+  pitch_offset = 0.0
+  yaw_offset   = 0.0
+
+  declination_deg          = -14.058   // local magnetic declination
+  operating_heading_offset = 0.0       // mission-specific heading bias
+
+  //=========================================================
+  // PUBLICATION SUFFIXES
+  //=========================================================
+  // AHRS suffix -> NAV_ROLL_AHRS, NAV_PITCH_AHRS, NAV_YAW_AHRS,
+  //                NAV_HEADING_AHRS
+  // IMU  suffix -> GYRO_X_IMU, GYRO_Y_IMU, GYRO_Z_IMU,
+  //                GYRO_Z_LVL_IMU
+  ahrs_pub_suffix = AHRS
+  imu_pub_suffix  = IMU
+
+  //=========================================================
+  // DEBUG
+  //=========================================================
+  debug = false
+}

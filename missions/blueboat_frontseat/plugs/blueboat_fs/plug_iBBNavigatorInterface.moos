@@ -1,12 +1,15 @@
 //----------------------------------------------------------
 // iBBNavigatorInterface config block
 //
-// Combined Navigator Interface for Blueboat ASV. Owns:
-//   - Dual-thruster PWM (left/right ESCs)
-//   - AHRS (Madgwick fusion of IMU + magnetometer)
+// Unified Navigator Interface for Blueboat ASV, built on
+// navigator-cpp (board revision V1/V2 and Pi 4/5 detected at
+// runtime - one binary fleet-wide). Owns:
+//   - Dual-thruster PWM (left/right ESCs) with per-boot arming
+//   - AHRS (Allgeuer passive complementary filter, IMU +
+//     optional magnetometer)
 //   - Raw IMU / level-frame gyro publication
 //   - ADC power monitoring (battery V / I)
-//   - Internal pressure / temperature
+//   - Internal pressure / temperature, leak detector
 //   - Navigator-board RGBW LEDs
 //   - RC-mode thrust mixing (when CH6 == 2)
 //----------------------------------------------------------
@@ -27,6 +30,17 @@ ProcessConfig = iBBNavigatorInterface
   min_thrust          = -100
   thruster_dead_band  = 5
 
+  // Commanded pulse range (us). Default 800-2200 preserves the
+  // legacy thrust mapping. NOTE: the BlueBoat's Basic ESC 500
+  // documents an 1100-1900 us input range - with 800-2200, commands
+  // beyond ~57% already saturate the ESC's documented range, and
+  // pulses outside 1100-1900 are undefined for its proprietary
+  // firmware. Switching to 1100/1900 makes the full command range
+  // linear BUT changes the thrust curve - retune before flipping
+  // this on a boat with tuned PID gains.
+  // pwm_min_us = 1100
+  // pwm_max_us = 1900
+
   // Flip if a thruster spins the wrong direction
   left_thruster_invert  = false
   right_thruster_invert = true
@@ -34,8 +48,29 @@ ProcessConfig = iBBNavigatorInterface
   thruster_enabled    = true
   thruster_alpha      = 0.5     // LPF: alpha = dt/(tau+dt)
 
-  // Send min/max/neutral sequence on startup so ESCs arm.
+  //---------------------------------------------------------
+  // ESC LIFECYCLE
+  //---------------------------------------------------------
+  // Arm the ESCs on startup - but only on the FIRST launch since
+  // boot. A tmpfs marker (esc_armed_marker) records that arming
+  // already happened this boot; app restarts skip the arm sequence
+  // and resume at neutral, so a live restart can never replay a
+  // throttle sweep into armed ESCs.
   initialize_esc      = true
+
+  // neutral: hold 1500us for 2 s (BlueRobotics Basic ESCs arm on a
+  //          stable neutral signal - no throttle excursion).
+  // sweep:   legacy max/min/neutral throttle sweep.
+  esc_arm_mode        = neutral
+
+  // esc_armed_marker  = /dev/shm/bb_esc_armed
+
+  // false: on exit the PCA9685 keeps holding neutral autonomously -
+  //        ESCs stay armed at zero thrust for a fast app restart.
+  // true:  cut the PWM signal on exit (ESCs disarm) and clear the
+  //        marker so the next launch re-arms.
+  // Runtime override either way: publish NVGR_DISARM = true/false.
+  disarm_on_exit      = false
 
   // Zero thrust if no DESIRED_THRUST_L/R for this many seconds
   // (autonomous mode only; RC mode is excluded).
@@ -85,18 +120,37 @@ ProcessConfig = iBBNavigatorInterface
   //=========================================================
   // AHRS / IMU
   //=========================================================
-  sample_rate = 150       // Hz, IMU + Madgwick rate
-  ahrs_gain   = 0.2       // Madgwick beta
+  // Estimator: Allgeuer/NimbRo passive complementary filter
+  // (vendored in navigator-cpp). Numerically robust, provably
+  // stable, online gyro-bias learning. Replaces Madgwick.
+  sample_rate = 150       // Hz, IMU + estimator rate
+
+  // Estimator PI gains (Ki = Kp/Ti). Commented = library defaults.
+  // ahrs_kp       = 2.20
+  // ahrs_ti       = 2.65
+  // ahrs_kp_quick = 10.0
+  // ahrs_ti_quick = 1.25
+
+  // Magnetometer fusion (AK09915). Default off pending on-water
+  // characterization; when off, yaw is gyro-integrated (relative)
+  // and the mag never influences roll/pitch by filter design.
+  use_mag = false
 
   // Per-vehicle magnetometer calibration. File expected at:
   //   b = bx,by,bz
   //   A = a11,a12,a13,a21,a22,a23,a31,a32,a33
   mag_ak_cal_file = /home/pi/mag_cal/$(VNAME)/mag/mag_cal_nav.dat
 
-  // Optional IMU bias file:
-  //   gyro_bias  = gx,gy,gz
-  //   accel_bias = ax,ay,az
+  // Optional IMU bias file. Both formats accepted:
+  //   gyro_bias  = gx,gy,gz  /  accel_bias = ax,ay,az
+  //   bias_x = gx / bias_y = gy / bias_z = gz  (gyro cal script)
   // imu_cal_file = /home/pi/mag_cal/$(VNAME)/imu/imu_cal.txt
+
+  // GYRO_Z_LVL plausibility clamp (rad/s). The published rate is the
+  // world-frame z angular rate (bounded, no cos(pitch) singularity);
+  // this clamp is a final physical envelope for the EKF. Loose for
+  // now - trim down (~2 rad/s) once shakeout logs confirm margins.
+  yaw_rate_clamp = 10.0
 
   // Sensor mounting offsets (rotate sensor frame to body frame)
   roll_offset  = 0.0
