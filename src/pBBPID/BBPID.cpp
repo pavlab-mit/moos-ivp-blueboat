@@ -21,7 +21,7 @@ BBPID::BBPID()
   m_desired_speed_var   = "DESIRED_SPEED";
   m_desired_heading_var = "DESIRED_HEADING";
   m_nav_speed_var       = "NAV_SPEED";
-  m_nav_heading_var     = "NAV_HEADING";
+  m_nav_heading_var     = "GPS_HEADING_DGNSS";
   m_nav_yawrate_var     = "GYRO_Z_LVL_IMU";
   m_thrust_var          = "DESIRED_THRUST";
   m_rudder_var          = "DESIRED_RUDDER";
