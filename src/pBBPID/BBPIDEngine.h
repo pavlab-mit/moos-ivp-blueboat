@@ -180,11 +180,15 @@ class BBPIDEngine
   double m_ff_rudder_scale;              // differential-% -> rudder units
   double m_ff_thrust, m_ff_rudder;       // last FF terms (telemetry)
 
-  // Desired-yaw-rate low-pass (dt-aware first order)
-  double m_des_yawrate_tau;              // time constant [s], 0 = off
-  double m_des_yawrate_filt;             // filter state
-  double m_des_lpf_prev_time;
-  bool   m_have_des_lpf;
+  // Desired-yaw-rate feedforward: LPF of the numerical derivative of the
+  // DESIRED heading (dt-aware first order). This reference-derivative term
+  // is added to the heading-PID feedback to form the inner-loop setpoint,
+  // so a moving command yields turn rate (and yaw FF) even with gains at 0.
+  double m_des_yawrate_tau;              // LPF time constant [s], 0 = off
+  double m_des_yawrate_filt;             // filter state (filtered ff rate)
+  double m_des_lpf_prev_time;            // prev tick time (dt for deriv + LPF)
+  bool   m_have_des_lpf;                 // have a previous desired-heading sample
+  double m_prev_des_heading;             // previous DESIRED heading [deg]
 
   // Limits / conventions
   double m_max_thrust;
