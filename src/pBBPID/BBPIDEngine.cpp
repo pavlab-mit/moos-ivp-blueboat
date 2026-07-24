@@ -43,10 +43,11 @@ BBPIDEngine::BBPIDEngine()
   m_ff_rudder_scale = 1.0;
   m_ff_thrust = m_ff_rudder = 0.0;
 
-  m_des_yawrate_tau   = 0.0;     // desired-yaw-rate LPF time const (0 = off)
+  m_des_yawrate_tau   = 0.0;     // desired-yaw-rate FF LPF time const (0 = off)
   m_des_yawrate_filt  = 0.0;
   m_des_lpf_prev_time = 0.0;
   m_have_des_lpf      = false;
+  m_prev_des_heading  = 0.0;
 
   m_speed_error    = 0.0;
   m_heading_error  = 0.0;
@@ -222,36 +223,50 @@ void BBPIDEngine::update(double curr_time,
   if(m_schedule_enabled)
     applySchedule(nav_speed);
 
-  // ---------- Outer heading loop: heading error -> desired yaw rate ----------
-  // Computed first so the feedforward (turning-drag term) can use des_rate.
-  // Units: heading arrives in degrees (MOOS); convert the error to RADIANS so
-  // the whole yaw-rate path (des_rate, FF, inner loop) is in rad and rad/s.
+  // ---------- Outer heading loop (2-DOF): desired yaw rate ----------
+  // des_rate = reference feedforward + feedback, computed first so the
+  // turning-drag FF (ff_diff = d0 + dr*des_rate + ...) can use it.
+  // Units: heading arrives in degrees (MOOS); the whole yaw-rate path
+  // (des_rate, FF, inner loop) is in rad and rad/s.
   m_heading_error = angle180(desired_heading - nav_heading) * (M_PI / 180.0);
 
-  double des_rate = 0.0;
-  m_heading_pid.Run(m_heading_error, curr_time, des_rate);
+  // Feedback: heading-error PID -> corrective yaw rate.
+  double fb_rate = 0.0;
+  m_heading_pid.Run(m_heading_error, curr_time, fb_rate);
+
+  // Feedforward: LPF of the numerical derivative of the DESIRED heading
+  // (rad/s). This is the turn rate implied by a moving command; it depends
+  // only on the trajectory, not the gains, so the yaw FF/rudder stays alive
+  // even with the heading loop zeroed. The raw derivative of a step command
+  // is impulsive, so the dt-aware first-order LPF (tau) is what makes it
+  // usable; tau=0 passes the raw derivative through.
+  double ff_rate = 0.0;
+  if(m_have_des_lpf) {
+    double dt = curr_time - m_des_lpf_prev_time;
+    if(dt > 0.0) {
+      double raw_ff = angle180(desired_heading - m_prev_des_heading)
+                      * (M_PI / 180.0) / dt;              // rad/s
+      if(m_des_yawrate_tau > 0.0) {
+        double alpha = dt / (m_des_yawrate_tau + dt);
+        m_des_yawrate_filt += alpha * (raw_ff - m_des_yawrate_filt);
+      }
+      else
+        m_des_yawrate_filt = raw_ff;
+      ff_rate = m_des_yawrate_filt;
+    }
+    else
+      ff_rate = m_des_yawrate_filt;   // dt<=0: hold last filtered value
+  }
+  else
+    m_have_des_lpf = true;            // first sample: no derivative yet
+  m_prev_des_heading  = desired_heading;
+  m_des_lpf_prev_time = curr_time;
+
+  // 2-DOF setpoint: reference feedforward + feedback correction, then clamp
+  // to the turn-rate cap regardless of source.
+  double des_rate = ff_rate + fb_rate;
   if(des_rate >  m_max_yawrate) des_rate =  m_max_yawrate;
   if(des_rate < -m_max_yawrate) des_rate = -m_max_yawrate;
-
-  // Low-pass the desired yaw rate (dt-aware first order, time const tau).
-  // Heading-loop / sensor noise here is amplified ~dr-fold in the yaw FF
-  // (ff_diff = d0 + dr*des_rate), so smoothing it cleans the rudder FF and
-  // the inner-loop setpoint. tau=0 disables.
-  if(m_des_yawrate_tau > 0.0) {
-    if(m_have_des_lpf) {
-      double dt = curr_time - m_des_lpf_prev_time;
-      if(dt > 0.0) {
-        double alpha = dt / (m_des_yawrate_tau + dt);
-        m_des_yawrate_filt += alpha * (des_rate - m_des_yawrate_filt);
-      }
-    }
-    else {
-      m_des_yawrate_filt = des_rate;
-      m_have_des_lpf = true;
-    }
-    m_des_lpf_prev_time = curr_time;
-    des_rate = m_des_yawrate_filt;
-  }
   m_desired_yawrate = des_rate;
 
   // ---------- Feedforward (identified from field data) ----------
