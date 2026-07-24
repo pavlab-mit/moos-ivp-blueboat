@@ -235,19 +235,32 @@ void BBPIDEngine::update(double curr_time,
   m_heading_pid.Run(m_heading_error, curr_time, fb_rate);
 
   // Feedforward: LPF of the numerical derivative of the DESIRED heading
-  // (rad/s). This is the turn rate implied by a moving command; it depends
-  // only on the trajectory, not the gains, so the yaw FF/rudder stays alive
-  // even with the heading loop zeroed. The raw derivative of a step command
-  // is impulsive, so the dt-aware first-order LPF (tau) is what makes it
-  // usable; tau=0 passes the raw derivative through.
+  // (rad/s) -- the turn rate implied by a moving command. Depends only on
+  // the trajectory, not the gains, so the yaw FF/rudder stays alive even
+  // with the heading loop zeroed. Mechanics follow pTrajectTranslate: the
+  // signed heading step (desired_now - desired_prev) is taken via the
+  // unit-vector cross/dot method (robust across the +/-180 wrap), and the
+  // impulsive raw derivative of a step command is smoothed with a
+  // first-order LPF, alpha = 1 - exp(-dt/tau). tau=0 passes it through.
   double ff_rate = 0.0;
   if(m_have_des_lpf) {
     double dt = curr_time - m_des_lpf_prev_time;
     if(dt > 0.0) {
-      double raw_ff = angle180(desired_heading - m_prev_des_heading)
-                      * (M_PI / 180.0) / dt;              // rad/s
+      // signed(desired_now - desired_prev) in radians, a=prev, b=now:
+      //   cross = a x b = -sin(now-prev), dot = a . b = cos(now-prev)
+      double a1 = sin(m_prev_des_heading * (M_PI / 180.0));
+      double a2 = cos(m_prev_des_heading * (M_PI / 180.0));
+      double b1 = sin(desired_heading    * (M_PI / 180.0));
+      double b2 = cos(desired_heading    * (M_PI / 180.0));
+      double cross = a1 * b2 - a2 * b1;
+      double dot   = a1 * b1 + a2 * b2;
+      if(dot >  1.0) dot =  1.0;            // clip for acos safety
+      if(dot < -1.0) dot = -1.0;
+      double dpsi   = acos(dot) * ((cross >= 0) ? -1.0 : 1.0);  // rad, signed
+      double raw_ff = dpsi / dt;                                // rad/s
+
       if(m_des_yawrate_tau > 0.0) {
-        double alpha = dt / (m_des_yawrate_tau + dt);
+        double alpha = 1.0 - exp(-dt / m_des_yawrate_tau);
         m_des_yawrate_filt += alpha * (raw_ff - m_des_yawrate_filt);
       }
       else
