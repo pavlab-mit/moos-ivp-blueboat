@@ -19,7 +19,8 @@ ENDIF(${DOODLE_RADIO_AVAIL})
 # are detected at runtime, so there is no per-version gating.
 IF(${NAVIGATOR_CPP_FOUND})
     ADD_SUBDIRECTORY(init_bb_pwm)   # ESC arming (boot script)
-    ADD_SUBDIRECTORY(test_bb_adc)   # battery-voltage read (low-battery gate)
+    ADD_SUBDIRECTORY(bb_adc)        # battery-voltage gate for bb_init.sh (VOLTAGE=)
+    ADD_SUBDIRECTORY(test_bb_adc)   # interactive ADC/current diagnostic
     ADD_SUBDIRECTORY(bb_neopixel)   # optional LED-strip status (future hardware)
     ADD_SUBDIRECTORY(bb_attitude)   # pitch gate for bb_init.sh
 ENDIF()
