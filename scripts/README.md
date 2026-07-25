@@ -39,7 +39,8 @@ not an error — the script signals idle and exits 0.
 | Helper        | Purpose                                   | Kind |
 |---------------|-------------------------------------------|------|
 | `bb_attitude` | IMU → roll/pitch (pitch gate)             | C++, navigator-cpp |
-| `test_bb_adc` | Navigator ADC → pack voltage (batt gate)  | C++, navigator-cpp |
+| `bb_adc`      | Navigator ADC → pack voltage (batt gate, `VOLTAGE=` output) | C++, navigator-cpp |
+| `test_bb_adc` | interactive ADC / current diagnostic      | C++, navigator-cpp |
 | `bb_neopixel` | LED-strip status (future hardware)        | C++, navigator-cpp |
 | `bb_led.sh`   | PWM0 status LED on/off/flash              | shell, Pi GPIO18 via pinctrl (no build) |
 

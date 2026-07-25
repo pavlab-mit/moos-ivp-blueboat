@@ -283,6 +283,7 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_accel_z = 0.0;
   m_qw = 1.0; m_qx = 0.0; m_qy = 0.0; m_qz = 0.0;
   m_imu_read_errors = 0;
+  m_imu_glitch_count = 0;
 
   m_nav_temp = 0.0;
   m_nav_pressure = 0.0;
@@ -1622,7 +1623,7 @@ bool BBNavigatorInterface::buildReport()
   // AHRS section
   double roll, pitch, yaw, heading;
   double gyro_x, gyro_y, gyro_z, yaw_rate;
-  uint64_t imu_errors;
+  uint64_t imu_errors, imu_glitches;
   {
     std::lock_guard<std::mutex> lock(m_ahrs_mutex);
     roll = m_roll;
@@ -1634,6 +1635,7 @@ bool BBNavigatorInterface::buildReport()
     gyro_z = m_gyro_z;
     yaw_rate = m_yaw_rate;
     imu_errors = m_imu_read_errors;
+    imu_glitches = m_imu_glitch_count;
   }
 
   ACTable actab_ahrs(2);
@@ -1650,6 +1652,7 @@ bool BBNavigatorInterface::buildReport()
   actab_ahrs << "Sample Freq (Hz)" << m_sample_frequency;
   actab_ahrs << "Mag Enabled" << (m_use_mag ? "true" : "false");
   actab_ahrs << "IMU Read Errors" << (double)imu_errors;
+  actab_ahrs << "IMU Glitches Rejected" << (double)imu_glitches;
   actab_ahrs << "AHRS Running" << (m_ahrs_running ? "true" : "false");
 
   m_msgs << actab_ahrs.getFormattedString();
@@ -1816,7 +1819,35 @@ void BBNavigatorInterface::sensorSamplingThread()
     if (m_use_mag)
       mag_ok = g_nav.read_mag_ak09915(mag_raw).empty();
 
-    if (err_a.empty() && err_g.empty())
+    // Plausibility screen. Corrupted SPI transactions (observed under
+    // bus contention on zoe) return SUCCESSFULLY with full-scale
+    // register patterns - e.g. gyro exactly +/-250 dps (4.3657 rad/s),
+    // accel exactly +/-2 g (19.61 m/s^2) or all-zero - so an error
+    // check alone cannot catch them. Reject any sample whose accel
+    // norm is non-physical or whose gyro sits at/beyond the +/-250 dps
+    // configured full scale (a surface boat never legitimately gets
+    // there); a bad sample must never reach the estimator or the
+    // published gyro.
+    bool sample_ok = err_a.empty() && err_g.empty();
+    if (sample_ok)
+    {
+      const double anorm = sqrt((double)accel_raw.x * accel_raw.x +
+                                (double)accel_raw.y * accel_raw.y +
+                                (double)accel_raw.z * accel_raw.z);
+      const double gyro_fs = 4.3;  // just under 250 dps full scale, rad/s
+      if (anorm < 2.0 || anorm > 25.0 ||
+          fabs(accel_raw.x) > 19.0 || fabs(accel_raw.y) > 19.0 ||
+          fabs(accel_raw.z) > 19.0 ||
+          fabs(gyro_raw.x) > gyro_fs || fabs(gyro_raw.y) > gyro_fs ||
+          fabs(gyro_raw.z) > gyro_fs)
+      {
+        sample_ok = false;
+        std::lock_guard<std::mutex> lock(m_ahrs_mutex);
+        m_imu_glitch_count++;
+      }
+    }
+
+    if (sample_ok)
     {
       // Apply calibrations (bias subtract) in the sensor frame
       double gyro_cal[3] = {gyro_raw.x - m_gyro_bias[0],
@@ -1899,7 +1930,7 @@ void BBNavigatorInterface::sensorSamplingThread()
         m_yaw_rate = yaw_rate;
       }
     }
-    else
+    else if (!err_a.empty() || !err_g.empty())
     {
       std::lock_guard<std::mutex> lock(m_ahrs_mutex);
       m_imu_read_errors++;

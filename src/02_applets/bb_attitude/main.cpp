@@ -236,11 +236,25 @@ int main(int ac, char *av[]) {
         prev = now;
     }
 
-    // Calculate final averaged values
-    if (sample_count > 0) {
-        final_roll /= sample_count;
-        final_pitch /= sample_count;
+    // Fail CLOSED if we averaged (almost) nothing. If the IMU was
+    // unreadable (e.g. a boot-time udev permission transient), every
+    // read fails and sample_count stays 0 - printing an averaged
+    // "pitch_deg=0.00" here would hand bb_init.sh's pitch gate a
+    // confidently-wrong "level" answer and launch a boat that may not
+    // be in the water. Emit no parseable pitch and exit nonzero so
+    // the gate's retry/fail path engages instead.
+    const int min_samples = 10;
+    if (sample_count < min_samples) {
+        fprintf(stderr,
+                "error: only %d valid IMU samples collected (need >= %d); "
+                "IMU unreadable or heavily corrupted\n",
+                sample_count, min_samples);
+        g_nav.shutdown();
+        return 1;
     }
+
+    final_roll /= sample_count;
+    final_pitch /= sample_count;
 
     // Output final result
     if (verbose) {

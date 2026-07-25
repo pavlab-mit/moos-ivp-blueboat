@@ -349,7 +349,10 @@ private: // State variables
   double m_accel_y;
   double m_accel_z;
   double m_qw, m_qx, m_qy, m_qz;
-  uint64_t m_imu_read_errors;
+  uint64_t m_imu_read_errors;   // reads that returned an error string
+  uint64_t m_imu_glitch_count;  // reads that "succeeded" but failed the
+                                // plausibility screen (full-scale/zero
+                                // corrupted samples, e.g. SPI contention)
   std::string m_last_sensor_error;
 
   // Publication suffixes for the two source categories.
