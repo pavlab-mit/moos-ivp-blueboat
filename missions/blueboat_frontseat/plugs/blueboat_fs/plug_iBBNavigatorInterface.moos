@@ -51,25 +51,26 @@ ProcessConfig = iBBNavigatorInterface
   //---------------------------------------------------------
   // ESC LIFECYCLE
   //---------------------------------------------------------
-  // Arm the ESCs on startup - but only on the FIRST launch since
-  // boot. A tmpfs marker (esc_armed_marker) records that arming
-  // already happened this boot; app restarts skip the arm sequence
-  // and resume at neutral, so a live restart can never replay a
-  // throttle sweep into armed ESCs.
+  // Arm the ESCs on startup. The PWM signal does not survive an app
+  // restart (the OE line is released at exit), so the ESCs disarm
+  // between missions and the arm procedure runs on EVERY launch.
   initialize_esc      = true
 
-  // neutral: hold 1500us for 2 s (BlueRobotics Basic ESCs arm on a
-  //          stable neutral signal - no throttle excursion).
-  // sweep:   legacy max/min/neutral throttle sweep.
+  // neutral: hold 1500us for 2 s - the documented Basic ESC 500
+  //          arming procedure. Zero throttle excursion; safe to
+  //          repeat every launch.
+  // sweep:   legacy max/min/neutral throttle sweep. Gated by a tmpfs
+  //          marker (esc_armed_marker) to at most ONCE per boot -
+  //          later launches fall back to the neutral hold, so a live
+  //          restart can never replay a sweep into armed ESCs.
   esc_arm_mode        = neutral
 
   // esc_armed_marker  = /dev/shm/bb_esc_armed
 
-  // false: on exit the PCA9685 keeps holding neutral autonomously -
-  //        ESCs stay armed at zero thrust for a fast app restart.
-  // true:  cut the PWM signal on exit (ESCs disarm) and clear the
-  //        marker so the next launch re-arms.
-  // Runtime override either way: publish NVGR_DISARM = true/false.
+  // true: safe shutdown explicitly disables PWM output and clears
+  //       the marker (re-permitting a sweep next launch). Signal is
+  //       lost at process exit regardless.
+  // Runtime disarm/re-arm any time: publish NVGR_DISARM = true/false.
   disarm_on_exit      = false
 
   // Zero thrust if no DESIRED_THRUST_L/R for this many seconds

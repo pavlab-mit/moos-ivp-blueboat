@@ -229,25 +229,26 @@ private: // State variables
   double m_left_thruster_invert;
   double m_right_thruster_invert;
 
-  // ESC arming lifecycle.
-  //   m_initialize_esc   - allow an arm sequence on the first launch
-  //                        per boot (legacy param name kept).
-  //   m_esc_arm_mode     - "neutral" (hold 1500us; BlueRobotics Basic
-  //                        ESCs arm on a stable neutral signal) or
+  // ESC arming lifecycle. NOTE: the PWM signal does not survive an
+  // app restart (navigator-cpp releases the OE line on exit and
+  // re-requests it disabled on init), so the ESCs disarm between
+  // missions and the arm procedure runs on EVERY launch.
+  //   m_initialize_esc   - run the arm procedure at startup
+  //                        (legacy param name kept).
+  //   m_esc_arm_mode     - "neutral" (hold 1500us for 2s; the
+  //                        documented Basic ESC 500 arming procedure,
+  //                        zero throttle excursion, safe to repeat) or
   //                        "sweep" (legacy max/min/neutral throttle
-  //                        sweep - DANGEROUS if the ESCs are already
-  //                        armed, only runs when the per-boot marker
-  //                        is absent).
-  //   m_esc_marker_path  - tmpfs marker recording that the ESCs were
-  //                        armed this boot; presence skips the arm
-  //                        sequence on app restarts so a live restart
-  //                        can never replay a throttle sweep.
-  //   m_disarm_on_exit   - if true, safe shutdown ends with PWM output
-  //                        disabled (OE high -> ESCs lose signal and
-  //                        disarm) and the marker cleared. If false
-  //                        (default), the PCA9685 keeps holding neutral
-  //                        after exit and the ESCs stay armed for a
-  //                        fast restart.
+  //                        sweep - DANGEROUS into armed ESCs, so it is
+  //                        gated by the per-boot marker: at most once
+  //                        per boot, later launches fall back to the
+  //                        neutral hold).
+  //   m_esc_marker_path  - tmpfs marker recording that an arm sequence
+  //                        ran this boot; gates sweep mode.
+  //   m_disarm_on_exit   - if true, safe shutdown explicitly disables
+  //                        PWM output and clears the marker (allowing
+  //                        a sweep on the next launch). Signal is lost
+  //                        at process exit regardless (see NOTE).
   bool m_initialize_esc;
   std::string m_esc_arm_mode;
   std::string m_esc_marker_path;

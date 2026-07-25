@@ -95,16 +95,14 @@ void safePwmShutdown()
 
   if (g_disarm_on_exit.load())
   {
-    // Full disarm: OE high cuts all PCA9685 outputs; the ESCs lose
-    // their signal and disarm. Clear the per-boot marker so the next
-    // launch runs the arm sequence again.
+    // Explicit disarm: OE high cuts all PCA9685 outputs, and clearing
+    // the per-boot marker re-permits a sweep on the next launch.
     g_nav.pwm_enable(false);
     ::unlink(g_esc_marker_path);
   }
-  // Otherwise the PCA9685 keeps generating neutral autonomously after
-  // this process exits - the ESCs stay armed at zero thrust and a
-  // restarted app resumes without re-arming (and without the hazard
-  // of replaying an arm sequence into live, armed ESCs).
+  // Either way the ESCs lose their signal when the process exits
+  // (navigator-cpp's shutdown() releases the OE line), so they disarm
+  // between missions and the next launch re-arms with a neutral hold.
 }
 
 void signalHandler(int signum)
@@ -366,12 +364,15 @@ void BBNavigatorInterface::clearEscMarker() const
   ::unlink(m_esc_marker_path.c_str());
 }
 
-// Enable PWM output and arm the ESCs if this is the first launch since
-// boot. On restarts within the same boot (marker present) the ESCs are
-// already armed and holding neutral from the previous run - we only
-// re-enable output and go straight to neutral. This makes a live app
-// restart safe: the arm sequence (which can command full throttle in
-// "sweep" mode) can never replay into armed ESCs.
+// Enable PWM output and arm the ESCs. The PWM signal does NOT survive
+// an app restart: navigator-cpp's shutdown() releases the OE line on
+// exit and pca9685_init() re-requests it disabled, so the ESCs lose
+// signal and disarm between missions. The neutral hold therefore runs
+// on EVERY launch - it is the documented Basic ESC 500 arming
+// procedure and commands zero throttle at all times, so repeating it
+// is harmless. The per-boot marker gates only the "sweep" mode: a
+// throttle sweep can run at most once per boot, and can never replay
+// into a live restart.
 void BBNavigatorInterface::armIfNeeded()
 {
   std::string err;
@@ -394,21 +395,15 @@ void BBNavigatorInterface::armIfNeeded()
   }
   m_pwm_output_enabled = true;
 
-  if (escMarkerExists())
-  {
-    m_esc_armed = true;
-    reportEvent("ESCs already armed this boot (marker present); skipping arm sequence");
-    dbg_print("ESC arm skipped - marker %s present\n", m_esc_marker_path.c_str());
-    return;
-  }
-
   if (!m_initialize_esc)
   {
     dbg_print("ESC initialization skipped (disabled in config)\n");
     return;
   }
 
-  if (m_esc_arm_mode == "sweep")
+  const bool first_launch = !escMarkerExists();
+
+  if (m_esc_arm_mode == "sweep" && first_launch)
   {
     // Legacy max/min/neutral throttle sweep (both ESCs in parallel).
     // Only reachable on the first launch per boot.
@@ -421,11 +416,13 @@ void BBNavigatorInterface::armIfNeeded()
     setPinPulseWidth(m_left_thruster_pin, 0);
     setPinPulseWidth(m_right_thruster_pin, 0);
     this_thread::sleep_for(chrono::milliseconds(250));
-    reportEvent("ESC arm sequence complete (sweep)");
+    reportEvent("ESC arm sequence complete (sweep, first launch this boot)");
   }
   else
   {
-    // BlueRobotics Basic ESCs arm on a stable neutral signal; hold
+    if (m_esc_arm_mode == "sweep")
+      reportEvent("Sweep already ran this boot (marker present); using neutral hold");
+    // BlueRobotics Basic ESC 500s arm on a stable neutral signal; hold
     // 1500us for 2 seconds. No throttle excursion at any point.
     setPinPulseWidth(m_left_thruster_pin, 0);
     setPinPulseWidth(m_right_thruster_pin, 0);
@@ -434,9 +431,10 @@ void BBNavigatorInterface::armIfNeeded()
   }
 
   m_esc_armed = true;
-  writeEscMarker();
-  dbg_print("ESC arm sequence performed (%s); marker written\n",
-            m_esc_arm_mode.c_str());
+  if (first_launch)
+    writeEscMarker();
+  dbg_print("ESC arm sequence performed (%s%s)\n", m_esc_arm_mode.c_str(),
+            first_launch ? ", marker written" : "");
 }
 
 void BBNavigatorInterface::requestDisarm(const std::string &reason)
