@@ -313,6 +313,18 @@ bool RCReader::OnStartUp()
         reportConfigWarning("device set after port opened: " + value);
       handled = true;
     }
+    else if (param == "validated_channels")
+    {
+      // How many channels (from CH1) must be in range for a frame
+      // to be accepted. ExpressLRS drives 12 of 16 and leaves the
+      // rest at 0, which would reject every frame at the default.
+      int count = atoi(value.c_str());
+      if (count <= 0)
+        reportConfigWarning("bad validated_channels value: " + value);
+      else
+        m_sbus.setValidatedChannels(count);
+      handled = true;
+    }
     else if (param == "debug")
     {
       m_debug = (tolower(value) == "true") ? true : false;
@@ -369,7 +381,8 @@ bool RCReader::buildReport()
   m_msgs << "============================================" << endl;
   m_msgs << "RC Controller Status" << endl;
   m_msgs << "============================================" << endl;
-  m_msgs << "Device: " << m_sbus.getDevice() << endl;
+  m_msgs << "Device: " << m_sbus.getDevice()
+         << "  (validating CH1-" << m_sbus.getValidatedChannels() << ")" << endl;
 
   m_msgs << "Frame Valid (per-frame):    " << (m_frame_valid  ? "YES" : "NO")  << endl;
   m_msgs << "RC Connected (debounced):   " << (m_rc_connected ? "YES" : "NO")  << endl << endl;

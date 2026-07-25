@@ -57,6 +57,11 @@
 // Same inter-byte gap the library uses to resync on a start byte.
 static const uint32_t FRAME_GAP_THRESHOLD_US = 3000;
 
+// How many channels the range check validates (see
+// SBUS_VALIDATED_CHANNELS); overridable with --channels to match
+// a receiver that drives fewer than 16 (ExpressLRS drives 12).
+static int g_validated_channels = SBUS_VALIDATED_CHANNELS;
+
 static volatile sig_atomic_t g_stop = 0;
 static void onSigint(int) { g_stop = 1; }
 
@@ -425,7 +430,9 @@ private:
       if (ch[i] > s_.ch_max[i]) s_.ch_max[i] = ch[i];
       if (ch[i] < SBUS_MIN_VALUE || ch[i] > SBUS_MAX_VALUE) {
         s_.range_viol[i]++;
-        range_ok = false;
+        // Only channels the receiver is expected to drive can
+        // invalidate a frame (see g_validated_channels).
+        if (i < g_validated_channels) range_ok = false;
       }
     }
     if (!range_ok) {
@@ -564,6 +571,29 @@ static void printVerdict(const ProbeStats &s, double seconds) {
   printf("Byte mix: 0x00=%.1f%%  0xFF=%.1f%%  0x0F=%.1f%% (expect ~4%% 0x0F)\n",
          pct00, pctFF, pct0F);
 
+  // A handful of bytes is not a stream. Percentages over a tiny
+  // sample say nothing about polarity or framing, so refuse to
+  // guess -- a near-silent line is its own diagnosis.
+  const uint64_t MIN_BYTES_FOR_VERDICT = 100;
+  if (s.bytes_total < MIN_BYTES_FOR_VERDICT) {
+    printf("\nVERDICT: LINE ESSENTIALLY SILENT (%llu bytes -- too few to\n"
+           "         analyze; byte-mix percentages above are noise)\n\n",
+           (unsigned long long)s.bytes_total);
+    printf("A few stray bytes with no sustained traffic usually means\n"
+           "the pin is idle or driven to a constant level rather than\n"
+           "carrying a serial stream. Check with:\n\n"
+           "  for i in $(seq 1 30); do raspi-gpio get <RX-gpio>; sleep 0.1; \\\n"
+           "    done | grep -o 'level=.' | sort | uniq -c\n\n"
+           "  mostly level=1 -> idle serial line, transmitter silent\n"
+           "                    (receiver not outputting / not bound)\n"
+           "  mostly level=0 -> pin driven low: output disabled, pad\n"
+           "                    assigned to a non-serial function, or\n"
+           "                    (with a ~1-2ms pulse per 20ms) PWM\n"
+           "  changing       -> signal present but unreadable at this\n"
+           "                    baud/format; sweep candidate bauds\n");
+    return;
+  }
+
   // Random garbage occasionally assembles a "frame" by luck; judge
   // framing by yield against the byte count, not by count > 0.
   uint64_t expected_frames = s.bytes_total / SBUS_FRAME_SIZE;
@@ -611,9 +641,13 @@ static void printVerdict(const ProbeStats &s, double seconds) {
              SBUS_MIN_VALUE, SBUS_MAX_VALUE);
       for (int i = 0; i < SBUS_NUM_CHANNELS; i++) {
         if (s.range_viol[i] > 0)
-          printf("  CH%-2d: %llu violations (observed %u..%u)\n", i + 1,
-                 (unsigned long long)s.range_viol[i], s.ch_min[i], s.ch_max[i]);
+          printf("  CH%-2d: %llu violations (observed %u..%u)%s\n", i + 1,
+                 (unsigned long long)s.range_viol[i], s.ch_min[i], s.ch_max[i],
+                 i < g_validated_channels ? "  <-- rejects frames" : "  (not validated)");
       }
+      printf("\nCurrently validating CH1-%d. Re-run with '-c 12' (or the\n"
+             "channel count your receiver actually drives) to ignore the\n"
+             "undriven high channels.\n", g_validated_channels);
       printf("\nIf only high channels (e.g. CH10-16) violate and they\n"
              "sit at a constant value like 0: the receiver is not\n"
              "driving those channels and the library's all-16-channel\n"
@@ -872,6 +906,8 @@ static void usage(const char *prog) {
   printf("Options:\n");
   printf("  -d, --device DEV   Serial device (default: %s)\n", SBUS_UART_DEV);
   printf("  -t, --time SEC     Capture duration for diag/record (default 5)\n");
+  printf("  -c, --channels N   Validate only CH1..N (default %d; use 12 for ExpressLRS)\n",
+         SBUS_VALIDATED_CHANNELS);
   printf("      --scan         Sweep all candidate UARTs, report which has SBUS\n");
   printf("      --raw          Live raw hex dump with gap markers\n");
   printf("      --frames       Live decoded channel view (instrumented parser)\n");
@@ -895,6 +931,12 @@ int main(int argc, char **argv) {
     std::string a = argv[i];
     if ((a == "-d" || a == "--device") && i + 1 < argc) dev = argv[++i];
     else if ((a == "-t" || a == "--time") && i + 1 < argc) duration = atof(argv[++i]);
+    else if ((a == "-c" || a == "--channels") && i + 1 < argc) {
+      int n = atoi(argv[++i]);
+      if (n < 4) n = 4;
+      if (n > SBUS_NUM_CHANNELS) n = SBUS_NUM_CHANNELS;
+      g_validated_channels = n;
+    }
     else if (a == "--scan") mode_scan = true;
     else if (a == "--raw") mode_raw = true;
     else if (a == "--frames") mode_frames = true;
