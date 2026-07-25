@@ -47,6 +47,15 @@
  // reconnect). At ~70 Hz framing, 3 ~= 42 ms.
  #define SBUS_HYSTERESIS_GOOD_FRAMES  3
 
+ // How many channels the range check validates, counting from CH1.
+ // Only channels the transmitter actually drives carry meaningful
+ // values; undriven channels sit at 0 (out of range) and would
+ // otherwise reject every frame. RadioLink AT9S Pro drives all 16;
+ // ExpressLRS drives 12 (CH13/15/16 read 0, CH14 carries link
+ // stats). Frames still decode all 16 channels - this only bounds
+ // which ones must look sane for the frame to be accepted.
+ #define SBUS_VALIDATED_CHANNELS  16
+
  class SbusHandler {
  public:
      // Constructor and destructor
@@ -61,6 +70,12 @@
      // (or after close()); returns false if the port is open.
      bool setDevice(const std::string& device);
      std::string getDevice() const;
+
+     // Number of channels (from CH1) the range check validates.
+     // Clamped to [4, SBUS_NUM_CHANNELS]. Set to 12 for ExpressLRS,
+     // which leaves CH13/15/16 at 0.
+     void setValidatedChannels(int count);
+     int getValidatedChannels() const;
 
      // Update method - call this regularly to process new data
      bool update();
@@ -137,6 +152,7 @@
      int fd_;
      bool initialized_;
      std::string device_;
+     int validated_channels_;
 
      // Mutex for thread safety
      mutable std::mutex mutex_;
