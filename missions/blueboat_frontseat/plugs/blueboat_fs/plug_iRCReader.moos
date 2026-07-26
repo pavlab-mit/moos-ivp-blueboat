@@ -11,7 +11,7 @@ ProcessConfig = iRCReader
   //   RadioLink R12DS (via):  /dev/ttyAMA0 (GPIO14/15, disable-bt)
   //   RadioMaster XR4 (zoe):  /dev/ttyAMA1 (Navigator SERIAL 3)
   // Verify with: sbus_probe -d <dev>
-  device = /dev/ttyAMA1
+  device = /dev/ttyAMA0
 
   // ExpressLRS drives 12 of 16 SBUS channels (CH13/15/16 sit at 0);
   // only validate the driven ones or every frame is rejected.
