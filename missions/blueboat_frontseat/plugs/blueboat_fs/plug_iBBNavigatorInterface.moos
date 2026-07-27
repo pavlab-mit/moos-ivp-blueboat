@@ -149,9 +149,9 @@ ProcessConfig = iBBNavigatorInterface
 
   // GYRO_Z_LVL plausibility clamp (rad/s). The published rate is the
   // world-frame z angular rate (bounded, no cos(pitch) singularity);
-  // this clamp is a final physical envelope for the EKF. Loose for
-  // now - trim down (~2 rad/s) once shakeout logs confirm margins.
-  yaw_rate_clamp = 10.0
+  // this clamp is a final physical envelope for the EKF. Sized from
+  // the 7/27 zoe RC range tests (observed max 1.03 rad/s -> ~3x margin).
+  yaw_rate_clamp = 3.0
 
   // Sensor mounting offsets (rotate sensor frame to body frame)
   roll_offset  = 0.0

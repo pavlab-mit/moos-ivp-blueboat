@@ -255,7 +255,10 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_ahrs_ti = 0.0;
   m_ahrs_kp_quick = 0.0;
   m_ahrs_ti_quick = 0.0;
-  m_yaw_rate_clamp = 10.0; // rad/s; loose gate for now, trim after shakeout
+  // rad/s. Sized from the 7/27 zoe RC range tests: ~9,800 samples of
+  // aggressive RC driving never exceeded 1.03 rad/s, so 3.0 gives ~3x
+  // margin over observed dynamics while still gating corrupt samples.
+  m_yaw_rate_clamp = 3.0;
   for (int i = 0; i < 3; i++)
   {
     m_gyro_bias[i] = 0.0;
@@ -1360,7 +1363,7 @@ bool BBNavigatorInterface::OnStartUp()
     {
       m_yaw_rate_clamp = stod(value);
       if (m_yaw_rate_clamp <= 0.0)
-        m_yaw_rate_clamp = 10.0;
+        m_yaw_rate_clamp = 3.0;
       handled = true;
     }
     else if (param == "roll_offset")
