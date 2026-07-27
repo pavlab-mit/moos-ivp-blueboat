@@ -184,11 +184,15 @@ class BBPIDEngine
   // DESIRED heading (dt-aware first order). This reference-derivative term
   // is added to the heading-PID feedback to form the inner-loop setpoint,
   // so a moving command yields turn rate (and yaw FF) even with gains at 0.
+  // The derivative and the LPF run on DIFFERENT clocks: the derivative steps
+  // only when the command changes (helm tick), the LPF steps every iterate.
   double m_des_yawrate_tau;              // LPF time constant [s], 0 = off
   double m_des_yawrate_filt;             // filter state (filtered ff rate)
-  double m_des_lpf_prev_time;            // prev tick time (dt for deriv + LPF)
+  double m_des_lpf_prev_time;            // prev ITERATE time (dt for LPF alpha)
   bool   m_have_des_lpf;                 // have a previous desired-heading sample
-  double m_prev_des_heading;             // previous DESIRED heading [deg]
+  double m_prev_des_heading;             // last CHANGED desired heading [deg]
+  double m_des_chg_time;                 // time of that change [s] (dt for deriv)
+  double m_des_yawrate_raw;              // held raw command rate [rad/s]
 
   // Limits / conventions
   double m_max_thrust;

@@ -48,6 +48,8 @@ BBPIDEngine::BBPIDEngine()
   m_des_lpf_prev_time = 0.0;
   m_have_des_lpf      = false;
   m_prev_des_heading  = 0.0;
+  m_des_chg_time      = 0.0;
+  m_des_yawrate_raw   = 0.0;
 
   m_speed_error    = 0.0;
   m_heading_error  = 0.0;
@@ -244,35 +246,53 @@ void BBPIDEngine::update(double curr_time,
   // first-order LPF, alpha = 1 - exp(-dt/tau). tau=0 passes it through.
   double ff_rate = 0.0;
   if(m_have_des_lpf) {
+    // ---- Derivative: recompute ONLY when the command actually changes ----
+    // DESIRED_HEADING is a staircase at the helm's tick rate, which may be
+    // far slower than ours (helm AppTick 1 vs our 16 => 1 change per 16
+    // iterates). Differencing on OUR clock yields dpsi=0 on most ticks and a
+    // spike of (helm_period/our_period)x the true rate on the rest, which the
+    // LPF turns into a ~3x sawtooth that clips against max_yawrate. So
+    // difference against the last CHANGED value over the time since that
+    // change, and HOLD the result in between.
+    if(desired_heading != m_prev_des_heading) {
+      double dt_cmd = curr_time - m_des_chg_time;
+      if(dt_cmd > 0.0) {
+        // signed(desired_now - desired_prev) in radians, a=prev, b=now:
+        //   cross = a x b = -sin(now-prev), dot = a . b = cos(now-prev)
+        double a1 = sin(m_prev_des_heading * (M_PI / 180.0));
+        double a2 = cos(m_prev_des_heading * (M_PI / 180.0));
+        double b1 = sin(desired_heading    * (M_PI / 180.0));
+        double b2 = cos(desired_heading    * (M_PI / 180.0));
+        double cross = a1 * b2 - a2 * b1;
+        double dot   = a1 * b1 + a2 * b2;
+        if(dot >  1.0) dot =  1.0;          // clip for acos safety
+        if(dot < -1.0) dot = -1.0;
+        double dpsi = acos(dot) * ((cross >= 0) ? -1.0 : 1.0);  // rad, signed
+        m_des_yawrate_raw = dpsi / dt_cmd;                      // rad/s
+      }
+      m_prev_des_heading = desired_heading;
+      m_des_chg_time     = curr_time;
+    }
+
+    // ---- LPF: steps every iterate, so alpha uses OUR tick dt ----
     double dt = curr_time - m_des_lpf_prev_time;
     if(dt > 0.0) {
-      // signed(desired_now - desired_prev) in radians, a=prev, b=now:
-      //   cross = a x b = -sin(now-prev), dot = a . b = cos(now-prev)
-      double a1 = sin(m_prev_des_heading * (M_PI / 180.0));
-      double a2 = cos(m_prev_des_heading * (M_PI / 180.0));
-      double b1 = sin(desired_heading    * (M_PI / 180.0));
-      double b2 = cos(desired_heading    * (M_PI / 180.0));
-      double cross = a1 * b2 - a2 * b1;
-      double dot   = a1 * b1 + a2 * b2;
-      if(dot >  1.0) dot =  1.0;            // clip for acos safety
-      if(dot < -1.0) dot = -1.0;
-      double dpsi   = acos(dot) * ((cross >= 0) ? -1.0 : 1.0);  // rad, signed
-      double raw_ff = dpsi / dt;                                // rad/s
-
       if(m_des_yawrate_tau > 0.0) {
         double alpha = 1.0 - exp(-dt / m_des_yawrate_tau);
-        m_des_yawrate_filt += alpha * (raw_ff - m_des_yawrate_filt);
+        m_des_yawrate_filt += alpha * (m_des_yawrate_raw - m_des_yawrate_filt);
       }
       else
-        m_des_yawrate_filt = raw_ff;
-      ff_rate = m_des_yawrate_filt;
+        m_des_yawrate_filt = m_des_yawrate_raw;
     }
-    else
-      ff_rate = m_des_yawrate_filt;   // dt<=0: hold last filtered value
+    ff_rate = m_des_yawrate_filt;       // dt<=0: hold last filtered value
   }
-  else
-    m_have_des_lpf = true;            // first sample: no derivative yet
-  m_prev_des_heading  = desired_heading;
+  else {
+    // First sample: no derivative yet, but seed the change clock so the first
+    // real change divides by its own interval and not by the MOOS uptime.
+    m_have_des_lpf     = true;
+    m_prev_des_heading = desired_heading;
+    m_des_chg_time     = curr_time;
+  }
   m_des_lpf_prev_time = curr_time;
 
   // 2-DOF setpoint: reference feedforward + feedback correction, then clamp
