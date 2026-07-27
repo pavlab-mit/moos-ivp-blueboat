@@ -23,6 +23,7 @@ IF(${NAVIGATOR_CPP_FOUND})
     ADD_SUBDIRECTORY(test_bb_adc)   # interactive ADC/current diagnostic
     ADD_SUBDIRECTORY(bb_neopixel)   # optional LED-strip status (future hardware)
     ADD_SUBDIRECTORY(bb_attitude)   # pitch gate for bb_init.sh
+    ADD_SUBDIRECTORY(sample_navigator) # cal data collector (gyro/mag cal scripts)
 ENDIF()
 
 # test_gnss_heading uses the UM982 (Unicore) parser library
