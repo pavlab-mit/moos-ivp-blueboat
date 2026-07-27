@@ -102,7 +102,7 @@ void showExampleConfigAndExit()
   blk("  mag_ak_cal_file = /path/to/mag_cal.txt                        ");
   blk("  imu_cal_file    = /path/to/imu_cal.txt                        ");
   blk("  declination_deg = -14.058                                     ");
-  blk("  yaw_rate_clamp  = 10.0       // rad/s, GYRO_Z_LVL envelope    ");
+  blk("  yaw_rate_clamp  = 3.0        // rad/s, GYRO_Z_LVL envelope    ");
   blk("}                                                               ");
   blk("                                                                ");
   exit(0);
