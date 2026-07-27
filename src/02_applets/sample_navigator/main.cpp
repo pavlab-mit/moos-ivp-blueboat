@@ -27,6 +27,8 @@
         come from navigator-cpp's built-in Allgeuer estimator.
 *************************************************************/
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <csignal>
