@@ -24,6 +24,10 @@ ThrustMix::ThrustMix()
   m_k_inner_base = 2.0;
   m_k_outer_base = 1.0;
 
+  m_yaw_priority  = true;   // allocate yaw first, speed takes the remainder
+  m_max_diff      = 0.0;    // 0 = no cap on the differential
+  m_thrust_derate = 1.0;
+
   // Speed-dependent scaling (disabled by default)
   m_enable_speed_scaling = false;
 
@@ -261,8 +265,11 @@ bool ThrustMix::Iterate()
 
   */
 
-  double turn_left;
-  double turn_right;
+  // BUGFIX: these were uninitialized when m_mixer == 0.0 exactly (the if /
+  // else-if chain below has no else), so a zero rudder command produced
+  // garbage on both thrusters.
+  double turn_left  = 0.0;
+  double turn_right = 0.0;
 
   if (m_mixer > 0.0)
   {
@@ -277,34 +284,77 @@ bool ThrustMix::Iterate()
     turn_right = m_k_outer * abs(m_mixer);
   }
 
-  // additive scaling
-  m_thrust_l = m_desired_thrust + (turn_left * 100.0);
-  m_thrust_r = m_desired_thrust + (turn_right * 100.0);
+  double diff_l = turn_left  * 100.0;
+  double diff_r = turn_right * 100.0;
 
-  // shift back within bounds maintaining difference
-  if (m_thrust_l > 100)
+  if (m_yaw_priority)
   {
-    double over_left = m_thrust_l - 100;
-    m_thrust_l -= over_left;
-    m_thrust_r -= over_left;
+    // ---- Yaw-priority allocation ----
+    // Allocate the differential (yaw) component FIRST, then give the common
+    // (speed) component whatever headroom is left. The legacy path below
+    // summed the two and shifted the overage off BOTH thrusters, which held
+    // the differential but collapsed common thrust abruptly at the rail.
+    // Here speed degrades smoothly and nothing ever needs clipping.
+    double diff_mag = max(fabs(diff_l), fabs(diff_r));
+
+    // Optional cap on the differential. Past a hull-dependent point extra
+    // differential buys no additional yaw rate (it only drives the inner
+    // thruster deeper into inefficient reverse), so spending headroom on it
+    // is strictly worse than keeping the speed.
+    if ((m_max_diff > 0.0) && (diff_mag > m_max_diff))
+    {
+      double scale = m_max_diff / diff_mag;
+      diff_l *= scale;
+      diff_r *= scale;
+      diff_mag = m_max_diff;
+    }
+
+    double headroom = 100.0 - diff_mag;
+    if (headroom < 0.0)
+      headroom = 0.0;
+
+    double common = m_desired_thrust;
+    if (common >  headroom) common =  headroom;
+    if (common < -headroom) common = -headroom;
+
+    m_thrust_derate = (fabs(m_desired_thrust) > 1e-6)
+                    ? (common / m_desired_thrust) : 1.0;
+
+    m_thrust_l = common + diff_l;
+    m_thrust_r = common + diff_r;
   }
-  else if (m_thrust_r > 100)
+  else
   {
-    double over_right = m_thrust_r - 100;
-    m_thrust_l -= over_right;
-    m_thrust_r -= over_right;
-  }
-  else if (m_thrust_l < -100)
-  {
-    double under_left = m_thrust_l + 100;
-    m_thrust_l -= under_left;
-    m_thrust_r -= under_left;
-  }
-  else if (m_thrust_r < -100)
-  {
-    double under_right = m_thrust_r + 100;
-    m_thrust_l -= under_right;
-    m_thrust_r -= under_right;
+    // ---- Legacy additive mixing + shift ----
+    m_thrust_derate = 1.0;
+    m_thrust_l = m_desired_thrust + diff_l;
+    m_thrust_r = m_desired_thrust + diff_r;
+
+    // shift back within bounds maintaining difference
+    if (m_thrust_l > 100)
+    {
+      double over_left = m_thrust_l - 100;
+      m_thrust_l -= over_left;
+      m_thrust_r -= over_left;
+    }
+    else if (m_thrust_r > 100)
+    {
+      double over_right = m_thrust_r - 100;
+      m_thrust_l -= over_right;
+      m_thrust_r -= over_right;
+    }
+    else if (m_thrust_l < -100)
+    {
+      double under_left = m_thrust_l + 100;
+      m_thrust_l -= under_left;
+      m_thrust_r -= under_left;
+    }
+    else if (m_thrust_r < -100)
+    {
+      double under_right = m_thrust_r + 100;
+      m_thrust_l -= under_right;
+      m_thrust_r -= under_right;
+    }
   }
 
   // Step 5: Clamp outputs to motor limits [-100, 100]
@@ -314,6 +364,8 @@ bool ThrustMix::Iterate()
   // Step 6: Publish outputs
   Notify(m_desired_thrust_l_var, m_thrust_l);
   Notify(m_desired_thrust_r_var, m_thrust_r);
+  if (m_yaw_priority)
+    Notify("THRUSTMIX_DERATE", m_thrust_derate);
 
   AppCastingMOOSApp::PostReport();
   return (true);
@@ -351,6 +403,16 @@ bool ThrustMix::OnStartUp()
     else if (param == "k_outer_base")
     {
       m_k_outer_base = atof(value.c_str());
+      handled = true;
+    }
+    // Yaw-priority allocation
+    else if (param == "yaw_priority")
+    {
+      handled = setBooleanOnString(m_yaw_priority, value);
+    }
+    else if (param == "max_diff")
+    {
+      m_max_diff = atof(value.c_str());
       handled = true;
     }
     // Speed-dependent scaling

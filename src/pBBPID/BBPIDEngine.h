@@ -97,6 +97,22 @@ class BBPIDEngine
   double getDesYawRateFilter() const { return m_des_yawrate_tau; }
   double getYawRateFilter()    const { return m_yr_lpf_alpha; }
 
+  // --- Yaw-priority speed governor ---
+  // Following a path of curvature k at speed v needs yaw rate r = k*v. Once
+  // the commanded rate saturates the vehicle's turn capability the ONLY way
+  // to tighten the achievable radius is to slow down, so trade speed for
+  // heading tracking whenever the yaw budget is nearly spent. gain=0 = off.
+  void   setYawPriorityGain(double v) { m_yaw_priority_gain = v; }
+  void   setYawPriorityKnee(double v) { m_yaw_priority_knee = v; }
+  void   setMinSpeedFrac(double v)    { m_min_speed_frac = v; }
+  void   setDerateFilter(double v)    { m_derate_tau = v; }
+  double getYawPriorityGain() const { return m_yaw_priority_gain; }
+  double getYawPriorityKnee() const { return m_yaw_priority_knee; }
+  double getMinSpeedFrac()    const { return m_min_speed_frac; }
+  double getDerateFilter()    const { return m_derate_tau; }
+  double getSpeedDerate()     const { return m_speed_derate_filt; }
+  double getGovSpeedCmd()     const { return m_gov_speed_cmd; }
+
   // --- Speed-scheduled gain table (yaw-rate loop + turn-rate cap) ---
   // Each breakpoint pins the inner yaw-rate PID gains and the max
   // commanded yaw rate at a given speed. Between breakpoints the values
@@ -193,6 +209,17 @@ class BBPIDEngine
   double m_prev_des_heading;             // last CHANGED desired heading [deg]
   double m_des_chg_time;                 // time of that change [s] (dt for deriv)
   double m_des_yawrate_raw;              // held raw command rate [rad/s]
+
+  // Yaw-priority speed governor state
+  double m_yaw_priority_gain;            // 0 = off; 1 = full derate at cap
+  double m_yaw_priority_knee;            // yaw-budget fraction where derate starts
+  double m_min_speed_frac;               // floor on the derate factor
+  double m_derate_tau;                   // LPF time const [s] on the derate
+  double m_speed_derate;                 // instantaneous derate factor
+  double m_speed_derate_filt;            // filtered derate (what is applied)
+  double m_gov_speed_cmd;                // governed speed setpoint [m/s]
+  double m_gov_prev_time;                // prev iterate time for the derate LPF
+  bool   m_have_gov_time;
 
   // Limits / conventions
   double m_max_thrust;
