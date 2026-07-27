@@ -51,6 +51,17 @@ BBPIDEngine::BBPIDEngine()
   m_des_chg_time      = 0.0;
   m_des_yawrate_raw   = 0.0;
 
+  // Yaw-priority speed governor: off until configured.
+  m_yaw_priority_gain = 0.0;
+  m_yaw_priority_knee = 0.6;
+  m_min_speed_frac    = 0.4;
+  m_derate_tau        = 0.5;
+  m_speed_derate      = 1.0;
+  m_speed_derate_filt = 1.0;
+  m_gov_speed_cmd     = 0.0;
+  m_gov_prev_time     = 0.0;
+  m_have_gov_time     = false;
+
   m_speed_error    = 0.0;
   m_heading_error  = 0.0;
   m_yawrate_error  = 0.0;
@@ -302,6 +313,45 @@ void BBPIDEngine::update(double curr_time,
   if(des_rate < -m_max_yawrate) des_rate = -m_max_yawrate;
   m_desired_yawrate = des_rate;
 
+  // ---------- Yaw-priority speed governor ----------
+  // Path curvature, speed and yaw rate are not independent: holding curvature
+  // k at speed v demands r = k*v. Once the commanded rate approaches the
+  // vehicle's turn ceiling, no amount of extra rudder tightens the turn (on
+  // this hull the rate is flat above ~30% rudder) -- the only remaining
+  // control is speed. So spend the speed setpoint to buy heading tracking:
+  // derate in proportion to how much of the yaw budget the command is using.
+  // The derate is low-passed so a momentary rate transient does not step the
+  // throttle. gain = 0 leaves the setpoint untouched (legacy behavior).
+  m_gov_speed_cmd = desired_speed;
+  if(m_yaw_priority_gain > 0.0 && m_max_yawrate > 0.0) {
+    double demand = fabs(des_rate) / m_max_yawrate;      // [0,1]
+    m_speed_derate = 1.0;
+    if(demand > m_yaw_priority_knee) {
+      double span = 1.0 - m_yaw_priority_knee;
+      double x = (span > 0.0) ? (demand - m_yaw_priority_knee) / span : 1.0;
+      if(x > 1.0) x = 1.0;
+      m_speed_derate = 1.0 - m_yaw_priority_gain * x;
+    }
+    if(m_speed_derate < m_min_speed_frac) m_speed_derate = m_min_speed_frac;
+    if(m_speed_derate > 1.0)              m_speed_derate = 1.0;
+
+    double dt_gov = m_have_gov_time ? (curr_time - m_gov_prev_time) : 0.0;
+    if(m_derate_tau > 0.0 && dt_gov > 0.0) {
+      double alpha = 1.0 - exp(-dt_gov / m_derate_tau);
+      m_speed_derate_filt += alpha * (m_speed_derate - m_speed_derate_filt);
+    }
+    else if(!m_have_gov_time || m_derate_tau <= 0.0)
+      m_speed_derate_filt = m_speed_derate;
+
+    m_gov_speed_cmd = desired_speed * m_speed_derate_filt;
+  }
+  else {
+    m_speed_derate      = 1.0;
+    m_speed_derate_filt = 1.0;
+  }
+  m_gov_prev_time = curr_time;
+  m_have_gov_time = true;
+
   // ---------- Feedforward (identified from field data) ----------
   // Static thrust split needed to hold the DESIRED (v*, r*):
   //   common c = c0 + cv*v* + crr*r*^2      -> adds to DESIRED_THRUST
@@ -310,18 +360,21 @@ void BBPIDEngine::update(double curr_time,
   m_ff_thrust = 0.0;
   m_ff_rudder = 0.0;
   if(m_ff_enable) {
+    // Both FF terms use the GOVERNED speed -- that is the speed the boat is
+    // actually being asked to hold, so it is the right operating point for
+    // the thrust trim and for the speed-dependent yaw gain.
     if(m_ff_speed_enable)
-      m_ff_thrust = m_ff_c0 + m_ff_cv * desired_speed
+      m_ff_thrust = m_ff_c0 + m_ff_cv * m_gov_speed_cmd
                   + m_ff_crr * des_rate * des_rate;
     if(m_ff_yaw_enable) {
       double ff_diff = m_ff_d0 + m_ff_dr * des_rate
-                     + m_ff_dvr * desired_speed * des_rate;
+                     + m_ff_dvr * m_gov_speed_cmd * des_rate;
       m_ff_rudder = m_ff_rudder_scale * ff_diff;
     }
   }
 
   // ---------- Speed loop (true positional PID) + speed FF ----------
-  m_speed_error = desired_speed - nav_speed;
+  m_speed_error = m_gov_speed_cmd - nav_speed;
 
   double thrust = 0.0;
   m_speed_pid.Run(m_speed_error, curr_time, thrust);

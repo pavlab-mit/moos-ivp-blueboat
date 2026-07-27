@@ -234,6 +234,10 @@ bool BBPID::Iterate()
   Notify("BBPID_DESIRED_YAWRATE", m_engine.getDesiredYawRate());
   Notify("BBPID_MEAS_YAWRATE",   m_engine.getMeasYawRate());
   Notify("BBPID_YAWRATE_ERROR",  m_engine.getYawRateError());
+  if(m_engine.getYawPriorityGain() > 0.0) {
+    Notify("BBPID_SPEED_DERATE", m_engine.getSpeedDerate());
+    Notify("BBPID_GOV_SPEED",    m_engine.getGovSpeedCmd());
+  }
   if(m_engine.feedforwardEnabled()) {
     Notify("BBPID_FF_THRUST", m_engine.getFFThrust());
     Notify("BBPID_FF_RUDDER", m_engine.getFFRudder());
@@ -300,6 +304,10 @@ string BBPID::buildParamSnapshot()
                     + doubleToStringX(m_engine.ffDr(),4) + ","
                     + doubleToStringX(m_engine.ffDvr(),4);
   s += ";ff_rudder_scale=" + doubleToStringX(m_engine.ffRudderScale(),4);
+  s += ";yaw_priority_gain=" + doubleToStringX(m_engine.getYawPriorityGain(),4);
+  s += ";yaw_priority_knee=" + doubleToStringX(m_engine.getYawPriorityKnee(),4);
+  s += ";min_speed_frac="    + doubleToStringX(m_engine.getMinSpeedFrac(),4);
+  s += ";derate_filter="     + doubleToStringX(m_engine.getDerateFilter(),4);
   s += ";ff_enable=" + string(m_engine.feedforwardEnabled() ? "true" : "false");
   s += ";ff_speed_enable=" + string(m_engine.ffSpeedEnabled() ? "true" : "false");
   s += ";ff_yaw_enable="   + string(m_engine.ffYawEnabled()   ? "true" : "false");
@@ -399,6 +407,35 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
   }
   else if(param == "reset_integrators") {    // runtime command (value ignored)
     m_engine.resetIntegrators();
+    return(true);
+  }
+
+  // ---- yaw-priority speed governor ----
+  // Trades speed for turn performance: when the commanded yaw rate uses more
+  // than <knee> of the rate budget, scale the speed setpoint down toward
+  // <min_speed_frac>. gain=0 disables (setpoint passes through untouched).
+  else if(param == "yaw_priority_gain") {
+    m_engine.setYawPriorityGain(dval);
+    return(true);
+  }
+  else if(param == "yaw_priority_knee") {
+    if((dval < 0.0) || (dval >= 1.0)) {
+      reportConfigWarning("yaw_priority_knee must be in [0,1)");
+      return(false);
+    }
+    m_engine.setYawPriorityKnee(dval);
+    return(true);
+  }
+  else if(param == "min_speed_frac") {
+    if((dval <= 0.0) || (dval > 1.0)) {
+      reportConfigWarning("min_speed_frac must be in (0,1]");
+      return(false);
+    }
+    m_engine.setMinSpeedFrac(dval);
+    return(true);
+  }
+  else if(param == "derate_filter") {        // LPF time const [s] on the derate
+    m_engine.setDerateFilter(dval);
     return(true);
   }
 

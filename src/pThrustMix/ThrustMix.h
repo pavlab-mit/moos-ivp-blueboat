@@ -42,6 +42,12 @@ class ThrustMix : public AppCastingMOOSApp
    double m_k_inner_base;
    double m_k_outer_base;
 
+   // Yaw-priority allocation: give the differential (yaw) component the
+   // thruster budget first and let common thrust (speed) take what is left.
+   bool   m_yaw_priority;    // true = new allocation, false = legacy shift
+   double m_max_diff;        // cap on differential magnitude, 0 = uncapped
+   double m_thrust_derate;   // achieved common/commanded ratio (telemetry)
+
    // Speed-dependent scaling
    bool m_enable_speed_scaling;
    std::vector<std::pair<double, double>> m_speed_gain_table; // (speed, gain) pairs
