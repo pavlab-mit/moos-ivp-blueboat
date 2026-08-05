@@ -76,7 +76,8 @@ void showExampleConfigAndExit()
   blk("  publish_interval   = 0.5         // sec between posts (2 Hz)  ");
   blk("  stale_time         = 3.0         // sec before input = stale  ");
   blk("  low_voltage_thresh = 22.0        // V, drives batt=LOW        ");
-  blk("  tx_ip              = 10.1.0.10   // collector; empty=MOOS only");
+  blk("  tx_ip              = 10.1.0.10   // collector IP or hostname;  ");
+  blk("                                   // empty = MOOS only          ");
   blk("  tx_port            = 9300        // collector UDP port        ");
   blk("}                                                               ");
   blk("                                                                ");

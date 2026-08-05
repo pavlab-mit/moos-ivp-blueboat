@@ -1,0 +1,10 @@
+//------------------------------------------------
+// pBB_AthensLogger config block
+
+ProcessConfig = pBB_AthensLogger
+{
+   AppTick   = 4
+   CommsTick = 4
+
+   debug     = false
+}

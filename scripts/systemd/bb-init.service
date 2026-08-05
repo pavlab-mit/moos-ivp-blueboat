@@ -11,9 +11,8 @@
 #
 # PER-BOAT CONFIG lives in the Environment= lines below. bb_init.sh has a
 # built-in default for every BOAT_* var, so only add a line for what differs
-# on this boat. The build-time vars (NAVOS_VERSION, RASPBERRY_PI_VERSION,
-# NAV_PLATFORM_TYPE) are NOT here -- they stay in the pi login profile and the
-# rebuild inherits them via `sudo -u pi -H bash -lc`.
+# on this boat. Navigator hardware (V1/V2 board, Pi 4/5) is auto-detected at
+# runtime by navigator-cpp -- no build-time version vars anymore.
 
 [Unit]
 Description=BlueBoat init (battery + attitude gate -> update -> launch)

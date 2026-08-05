@@ -19,7 +19,9 @@
 #include "UnicoreDataDTO.hpp"
 
 #include <string>
+#include <vector>
 #include <cstdarg>
+#include <cstdio>
 #include <mutex>
 #include <thread>
 #include <atomic>
@@ -49,6 +51,12 @@ class Unicore : public AppCastingMOOSApp
    std::string buildStateString();
    std::string pubName(const std::string &base) const;
 
+ private: // Raw message text logging
+   void handleRawLine(const std::string &line);
+   bool openMsgLog();
+   void closeMsgLog();
+   static std::string lineMsgName(const std::string &line);
+
  private: // Configuration variables
    bool m_debug;
    FILE *m_debug_stream;
@@ -75,6 +83,16 @@ class Unicore : public AppCastingMOOSApp
 
    // When true, GNSS_STATE includes HDG/HDG_ACC/HDG_VALID fields
    bool m_differential_gnss;
+
+   // Raw message text log ("log" / "log_file" params)
+   std::vector<std::string> m_log_msgs;   // message names to log (upper case)
+   bool m_log_all;                        // "log = all"
+   std::string m_log_file_param;          // configured path ("" = auto-name)
+   std::string m_log_file_path;           // path actually opened
+   FILE *m_log_stream;
+   std::mutex m_log_mutex;                // guards stream + counters below
+   unsigned long m_log_lines_written;
+   bool m_log_write_failed;
 
  private: // State variables
 

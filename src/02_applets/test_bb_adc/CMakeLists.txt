@@ -3,6 +3,8 @@
 # Author(s):                              Raymond Turrisi
 #--------------------------------------------------------
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 SET(SRC
    main.cpp
@@ -10,10 +12,8 @@ SET(SRC
 
 ADD_EXECUTABLE(test_bb_adc ${SRC})
 
-add_dependencies(test_bb_adc navigator_lib)
-
-TARGET_INCLUDE_DIRECTORIES(test_bb_adc PRIVATE "${NAVIGATOR_INCLUDE}")
+TARGET_INCLUDE_DIRECTORIES(test_bb_adc PRIVATE "${NAVIGATOR_CPP_INCLUDE}")
 
 TARGET_LINK_LIBRARIES(test_bb_adc
    ${SYSTEM_LIBS}
-   ${NAVIGATOR_LIB})
+   ${NAVIGATOR_CPP_LIB})

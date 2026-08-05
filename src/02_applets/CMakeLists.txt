@@ -1,33 +1,33 @@
 ##############################################################################
 # FILE:        moos-ivp-blueboat/src/02_applets/CMakeLists.txt
-# DATE:        2025/03/30
+# DATE:        2026/07/24
 # DESCRIPTION: CMakeLists.txt for moos-ivp-blueboat applets/test utilities
 ##############################################################################
+
+# SBUS / RC-link diagnostic (builds everywhere; runs on the vehicle)
+ADD_SUBDIRECTORY(sbus_probe)
 
 # Doodle Radio utility (requires JSON library)
 IF(${DOODLE_RADIO_AVAIL})
     ADD_SUBDIRECTORY(doodle_radio_utility)
 ENDIF(${DOODLE_RADIO_AVAIL})
 
-# Vehicle-only applets (require Navigator hardware)
-IF(${ON_VEHICLE})
-    ADD_SUBDIRECTORY(init_bb_pwm)
-
-    # Boot-script helpers (used by scripts/bb_init.sh)
-    IF(${NAVOS_VERSION} STREQUAL "1")
-        ADD_SUBDIRECTORY(test_bb_adc)        # battery-voltage read (low-battery gate)
-    ENDIF()
+# Navigator hardware applets (navigator-cpp). Build wherever the
+# library is found - on dev machines navigator-cpp provides platform
+# stubs, so these compile and link everywhere; hardware calls return
+# errors at runtime off-vehicle. Board revision (V1/V2) and Pi model
+# are detected at runtime, so there is no per-version gating.
+IF(${NAVIGATOR_CPP_FOUND})
+    ADD_SUBDIRECTORY(init_bb_pwm)   # ESC arming (boot script)
+    ADD_SUBDIRECTORY(bb_adc)        # battery-voltage gate for bb_init.sh (VOLTAGE=)
+    ADD_SUBDIRECTORY(test_bb_adc)   # interactive ADC/current diagnostic
     ADD_SUBDIRECTORY(bb_neopixel)   # optional LED-strip status (future hardware)
+    ADD_SUBDIRECTORY(bb_attitude)   # pitch gate for bb_init.sh
+    ADD_SUBDIRECTORY(sample_navigator) # cal data collector (gyro/mag cal scripts)
+ENDIF()
 
-    # bb_attitude requires Armadillo
-    IF(${ARMA_AVAIL})
-        ADD_SUBDIRECTORY(bb_attitude)
-        ADD_SUBDIRECTORY(sample_navigator)
-    ENDIF(${ARMA_AVAIL})
-
-    # test_gnss_heading uses the UM982 (Unicore) parser library
-    ADD_SUBDIRECTORY(test_gnss_heading)
-ENDIF(${ON_VEHICLE})
+# test_gnss_heading uses the UM982 (Unicore) parser library
+ADD_SUBDIRECTORY(test_gnss_heading)
 
 ##############################################################################
 #                           END of CMakeLists.txt

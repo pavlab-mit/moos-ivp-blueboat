@@ -19,7 +19,7 @@ ProcessConfig = pBB_DGPS_EKF
   CommsTick = 16
 
   // Input variable names
-  input_gps_state = FIX_STATE_DGNSS  // Time-bundled fix state from iUnicore
+  input_gps_state = GNSS_STATE  // Time-bundled fix state from iUnicore
   input_gyro_z    = GYRO_Z_LVL_IMU   // Level-frame gyro Z (rad/s)
   input_thrust_l  = DESIRED_THRUST_L // Left thruster command (0-100)
   input_thrust_r  = DESIRED_THRUST_R // Right thruster command (0-100)

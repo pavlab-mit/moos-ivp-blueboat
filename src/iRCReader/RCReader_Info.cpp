@@ -76,6 +76,12 @@ void showExampleConfigAndExit()
   blk("  AppTick   = 4                                                 ");
   blk("  CommsTick = 4                                                 ");
   blk("                                                                ");
+  blk("  // UART wired to the SBUS receiver. Must be parity-capable    ");
+  blk("  // (PL011 / ttyAMA* on a Pi); the mini UART (ttyS0) cannot    ");
+  blk("  // frame SBUS 8E2.                                            ");
+  blk("  device = /dev/ttyS0        // default                         ");
+  blk("                                                                ");
+  blk("  debug  = false                                                ");
   blk("}                                                               ");
   blk("                                                                ");
   exit(0);

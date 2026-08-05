@@ -41,6 +41,7 @@ class BB_Status : public AppCastingMOOSApp
    std::string buildStatusString();    // assemble BB_STATUS
    std::string staleList() const;      // which input groups are stale
    bool setupSocket();                 // open the shoreside UDP socket
+   bool resolveDest();                 // resolve tx_ip into m_dest
 
  private: // Configuration
    std::string m_status_var;     // MOOS var to publish (default BB_STATUS)
@@ -51,10 +52,12 @@ class BB_Status : public AppCastingMOOSApp
    double      m_last_publish_time;
 
  private: // Shoreside UDP transport (pushes BB_STATUS to the collector)
-   std::string        m_tx_ip;   // collector IP; "" disables UDP (MOOS only)
+   std::string        m_tx_ip;   // collector IP or hostname; "" disables UDP
    int                m_tx_port;
    int                m_sockfd;   // -1 when disabled / not open
    struct sockaddr_in m_dest;
+   bool               m_dest_ok;  // m_dest holds a resolved address
+   double             m_last_resolve_try;
    unsigned int       m_tx_sent;
    unsigned int       m_tx_errs;
 
@@ -72,6 +75,10 @@ class BB_Status : public AppCastingMOOSApp
    bool   m_rc_deadman;
    double m_rc_ch6;
    double m_rc_time;
+
+ private: // ---- Laptop teleop (native front seat: iTeleop/Navigator) ----
+   bool   m_teleop_engaged;    // NVGR_TELEOP_ENGAGED
+   double m_teleop_time;
 
  private: // ---- Propulsion (applied native; commanded brokered) ----
    double m_thr_l, m_thr_r;        // applied (NVGR_THRUST_*)

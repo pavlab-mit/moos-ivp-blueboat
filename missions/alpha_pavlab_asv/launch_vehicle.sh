@@ -131,18 +131,18 @@ done
 #  Part 4: If Heron hardware, set key info based on IP address
 #------------------------------------------------------------
 if [ "${XMODE}" = "M300" ]; then
-    COLOR=`get_heron_info.sh --color`
-    IP_ADDR=`get_heron_info.sh --ip`
-    FSEAT_IP=`get_heron_info.sh --fseat`
-    VNAME=`get_heron_info.sh --name`
+    COLOR=`get_robot_info.sh --color`
+    IP_ADDR=`get_robot_info.sh --ip`
+    FSEAT_IP=`get_robot_info.sh --fseat`
+    VNAME=`get_robot_info.sh --name`
     if [ $? != 0 ]; then
 	echo "$ME: Problem getting Heron Info. Exit Code 2"
 	exit 2
     fi
-    BOAT_TYPE=`get_heron_info.sh --type`
+    BOAT_TYPE=`get_robot_info.sh --type`
     if [ "${BOAT_TYPE}" = "blueboat" ]; then
 	XMODE="BBOAT"
-        RADIO_IP=`get_heron_info.sh --radio`
+        RADIO_IP=`get_robot_info.sh --radio`
     fi
 fi
 
