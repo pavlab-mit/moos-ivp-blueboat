@@ -40,6 +40,13 @@ Unicore::Unicore()
   m_publish_dto = false;
   m_differential_gnss = false;
 
+  m_log_all = false;
+  m_log_file_param = "";
+  m_log_file_path = "";
+  m_log_stream = nullptr;
+  m_log_lines_written = 0;
+  m_log_write_failed = false;
+
   m_parser = nullptr;
   m_thread_running = false;
   m_new_data_available = false;
@@ -119,6 +126,9 @@ Unicore::~Unicore()
     delete m_parser;
     m_parser = nullptr;
   }
+
+  // Reader thread is joined above, so nothing else can touch the log stream.
+  closeMsgLog();
 }
 
 //---------------------------------------------------------
@@ -429,6 +439,132 @@ string Unicore::buildStateString()
 }
 
 //---------------------------------------------------------
+// Procedure: lineMsgName()
+// Extracts the message name from a received sentence: strips the
+// leading '#' or '$' and returns everything up to the first field
+// delimiter, upper-cased. "#SPPNAVA,63,GPS,FINE,..." -> "SPPNAVA"
+
+string Unicore::lineMsgName(const string &line)
+{
+  size_t start = 0;
+  if (!line.empty() && (line[0] == '#' || line[0] == '$'))
+    start = 1;
+
+  size_t end = line.find_first_of(",;*", start);
+  if (end == string::npos)
+    end = line.size();
+
+  return toupper(line.substr(start, end - start));
+}
+
+//---------------------------------------------------------
+// Procedure: openMsgLog()
+// Opens the text log for received messages. Uses log_file when
+// given, otherwise auto-names LOG_<app>_<date>_MSGS.txt in the cwd.
+
+bool Unicore::openMsgLog()
+{
+  if (m_log_msgs.empty() && !m_log_all)
+    return true;   // nothing requested
+
+  if (!m_log_file_param.empty()) {
+    m_log_file_path = m_log_file_param;
+  } else {
+    time_t rawtime;
+    time(&rawtime);
+    struct tm *timeinfo = localtime(&rawtime);
+    char fmt[m_fname_buff_size];
+    memset(fmt, '\0', m_fname_buff_size);
+    strftime(fmt, m_fname_buff_size, "%F_%T", timeinfo);
+    char path[m_fname_buff_size];
+    memset(path, '\0', m_fname_buff_size);
+    snprintf(path, m_fname_buff_size, "LOG_%s_%s_MSGS.txt",
+             m_app_name.c_str(), fmt);
+    m_log_file_path = path;
+  }
+
+  m_log_stream = fopen(m_log_file_path.c_str(), "a");
+  if (m_log_stream == nullptr) {
+    reportConfigWarning("Could not open message log file: " + m_log_file_path);
+    m_log_write_failed = true;
+    return false;
+  }
+
+  string filter = m_log_all ? "all" : "";
+  for (unsigned int i = 0; i < m_log_msgs.size(); i++)
+    filter += (i ? "," : "") + m_log_msgs[i];
+
+  fprintf(m_log_stream, "%% iUnicore received message log\n");
+  fprintf(m_log_stream, "%% port=%s baud=%d\n", m_port_name.c_str(), m_baud_rate);
+  fprintf(m_log_stream, "%% filter=%s\n", filter.c_str());
+  fprintf(m_log_stream, "%% format=<moos_time>,<utc_iso8601>,<raw_sentence>\n");
+  fflush(m_log_stream);
+
+  reportEvent("Logging " + filter + " messages to " + m_log_file_path);
+  return true;
+}
+
+//---------------------------------------------------------
+// Procedure: closeMsgLog()
+
+void Unicore::closeMsgLog()
+{
+  std::lock_guard<std::mutex> guard(m_log_mutex);
+  if (m_log_stream != nullptr) {
+    fclose(m_log_stream);
+    m_log_stream = nullptr;
+  }
+}
+
+//---------------------------------------------------------
+// Procedure: handleRawLine()
+// Called from the reader thread for every complete sentence off the
+// serial port, before parsing. Writes the requested message types
+// to the text log, timestamped.
+
+void Unicore::handleRawLine(const string &line)
+{
+  if (m_log_stream == nullptr)
+    return;
+
+  if (!m_log_all) {
+    const string name = lineMsgName(line);
+    bool wanted = false;
+    for (unsigned int i = 0; i < m_log_msgs.size(); i++) {
+      if (m_log_msgs[i] == name) {
+        wanted = true;
+        break;
+      }
+    }
+    if (!wanted)
+      return;
+  }
+
+  const double moos_time = MOOSTime();
+
+  // UTC wall clock, millisecond resolution, alongside the MOOS time
+  const time_t secs = static_cast<time_t>(moos_time);
+  struct tm utc;
+  gmtime_r(&secs, &utc);
+  char stamp[40];
+  memset(stamp, '\0', sizeof(stamp));
+  strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%S", &utc);
+  const int msec = static_cast<int>((moos_time - static_cast<double>(secs)) * 1000.0);
+
+  std::lock_guard<std::mutex> guard(m_log_mutex);
+  if (m_log_stream == nullptr)
+    return;
+
+  if (fprintf(m_log_stream, "%.6f,%s.%03dZ,%s\n",
+              moos_time, stamp, msec, line.c_str()) < 0) {
+    m_log_write_failed = true;
+    return;
+  }
+  fflush(m_log_stream);
+  m_log_lines_written++;
+}
+
+//---------------------------------------------------------
 // Procedure: initializeGPS()
 
 bool Unicore::initializeGPS()
@@ -540,6 +676,30 @@ bool Unicore::OnStartUp()
         m_quality_warn_repeat_sec = 0.1;
       handled = true;
     }
+    else if (param == "log" || param == "log_msgs") {
+      // Comma-separated list of received message names, e.g. log = SPPNAVA
+      // or log = SPPNAVA, BESTNAVA. "all" logs every sentence received.
+      // The parameter may be repeated; entries accumulate.
+      vector<string> names = parseString(value, ',');
+      for (unsigned int i = 0; i < names.size(); i++) {
+        string name = toupper(stripBlankEnds(names[i]));
+        if (!name.empty() && (name[0] == '#' || name[0] == '$'))
+          name = name.substr(1);
+        if (name.empty())
+          continue;
+        if (name == "ALL") {
+          m_log_all = true;
+          continue;
+        }
+        if (!vectorContains(m_log_msgs, name))
+          m_log_msgs.push_back(name);
+      }
+      handled = true;
+    }
+    else if (param == "log_file") {
+      m_log_file_param = value;
+      handled = true;
+    }
     else if (param == "debug") {
       m_debug = (tolower(value) == "true");
       if (m_debug) {
@@ -564,6 +724,14 @@ bool Unicore::OnStartUp()
   if (!initializeGPS()) {
     reportConfigWarning("Failed to initialize GPS.");
     return false;
+  }
+
+  // Received-message text log. Only hook the parser when something was
+  // actually requested, so the default path stays untouched.
+  if (openMsgLog() && m_log_stream != nullptr) {
+    m_parser->setLineCallback([this](const std::string &line) {
+      this->handleRawLine(line);
+    });
   }
 
   // Start stale-data timer at app startup so complete data loss is detected.
@@ -921,6 +1089,25 @@ bool Unicore::buildReport()
          << "  time=" << (m_publish_time ? "ON" : "OFF") << endl;
   m_msgs << "  state=" << (m_publish_state ? "ON" : "OFF")
          << "  dto=" << (m_publish_dto ? "ON" : "OFF") << endl;
+
+  // Received-message text log
+  m_msgs << endl << "Message Log: ";
+  if (m_log_msgs.empty() && !m_log_all) {
+    m_msgs << "OFF (set log=<MSG,MSG,...> or log=all)" << endl;
+  } else {
+    string filter = m_log_all ? "all" : "";
+    for (unsigned int i = 0; i < m_log_msgs.size(); i++)
+      filter += (i ? "," : "") + m_log_msgs[i];
+    std::lock_guard<std::mutex> guard(m_log_mutex);
+    m_msgs << filter << endl;
+    m_msgs << "  file: " << (m_log_file_path.empty() ? "N/A" : m_log_file_path)
+           << (m_log_stream ? "" : " (NOT OPEN)") << endl;
+    m_msgs << "  lines written: "
+           << uintToString(static_cast<unsigned int>(m_log_lines_written));
+    if (m_log_write_failed)
+      m_msgs << "  [WRITE ERRORS]";
+    m_msgs << endl;
+  }
 
   return true;
 }
