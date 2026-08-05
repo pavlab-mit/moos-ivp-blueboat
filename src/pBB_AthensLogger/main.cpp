@@ -1,17 +1,21 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name: Ray Turrisi
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface_v2/main.cpp
-   Last Ed:  2025-03-30
+      File: pBB_AthensLogger/main.cpp
+   Last Ed: 2026-06-22
      Brief:
-        Combined Navigator Interface for Blueboat ASV for Navigator version 0.1.2.
+        Lorem ipsum dolor sit amet, consectetur adipiscing
+        elit, sed do eiusmod tempor incididunt ut labore et
+        dolore magna aliqua. Ut enim ad minim veniam, quis
+        nostrud exercitation ullamco laboris nisi ut aliquip
+        ex ea commodo consequat.
 *************************************************************/
 
 #include <string>
 #include "MBUtils.h"
 #include "ColorParse.h"
-#include "BBNavigatorInterface_v2.h"
-#include "BBNavigatorInterface_v2_Info.h"
+#include "BB_AthensLogger.h"
+#include "BB_AthensLogger_Info.h"
 
 using namespace std;
 
@@ -42,13 +46,12 @@ int main(int argc, char *argv[])
     showHelpAndExit();
 
   cout << termColor("green");
-  cout << "iBBNavigatorInterface launching as " << run_command << endl;
+  cout << "pBB_AthensLogger launching as " << run_command << endl;
   cout << termColor() << endl;
 
-  BBNavigatorInterface app;
+  BB_AthensLogger BB_AthensLogger;
 
-  app.Run(run_command.c_str(), mission_file.c_str());
+  BB_AthensLogger.Run(run_command.c_str(), mission_file.c_str());
 
   return(0);
 }
-

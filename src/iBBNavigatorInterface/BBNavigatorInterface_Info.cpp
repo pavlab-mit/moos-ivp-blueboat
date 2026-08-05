@@ -1,15 +1,16 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name: Raymond Turrisi (orig.), Jeremy Wenger (navigator-cpp port)
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface_v2/BBNavigatorInterface_v2_Info.cpp
-   Last Ed:  2025-03-30
+      File: iBBNavigatorInterface/BBNavigatorInterface_Info.cpp
+   Last Ed:  2026-07-24
      Brief:
-        Combined Navigator Interface for Blueboat ASV for Navigator version 0.1.2.
+        Unified Navigator Interface for the BlueBoat ASV
+        (navigator-cpp; runtime V1/V2 + Pi4/Pi5 detection).
 *************************************************************/
 
 #include <cstdlib>
 #include <iostream>
-#include "BBNavigatorInterface_v2_Info.h"
+#include "BBNavigatorInterface_Info.h"
 #include "ColorParse.h"
 #include "ReleaseInfo.h"
 
@@ -23,7 +24,10 @@ void showSynopsis()
   blk("SYNOPSIS:                                                       ");
   blk("------------------------------------                            ");
   blk("  The iBBNavigatorInterface application provides combined       ");
-  blk("  thrust control and AHRS sensing for Blueboat ASV.             ");
+  blk("  thrust control and AHRS sensing for the Blueboat ASV. Built   ");
+  blk("  on navigator-cpp: the Navigator board revision (V1/V2) and    ");
+  blk("  Raspberry Pi model (4/5) are auto-detected at runtime - one   ");
+  blk("  binary covers the whole fleet.                                ");
   blk("                                                                ");
 }
 
@@ -80,12 +84,25 @@ void showExampleConfigAndExit()
   blk("  max_thrust = 100                                              ");
   blk("  min_thrust = -100                                             ");
   blk("  thruster_dead_band = 5                                        ");
+  blk("  // Pulse range: default 800-2200 (legacy). Basic ESC 500      ");
+  blk("  // documents 1100-1900; switching changes the thrust curve.   ");
+  blk("  // pwm_min_us = 1100                                          ");
+  blk("  // pwm_max_us = 1900                                          ");
   blk("                                                                ");
-  blk("  // AHRS config                                                ");
+  blk("  // ESC lifecycle                                              ");
+  blk("  initialize_esc   = true      // arm on first launch per boot  ");
+  blk("  esc_arm_mode     = neutral   // neutral | sweep (legacy)      ");
+  blk("  esc_armed_marker = /dev/shm/bb_esc_armed                      ");
+  blk("  disarm_on_exit   = false     // true: cut PWM on exit         ");
+  blk("                                                                ");
+  blk("  // AHRS config (Allgeuer passive complementary filter)        ");
   blk("  sample_rate = 150                                             ");
-  blk("  ahrs_gain = 0.2                                               ");
+  blk("  // ahrs_kp = 2.20   ahrs_ti = 2.65   (library defaults)       ");
+  blk("  use_mag = false                                               ");
   blk("  mag_ak_cal_file = /path/to/mag_cal.txt                        ");
+  blk("  imu_cal_file    = /path/to/imu_cal.txt                        ");
   blk("  declination_deg = -14.058                                     ");
+  blk("  yaw_rate_clamp  = 3.0        // rad/s, GYRO_Z_LVL envelope    ");
   blk("}                                                               ");
   blk("                                                                ");
   exit(0);
@@ -108,8 +125,11 @@ void showInterfaceAndExit()
   blk("------------------------------------                            ");
   blk("  DESIRED_THRUST_L, DESIRED_THRUST_R - Thrust commands          ");
   blk("  ALL_STOP, MISSION_COMPLETE - Control signals                  ");
-  blk("  RC_CONNECTED, RC_CH1-16 - RC controller input                 ");
+  blk("  NVGR_DISARM - true: cut PWM signal (ESCs disarm), clear the   ");
+  blk("                per-boot arm marker; false: re-enable + re-arm  ");
+  blk("  RC_CONNECTED, RC_FRAME_VALID, RC_CH1-16 - RC controller input ");
   blk("  RC_DEADMAN_ENABLED - Runtime override for RC deadman watchdog ");
+  blk("  TELEOP_ACTIVE, TELEOP_THRUST_L/R - Laptop teleop (iTeleop)    ");
   blk("                                                                ");
   blk("PUBLICATIONS:                                                   ");
   blk("------------------------------------                            ");
@@ -117,11 +137,18 @@ void showInterfaceAndExit()
   blk("    NAV_ROLL, NAV_PITCH, NAV_YAW, NAV_HEADING                    ");
   blk("  IMU group  (suffix=<imu_pub_suffix>,  default IMU):            ");
   blk("    GYRO_X, GYRO_Y, GYRO_Z, GYRO_Z_LVL                           ");
+  blk("    (GYRO_Z_LVL is the world-frame z angular rate - bounded,     ");
+  blk("     no cos(pitch) singularity - clamped to yaw_rate_clamp)      ");
+  blk("  IMU_STATE - bundled coherent snapshot at a single timestamp    ");
   blk("  Power/health (unsuffixed):                                     ");
   blk("    NVGR_VOLTAGE, NVGR_CURRENT, NVGR_ROLLING_POWER               ");
-  blk("    NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT                          ");
+  blk("    NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT (+_WIRE variants)        ");
   blk("    NVGR_THRUST_TIMEOUT - autonomous-mode command timeout        ");
   blk("    NVGR_RC_DEADMAN_ACTIVE - RC deadman state                    ");
+  blk("    NVGR_ESC_ARMED - PWM output enable state                     ");
+  blk("    NVGR_LEAK - leak detector state                              ");
+  blk("    NVGR_HW_VERSION - detected Navigator/Pi hardware             ");
+  blk("    NVGTR_IT_C, NVGTR_IP_KPA, RPI_TEMP - temps/pressure          ");
   blk("                                                                ");
   exit(0);
 }
@@ -134,4 +161,3 @@ void showReleaseInfoAndExit()
   showReleaseInfo("iBBNavigatorInterface", "gpl");
   exit(0);
 }
-

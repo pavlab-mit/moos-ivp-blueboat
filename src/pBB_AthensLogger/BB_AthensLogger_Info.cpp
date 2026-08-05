@@ -1,15 +1,19 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name: Ray Turrisi
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface_v1/BBNavigatorInterface_v1_Info.cpp
-   Last Ed:  2025-03-30
+      File: pBB_AthensLogger/BB_AthensLogger_Info.cpp
+   Last Ed: 2026-06-22
      Brief:
-        Combined Navigator Interface for Blueboat ASV for Navigator version 0.0.6.
+        Lorem ipsum dolor sit amet, consectetur adipiscing
+        elit, sed do eiusmod tempor incididunt ut labore et
+        dolore magna aliqua. Ut enim ad minim veniam, quis
+        nostrud exercitation ullamco laboris nisi ut aliquip
+        ex ea commodo consequat.
 *************************************************************/
 
 #include <cstdlib>
 #include <iostream>
-#include "BBNavigatorInterface_v1_Info.h"
+#include "BB_AthensLogger_Info.h"
 #include "ColorParse.h"
 #include "ReleaseInfo.h"
 
@@ -22,9 +26,17 @@ void showSynopsis()
 {
   blk("SYNOPSIS:                                                       ");
   blk("------------------------------------                            ");
-  blk("  The iBBNavigatorInterface application provides combined       ");
-  blk("  thrust control and AHRS sensing for Blueboat ASV.             ");
+  blk("  pBB_AthensLogger is a front-seat data logger. It is a pure    ");
+  blk("  sink: it subscribes to the front-seat MOOSDB (wildcard by     ");
+  blk("  default) and appends every variable update, as it arrives,    ");
+  blk("  to a single per-day pipe-delimited time-series file:          ");
   blk("                                                                ");
+  blk("      time|var|src|type|value                                   ");
+  blk("                                                                ");
+  blk("  Files are append-only (LOG_<vname>_<YYYYMMDD>.psv) and roll   ");
+  blk("  at the day boundary; missions are separated after the fact    ");
+  blk("  by the logged MISSION_HASH rows. It never publishes and is    ");
+  blk("  not in the control path, so a crash is harmless.              ");
 }
 
 //----------------------------------------------------------------
@@ -34,15 +46,15 @@ void showHelpAndExit()
 {
   blk("                                                                ");
   blu("=============================================================== ");
-  blu("Usage: iBBNavigatorInterface file.moos [OPTIONS]                ");
+  blu("Usage: pBB_AthensLogger file.moos [OPTIONS]                   ");
   blu("=============================================================== ");
   blk("                                                                ");
   showSynopsis();
   blk("                                                                ");
   blk("Options:                                                        ");
   mag("  --alias","=<ProcessName>                                      ");
-  blk("      Launch iBBNavigatorInterface with the given process name  ");
-  blk("      rather than iBBNavigatorInterface.                        ");
+  blk("      Launch pBB_AthensLogger with the given process name         ");
+  blk("      rather than pBB_AthensLogger.                           ");
   mag("  --example, -e                                                 ");
   blk("      Display example MOOS configuration block.                 ");
   mag("  --help, -h                                                    ");
@@ -50,7 +62,7 @@ void showHelpAndExit()
   mag("  --interface, -i                                               ");
   blk("      Display MOOS publications and subscriptions.              ");
   mag("  --version,-v                                                  ");
-  blk("      Display the release version of iBBNavigatorInterface.     ");
+  blk("      Display the release version of pBB_AthensLogger.        ");
   blk("                                                                ");
   blk("Note: If argv[2] does not otherwise match a known option,       ");
   blk("      then it will be interpreted as a run alias. This is       ");
@@ -66,26 +78,26 @@ void showExampleConfigAndExit()
 {
   blk("                                                                ");
   blu("=============================================================== ");
-  blu("iBBNavigatorInterface Example MOOS Configuration                ");
+  blu("pBB_AthensLogger Example MOOS Configuration                   ");
   blu("=============================================================== ");
   blk("                                                                ");
-  blk("ProcessConfig = iBBNavigatorInterface                           ");
+  blk("ProcessConfig = pBB_AthensLogger                                ");
   blk("{                                                               ");
-  blk("  AppTick   = 10                                                ");
-  blk("  CommsTick = 10                                                ");
+  blk("  AppTick   = 4                                                 ");
+  blk("  CommsTick = 4                                                 ");
   blk("                                                                ");
-  blk("  // Thrust control                                             ");
-  blk("  left_thruster_pin = 14                                        ");
-  blk("  right_thruster_pin = 16                                       ");
-  blk("  max_thrust = 100                                              ");
-  blk("  min_thrust = -100                                             ");
-  blk("  thruster_dead_band = 5                                        ");
+  blk("  vname    = asha            // used in the filename            ");
+  blk("  log_dir  = /home/pi/bb_daily_logs  // launch-stable abs path  ");
   blk("                                                                ");
-  blk("  // AHRS config                                                ");
-  blk("  sample_rate = 150                                             ");
-  blk("  ahrs_gain = 0.2                                               ");
-  blk("  mag_ak_cal_file = /path/to/mag_cal.txt                        ");
-  blk("  declination_deg = -14.058                                     ");
+  blk("  wildcard = true            // log all vars (default)          ");
+  blk("  utc      = false           // day boundary: local (def)/UTC   ");
+  blk("  value_digits = 8           // decimals for double values      ");
+  blk("                                                                ");
+  blk("  // omit = DB_*, APPCAST*, *_ITER_GAP, *_ITER_LEN, *_STATUS    ");
+  blk("  // keep = BB_STATUS        // exact names that beat omit       ");
+  blk("  // log  = NAV_X, NAV_Y     // used only when wildcard = false  ");
+  blk("                                                                ");
+  blk("  debug    = false                                              ");
   blk("}                                                               ");
   blk("                                                                ");
   exit(0);
@@ -99,29 +111,20 @@ void showInterfaceAndExit()
 {
   blk("                                                                ");
   blu("=============================================================== ");
-  blu("iBBNavigatorInterface INTERFACE                                 ");
+  blu("pBB_AthensLogger INTERFACE                                    ");
   blu("=============================================================== ");
   blk("                                                                ");
   showSynopsis();
   blk("                                                                ");
   blk("SUBSCRIPTIONS:                                                  ");
   blk("------------------------------------                            ");
-  blk("  DESIRED_THRUST_L, DESIRED_THRUST_R - Thrust commands          ");
-  blk("  ALL_STOP, MISSION_COMPLETE - Control signals                  ");
-  blk("  RC_CONNECTED, RC_CH1-16 - RC controller input                 ");
-  blk("  RC_DEADMAN_ENABLED - Runtime override for RC deadman watchdog ");
+  blk("  All variables (wildcard '*') by default, minus the configured ");
+  blk("  omit patterns; or the explicit 'log' list when wildcard=false.");
+  blk("  MISSION_HASH is always tracked for session markers.           ");
   blk("                                                                ");
   blk("PUBLICATIONS:                                                   ");
   blk("------------------------------------                            ");
-  blk("  AHRS group (suffix=<ahrs_pub_suffix>, default AHRS):           ");
-  blk("    NAV_ROLL, NAV_PITCH, NAV_YAW, NAV_HEADING                    ");
-  blk("  IMU group  (suffix=<imu_pub_suffix>,  default IMU):            ");
-  blk("    GYRO_X, GYRO_Y, GYRO_Z, GYRO_Z_LVL                           ");
-  blk("  Power/health (unsuffixed):                                     ");
-  blk("    NVGR_VOLTAGE, NVGR_CURRENT, NVGR_ROLLING_POWER               ");
-  blk("    NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT                          ");
-  blk("    NVGR_THRUST_TIMEOUT - autonomous-mode command timeout        ");
-  blk("    NVGR_RC_DEADMAN_ACTIVE - RC deadman state                    ");
+  blk("  None. pBB_AthensLogger is a pure sink and never publishes.    ");
   blk("                                                                ");
   exit(0);
 }
@@ -131,7 +134,6 @@ void showInterfaceAndExit()
 
 void showReleaseInfoAndExit()
 {
-  showReleaseInfo("iBBNavigatorInterface", "gpl");
+  showReleaseInfo("pBB_AthensLogger", "gpl");
   exit(0);
 }
-

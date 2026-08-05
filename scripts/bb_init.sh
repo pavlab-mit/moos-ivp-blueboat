@@ -282,14 +282,28 @@ elif [[ -x "$BB_ATTITUDE" ]]; then
     PITCH="0.0"
   else
     log "Sampling attitude (${ATT_DUR}s)..."
-    BB_OUT="$(as_user "$BB_ATTITUDE" -d "$ATT_DUR" -v 2>&1 | tr -d '\r' || true)"
-    log "bb_attitude output: $BB_OUT"
-    if [[ "$BB_OUT" =~ pitch_deg=([+-]?[0-9]+([.][0-9]+)?) ]]; then
-      PITCH="${BASH_REMATCH[1]}"
-    else
-      read -r _ PITCH <<< "$BB_OUT"   # fall back to "roll pitch" plain output
-    fi
-    [[ -z "${PITCH:-}" ]] && fail "Could not parse pitch from bb_attitude output."
+    # The first read can fail transiently right after boot: udev may not have
+    # applied the gpio group to the device nodes yet, and navigator init then
+    # aborts with PermissionDenied. Retry before giving up. A failed read must
+    # never pass the gate -- the panic text would land in PITCH and awk would
+    # compare it as 0 (level), launching a boat that may not be in the water.
+    PITCH=""
+    for att_try in 1 2 3; do
+      BB_OUT="$(as_user "$BB_ATTITUDE" -d "$ATT_DUR" -v 2>&1 | tr -d '\r' || true)"
+      log "bb_attitude output: $BB_OUT"
+      if [[ "$BB_OUT" =~ pitch_deg=([+-]?[0-9]+([.][0-9]+)?) ]]; then
+        PITCH="${BASH_REMATCH[1]}"
+      else
+        read -r _ PITCH <<< "$BB_OUT"   # fall back to "roll pitch" plain output
+      fi
+      [[ "${PITCH:-}" =~ ^[+-]?[0-9]+([.][0-9]+)?$ ]] && break
+      PITCH=""
+      if [[ "$att_try" -lt 3 ]]; then
+        log "WARN: no numeric pitch (attempt $att_try/3); retrying in 5s..."
+        sleep 5
+      fi
+    done
+    [[ -z "${PITCH:-}" ]] && fail "No numeric pitch from bb_attitude after 3 attempts."
   fi
 else
   log "WARN: bb_attitude not found at $BB_ATTITUDE; assuming level (pitch=0)."

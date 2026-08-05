@@ -269,6 +269,11 @@ std::map<UnicoreMessageType, bool> UnicoreParser::update() {
             lineBuffer_.erase(0, pos + 2);
 
             if (!line.empty()) {
+                // Hand every complete line to the logger before parsing, so
+                // message types this parser does not decode are still visible.
+                if (lineCallback_) {
+                    lineCallback_(line);
+                }
                 processLine(line);
             }
         }

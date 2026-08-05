@@ -1,14 +1,14 @@
 /*************************************************************
       Name:
       Orgn: MIT, Cambridge MA
-      File: pBB_Status/BB_Status_Info.cpp
-   Last Ed: 2026-06-03
-     Brief: Help, example config, and interface text for
-            pBB_Status.
+      File: iTeleop/Teleop_Info.cpp
+   Last Ed:  2026-07-15
+     Brief:
+        Help, example config, and interface text for iTeleop.
 *************************************************************/
 
 #include <cstdlib>
-#include "BB_Status_Info.h"
+#include "Teleop_Info.h"
 #include "ColorParse.h"
 #include "ReleaseInfo.h"
 
@@ -21,13 +21,12 @@ void showSynopsis()
 {
   blk("SYNOPSIS:                                                       ");
   blk("------------------------------------                            ");
-  blk("  pBB_Status runs in the FRONT-SEAT MOOS community. It          ");
-  blk("  subscribes to native front-seat hardware, RC, and nav         ");
-  blk("  variables plus a few autonomy variables brokered from the     ");
-  blk("  backseat, and publishes ONE consolidated BB_STATUS string.    ");
-  blk("  Each post is written to MOOSDB and, if tx_ip is set, pushed    ");
-  blk("  as a UDP datagram to the shoreside collector. It is a          ");
-  blk("  read-only aggregator and commands nothing.                    ");
+  blk("  iTeleop is the front-seat endpoint for emergency laptop       ");
+  blk("  teleoperation. It listens on UDP for a shore GUI, holds a     ");
+  blk("  single-client session with a deadman timeout, and publishes   ");
+  blk("  TELEOP_ACTIVE / TELEOP_THRUST_L / TELEOP_THRUST_R which the   ");
+  blk("  navigator interface arbitrates against RC and autonomy        ");
+  blk("  (priority: RC > teleop > autonomy).                           ");
 }
 
 //----------------------------------------------------------------
@@ -37,14 +36,15 @@ void showHelpAndExit()
 {
   blk("                                                                ");
   blu("=============================================================== ");
-  blu("Usage: pBB_Status file.moos [OPTIONS]                           ");
+  blu("Usage: iTeleop file.moos [OPTIONS]                              ");
   blu("=============================================================== ");
   blk("                                                                ");
   showSynopsis();
   blk("                                                                ");
   blk("Options:                                                        ");
   mag("  --alias","=<ProcessName>                                      ");
-  blk("      Launch pBB_Status with the given process name.            ");
+  blk("      Launch iTeleop with the given process name rather         ");
+  blk("      than iTeleop.                                             ");
   mag("  --example, -e                                                 ");
   blk("      Display example MOOS configuration block.                 ");
   mag("  --help, -h                                                    ");
@@ -52,7 +52,11 @@ void showHelpAndExit()
   mag("  --interface, -i                                               ");
   blk("      Display MOOS publications and subscriptions.              ");
   mag("  --version,-v                                                  ");
-  blk("      Display the release version of pBB_Status.                ");
+  blk("      Display the release version of iTeleop.                   ");
+  blk("                                                                ");
+  blk("Note: If argv[2] does not otherwise match a known option,       ");
+  blk("      then it will be interpreted as a run alias. This is       ");
+  blk("      to support pAntler launching conventions.                 ");
   blk("                                                                ");
   exit(0);
 }
@@ -64,25 +68,24 @@ void showExampleConfigAndExit()
 {
   blk("                                                                ");
   blu("=============================================================== ");
-  blu("pBB_Status Example MOOS Configuration                           ");
+  blu("iTeleop Example MOOS Configuration                              ");
   blu("=============================================================== ");
   blk("                                                                ");
-  blk("ProcessConfig = pBB_Status                                      ");
+  blk("ProcessConfig = iTeleop                                         ");
   blk("{                                                               ");
-  blk("  AppTick   = 4                                                 ");
-  blk("  CommsTick = 4                                                 ");
-  blk("                                                                ");
-  blk("  status_var         = BB_STATUS   // var to publish            ");
-  blk("  publish_interval   = 0.5         // sec between posts (2 Hz)  ");
-  blk("  stale_time         = 3.0         // sec before input = stale  ");
-  blk("  low_voltage_thresh = 22.0        // V, drives batt=LOW        ");
-  blk("  tx_ip              = 10.1.0.10   // collector IP or hostname;  ");
-  blk("                                   // empty = MOOS only          ");
-  blk("  tx_port            = 9300        // collector UDP port        ");
+  blk("  AppTick     = 20                                              ");
+  blk("  CommsTick   = 20                                              ");
+  blk("  listen_ip   = $(IP_ADDR)                                      ");
+  blk("  listen_port = 9310                                            ");
+  blk("  gui_deadman_timeout = 1.0   // sec without GUI frame -> release");
+  blk("  max_thrust  = 100           // clamp on inbound |thrust|      ");
+  blk("  ack_heartbeat_hz = 5        // idle ack rate while connected  ");
+  blk("  debug       = false                                           ");
   blk("}                                                               ");
   blk("                                                                ");
   exit(0);
 }
+
 
 //----------------------------------------------------------------
 // Procedure: showInterfaceAndExit
@@ -91,38 +94,34 @@ void showInterfaceAndExit()
 {
   blk("                                                                ");
   blu("=============================================================== ");
-  blu("pBB_Status INTERFACE                                            ");
+  blu("iTeleop INTERFACE                                               ");
   blu("=============================================================== ");
   blk("                                                                ");
   showSynopsis();
   blk("                                                                ");
-  blk("SUBSCRIPTIONS (native front seat):                              ");
+  blk("SUBSCRIPTIONS:                                                  ");
   blk("------------------------------------                            ");
-  blk("  NVGR_ROLLING_VOLTAGE, NVGR_ROLLING_CURRENT, NVGR_ROLLING_POWER");
-  blk("  RPI_TEMP, NVGTR_IT_C, NVGTR_IP_KPA                            ");
-  blk("  RC_CONNECTED, RC_FAILSAFE, NVGR_RC_DEADMAN_ACTIVE, RC_CH6     ");
-  blk("  NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT, NVGR_THRUST_TIMEOUT      ");
-  blk("  NAV_LAT_DGNSS, NAV_LONG_DGNSS, NAV_SPEED_DGNSS,               ");
-  blk("  GPS_HEADING_DGNSS, FIX_STATE_DGNSS                            ");
-  blk("                                                                ");
-  blk("SUBSCRIPTIONS (brokered from backseat):                         ");
-  blk("------------------------------------                            ");
-  blk("  DESIRED_THRUST_L, DESIRED_THRUST_R, ALL_STOP  (cross today)   ");
-  blk("  IVPHELM_STATE, DEPLOY, MODE  (require widening                ");
-  blk("    iBackSeatBroker.tx_vars; reported as stale until then)      ");
+  blk("  NVGR_THRUST_LEFT_WIRE   double  applied thrust (wire conv.)   ");
+  blk("  NVGR_THRUST_RIGHT_WIRE  double  applied thrust (wire conv.)   ");
+  blk("  NVGR_RC_MODE            string  physical RC override active   ");
+  blk("  NVGR_RC_DEADMAN_ACTIVE  string  RC deadman tripped            ");
+  blk("  NVGR_ROLLING_VOLTAGE    double  pack voltage for GUI acks     ");
   blk("                                                                ");
   blk("PUBLICATIONS:                                                   ");
   blk("------------------------------------                            ");
-  blk("  BB_STATUS (or status_var) -- one comma-separated key=value    ");
-  blk("    string: vname,utc,mode,mission,helm,deploy,volt,curr,power, ");
-  blk("    batt,rc,failsafe,deadman,des_l,des_r,thr_l,thr_r,allstop,    ");
-  blk("    rpi_t,int_t,int_kpa,fix,sats,hdop,lat,lon,spd,hdg,stale      ");
+  blk("  TELEOP_ACTIVE     string  true while a GUI session owns the   ");
+  blk("                            vehicle (re-published every iterate)");
+  blk("  TELEOP_THRUST_L   double  teleop thrust, wire convention      ");
+  blk("  TELEOP_THRUST_R   double  teleop thrust, wire convention      ");
+  blk("  TELEOP_CLIENT     string  operator label + address, or none   ");
   blk("                                                                ");
-  blk("UDP PUSH (when tx_ip set):                                      ");
+  blk("UDP FRAME FORMAT (port 9310, broker_v2 framing):                ");
   blk("------------------------------------                            ");
-  blk("  The same BB_STATUS string is sent verbatim as a UDP datagram  ");
-  blk("  to tx_ip:tx_port (no envelope). Front seat -> collector is a   ");
-  blk("  direct 10.1.0.0/24 unicast; the source IP identifies the boat.");
+  blk("  GUI->boat: <TOP_CMD=S:CMD|SID=S:..|SEQ=D:n|THRUST_L=D:..|     ");
+  blk("              THRUST_R=D:..|ESTOP=D:0>                          ");
+  blk("  boat->GUI: <TOP_ACK=S:OK|SEQ=D:n|MODE=S:TELEOP|THR_L=D:..|    ");
+  blk("              THR_R=D:..|ESTOP=D:0|VOLT=D:..|RC_DEADMAN=D:0|    ");
+  blk("              VNAME=S:zoe>                                      ");
   blk("                                                                ");
   exit(0);
 }
@@ -132,6 +131,6 @@ void showInterfaceAndExit()
 
 void showReleaseInfoAndExit()
 {
-  showReleaseInfo("pBB_Status", "gpl");
+  showReleaseInfo("iTeleop", "gpl");
   exit(0);
 }

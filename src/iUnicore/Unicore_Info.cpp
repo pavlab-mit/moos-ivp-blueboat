@@ -95,6 +95,14 @@ void showExampleConfigAndExit()
   blk("  stale_warn_repeat_sec  = 5.0   // Repeat warning period (sec) ");
   blk("  quality_warn_repeat_sec = 10.0 // Quality debug repeat (sec)  ");
   blk("                                                                ");
+  blk("  // Raw received-message text log. Comma-separated message     ");
+  blk("  // names (with or without leading #), or \"all\". May be        ");
+  blk("  // repeated. Off when unset.                                  ");
+  blk("  log = SPPNAVA                                                 ");
+  blk("  log = BESTNAVA, UNIHEADINGA                                   ");
+  blk("  // Output path. Default: LOG_iUnicore_<date>_MSGS.txt in cwd. ");
+  blk("  log_file = /home/pi/logs/unicore_sppnava.txt                  ");
+  blk("                                                                ");
   blk("  debug = false                                                 ");
   blk("}                                                               ");
   blk("                                                                ");
@@ -160,6 +168,15 @@ void showInterfaceAndExit()
   blk("  DTO group (publish_dto):                                      ");
   blk("    GNSS_POSITION_DTO, GNSS_HEADING, GNSS_VELOCITY,             ");
   blk("    GNSS_DOPS, GNSS_STATUS, GNSS_RTK_STATUS                     ");
+  blk("                                                                ");
+  blk("MESSAGE LOG (log / log_file):                                   ");
+  blk("------------------------------------                            ");
+  blk("  Appends each received sentence whose message name matches the  ");
+  blk("  log list to a text file, one line per sentence:               ");
+  blk("    <moos_time>,<utc_iso8601>,<raw_sentence>                    ");
+  blk("  Any name the receiver emits works, including types iUnicore   ");
+  blk("  does not decode (e.g. SPPNAVA). Lines are captured before     ");
+  blk("  checksum verification, so bad frames are logged too.          ");
   blk("                                                                ");
   exit(0);
 }

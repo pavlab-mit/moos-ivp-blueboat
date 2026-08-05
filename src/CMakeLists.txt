@@ -39,6 +39,8 @@ ADD_SUBDIRECTORY(uBBBundler)
 ADD_SUBDIRECTORY(iUnicore)
 ADD_SUBDIRECTORY(iRCReader)
 ADD_SUBDIRECTORY(pBBDynamicsMissionManager)
+ADD_SUBDIRECTORY(iTeleop)
+ADD_SUBDIRECTORY(pBB_AthensLogger)
 
 # Armadillo-dependent processes
 IF(${ARMA_AVAIL})
@@ -51,15 +53,12 @@ IF(${DOODLE_RADIO_AVAIL})
     ADD_SUBDIRECTORY(iDoodleLabs)
 ENDIF(${DOODLE_RADIO_AVAIL})
 
-# Vehicle-only components (require Navigator hardware and Armadillo)
-IF(${ON_VEHICLE} AND ${ARMA_AVAIL})
-    IF(${NAVOS_VERSION} STREQUAL "1")
-        message(STATUS "Building iBBNavigatorInterface_v1")
-        ADD_SUBDIRECTORY(iBBNavigatorInterface_v1)
-    ELSEIF(${NAVOS_VERSION} STREQUAL "2")
-        message(STATUS "Building iBBNavigatorInterface_v2")
-        ADD_SUBDIRECTORY(iBBNavigatorInterface_v2)
-    ENDIF()
+# Navigator hardware interface (navigator-cpp). One build for the
+# whole fleet - board revision and Pi model detected at runtime.
+# Builds on dev machines too (navigator-cpp provides platform stubs).
+IF(${NAVIGATOR_CPP_FOUND})
+    message(STATUS "Building iBBNavigatorInterface (navigator-cpp)")
+    ADD_SUBDIRECTORY(iBBNavigatorInterface)
 ENDIF()
 
 ##############################################################################

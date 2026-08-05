@@ -29,6 +29,10 @@ enum class UnicoreMessageType {
 // Callback type for raw data capture
 using UnicoreRawDataCallback = std::function<void(const uint8_t*, size_t)>;
 
+// Callback type for complete received lines (pre-parse, pre-checksum-check),
+// so consumers can log message types this parser does not decode.
+using UnicoreLineCallback = std::function<void(const std::string&)>;
+
 class UnicoreParser {
 public:
     // Data structures for parsed messages
@@ -270,6 +274,9 @@ public:
     // Raw data capture callback (for binary logging)
     void setRawDataCallback(UnicoreRawDataCallback callback) { rawDataCallback_ = callback; }
 
+    // Per-line callback (for text logging of any received sentence)
+    void setLineCallback(UnicoreLineCallback callback) { lineCallback_ = callback; }
+
 private:
     // Serial connection
     std::string port_;
@@ -312,4 +319,7 @@ private:
 
     // Raw data callback
     UnicoreRawDataCallback rawDataCallback_;
+
+    // Per-line callback
+    UnicoreLineCallback lineCallback_;
 };

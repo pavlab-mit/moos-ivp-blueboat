@@ -6,5 +6,16 @@ ProcessConfig = iRCReader
   AppTick    = 16
   CommsTick  = 16
 
+  // UART wired to the RC receiver. Must be parity-capable:
+  // the Pi mini UART (ttyS0) cannot frame SBUS 8E2.
+  //   RadioLink R12DS (via):  /dev/ttyAMA0 (GPIO14/15, disable-bt)
+  //   RadioMaster XR4 (zoe):  /dev/ttyAMA1 (Navigator SERIAL 3)
+  // Verify with: sbus_probe -d <dev>
+  device = /dev/ttyAMA1
+
+  // ExpressLRS drives 12 of 16 SBUS channels (CH13/15/16 sit at 0);
+  // only validate the driven ones or every frame is rejected.
+  // Set to 16 for receivers that drive all channels (RadioLink).
+  validated_channels = 12
 }
 

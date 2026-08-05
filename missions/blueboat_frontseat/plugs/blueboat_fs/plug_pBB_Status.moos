@@ -13,7 +13,7 @@ ProcessConfig = pBB_Status
    status_var = BB_STATUS
 
    // Seconds between BB_STATUS posts (independent of AppTick).
-   publish_interval = 0.5
+   publish_interval = 1
 
    // Seconds with no update before an input group is flagged stale.
    stale_time = 3.0
@@ -22,8 +22,9 @@ ProcessConfig = pBB_Status
    low_voltage_thresh = 13.0
 
    // Shoreside collector: BB_STATUS is pushed here as a UDP datagram
-   // each post (in addition to the local MOOS post above). Leave tx_ip
-   // empty to disable UDP and publish to MOOSDB only.
-   tx_ip   = 192.168.1.241
+   // each post (in addition to the local MOOS post above). Accepts an
+   // IP or a hostname (resolved at startup, retried until it works).
+   // Leave tx_ip empty to disable UDP and publish to MOOSDB only.
+   tx_ip   = malibu.local
    tx_port = 9300
 }

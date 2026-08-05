@@ -42,6 +42,7 @@
      , fd_(-1)
      , initialized_(false)
      , device_(device)
+     , validated_channels_(SBUS_VALIDATED_CHANNELS)
  {
      // Initialize channels with default values
      for (int i = 0; i < SBUS_NUM_CHANNELS; i++) {
@@ -105,6 +106,46 @@
      initialized_ = false;
  }
  
+ /**
+  * Change the UART device. Only honored while the port is closed.
+  */
+ bool SbusHandler::setDevice(const std::string& device) {
+     std::lock_guard<std::mutex> lock(mutex_);
+     if (initialized_) {
+         return false;
+     }
+     device_ = device;
+     return true;
+ }
+
+ /**
+  * Get the configured UART device path
+  */
+ std::string SbusHandler::getDevice() const {
+     std::lock_guard<std::mutex> lock(mutex_);
+     return device_;
+ }
+
+ /**
+  * Set how many channels the range check validates (from CH1).
+  * Clamped to [4, SBUS_NUM_CHANNELS]; the low bound keeps the
+  * joystick channels always validated.
+  */
+ void SbusHandler::setValidatedChannels(int count) {
+     std::lock_guard<std::mutex> lock(mutex_);
+     if (count < 4) count = 4;
+     if (count > SBUS_NUM_CHANNELS) count = SBUS_NUM_CHANNELS;
+     validated_channels_ = count;
+ }
+
+ /**
+  * Get the number of channels the range check validates
+  */
+ int SbusHandler::getValidatedChannels() const {
+     std::lock_guard<std::mutex> lock(mutex_);
+     return validated_channels_;
+ }
+
  /**
   * Get current time in microseconds
   */
@@ -255,8 +296,17 @@
      // 0-99, since the upper bound was unreachable after the mask).
      // If a future radio is configured for extended endpoints
      // (>125%), widen SBUS_MIN_VALUE / SBUS_MAX_VALUE in the header.
+     // Only the first validated_channels_ channels are checked:
+     // channels the transmitter does not drive sit at 0 and would
+     // otherwise reject every frame (ExpressLRS drives 12 of 16).
+     int n_check;
+     {
+         std::lock_guard<std::mutex> lock(mutex_);
+         n_check = validated_channels_;
+     }
+
      bool valid_frame = true;
-     for (int i = 0; i < SBUS_NUM_CHANNELS; i++) {
+     for (int i = 0; i < n_check; i++) {
          if (new_channels[i] < SBUS_MIN_VALUE ||
              new_channels[i] > SBUS_MAX_VALUE) {
              valid_frame = false;

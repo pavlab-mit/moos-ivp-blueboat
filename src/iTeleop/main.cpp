@@ -1,17 +1,18 @@
 /*************************************************************
-      Name: Raymond Turrisi
+      Name:
       Orgn: MIT, Cambridge MA
-      File: iBBNavigatorInterface_v1/main.cpp
-   Last Ed:  2025-03-30
+      File: iTeleop/main.cpp
+   Last Ed:  2026-07-15
      Brief:
-        Combined Navigator Interface for Blueboat ASV for Navigator version 0.0.6.
+        Launcher for iTeleop: parses CLI args (-h, -e, -i, -v,
+        --alias=) and runs the teleop endpoint MOOS app.
 *************************************************************/
 
 #include <string>
 #include "MBUtils.h"
 #include "ColorParse.h"
-#include "BBNavigatorInterface_v1.h"
-#include "BBNavigatorInterface_v1_Info.h"
+#include "Teleop.h"
+#include "Teleop_Info.h"
 
 using namespace std;
 
@@ -42,13 +43,12 @@ int main(int argc, char *argv[])
     showHelpAndExit();
 
   cout << termColor("green");
-  cout << "iBBNavigatorInterface launching as " << run_command << endl;
+  cout << "iTeleop launching as " << run_command << endl;
   cout << termColor() << endl;
 
-  BBNavigatorInterface app;
+  Teleop Teleop;
 
-  app.Run(run_command.c_str(), mission_file.c_str());
+  Teleop.Run(run_command.c_str(), mission_file.c_str());
 
   return(0);
 }
-

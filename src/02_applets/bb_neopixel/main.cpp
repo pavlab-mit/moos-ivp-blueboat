@@ -15,10 +15,8 @@
             bb_neopixel navlights              launched (green/red)
             bb_neopixel off
 
-        Builds against navigator-lib 0.0.6 (NAVOS v1) by default
-        and 0.1.2 (NAVOS v2) when IBBNAV_NAVOS_V2 is defined.
-        set_neopixel_rgbw()/set_rgb_led_strip_size() exist in both;
-        only the init prelude differs.
+        Built on navigator-cpp (runtime Navigator V1/V2 and
+        Pi 4/5 detection) - one build everywhere.
 *************************************************************/
 
 #include <chrono>
@@ -30,14 +28,16 @@
 #include <string>
 #include <thread>
 
-#include "bindings.h"
+#include "nav_bindings.h"
+
+static Navigator g_nav;
 
 // Strip length. The original discoturtle ring was 24 LEDs; override with
 // --count if your strip differs.
 static int g_num_leds = 24;
 static uint8_t g_rgbw[256][4];  // max 256 LEDs; only g_num_leds used
 
-static void push() { set_neopixel_rgbw(g_rgbw, g_num_leds); }
+static void push() { g_nav.neopixel_set_rgbw(g_rgbw, g_num_leds); }
 
 static void allOff() {
   std::memset(g_rgbw, 0, sizeof(g_rgbw));
@@ -138,18 +138,11 @@ int main(int ac, char* av[]) {
   std::signal(SIGINT,  signalHandler);
   std::signal(SIGTERM, signalHandler);
 
-  set_rgb_led_strip_size(g_num_leds);
-
-  // navigator-lib 0.1.2 requires explicit hardware selection BEFORE init().
-#if defined(IBBNAV_NAVOS_V2) && IBBNAV_NAVOS_V2
-  set_navigator_version(NavigatorVersion::Version2);
-  #if defined(IBBNAV_RASPBERRY_PI5) && IBBNAV_RASPBERRY_PI5
-  set_raspberry_pi_version(Raspberry::Pi5);
-  #else
-  set_raspberry_pi_version(Raspberry::Pi4);
-  #endif
-#endif
-  init();
+  {
+    std::string err = g_nav.init();
+    if (!err.empty())
+      std::fprintf(stderr, "navigator init warnings: %s\n", err.c_str());
+  }
 
   if (cmd == "off")            allOff();
   else if (cmd == "navlights") navLights();
