@@ -12,9 +12,9 @@
         Raspberry Pi model (4 vs 5) at runtime.
 
         Owns:
-          - Dual-thruster PWM (left/right ESCs) with persistent
-            per-boot arming state, command watchdogs, and safe
-            shutdown / full-disarm paths
+          - Dual-thruster PWM (left/right ESCs) with per-launch
+            neutral-hold arming, command watchdogs, and safe
+            shutdown / signal-cut paths
           - AHRS via the vendored Allgeuer/NimbRo passive
             complementary filter (replaces Madgwick)
           - Raw gyro / level-frame yaw-rate publication
@@ -121,15 +121,12 @@ protected:
   // RC thrust calculation
   void calculateRCThrust();
 
-  // ESC lifecycle. armIfNeeded() enables PWM and, only on the first
-  // launch since boot (tracked by a tmpfs marker file), runs the
-  // configured arm sequence. requestDisarm() cuts PWM output (OE
-  // high) and clears the marker so the next launch re-arms.
+  // ESC lifecycle. armIfNeeded() enables PWM and runs the neutral-
+  // hold arm sequence (every launch). requestDisarm() cuts the PWM
+  // signal (OE high): the ESCs stop on signal loss; re-arming costs
+  // a fresh armIfNeeded() neutral hold.
   void armIfNeeded();
   void requestDisarm(const std::string &reason);
-  bool escMarkerExists() const;
-  void writeEscMarker() const;
-  void clearEscMarker() const;
 
   // Helper function to compute heading error mixer similar to DiffThrustPID
   double calculateHeadingMixer(double desired_heading, double current_heading);
@@ -229,29 +226,21 @@ private: // State variables
   double m_left_thruster_invert;
   double m_right_thruster_invert;
 
-  // ESC arming lifecycle. NOTE: the PWM signal does not survive an
-  // app restart (navigator-cpp releases the OE line on exit and
-  // re-requests it disabled on init), so the ESCs disarm between
-  // missions and the arm procedure runs on EVERY launch.
+  // ESC arming lifecycle. NOTE (bench-verified 2026-08-14): pin
+  // state PERSISTS after app exit - releasing the OE GPIO line does
+  // not reset it - so between missions the ESCs sit ARMED at the
+  // last-written neutral. The fleet safe state is neutral-on-the-
+  // wire (props stopped, signal present), NOT absence of signal.
+  // The neutral-hold arm procedure runs on every launch
+  // (pca9685_init parks the channels first, so init is state-
+  // independent). Unhandled deaths (SIGKILL/OOM), where the chip
+  // would free-run the last commanded thrust, are covered by the
+  // independent bb_esc_failsafe watcher.
   //   m_initialize_esc   - run the arm procedure at startup
   //                        (legacy param name kept).
-  //   m_esc_arm_mode     - "neutral" (hold 1500us for 2s; the
-  //                        documented Basic ESC 500 arming procedure,
-  //                        zero throttle excursion, safe to repeat) or
-  //                        "sweep" (legacy max/min/neutral throttle
-  //                        sweep - DANGEROUS into armed ESCs, so it is
-  //                        gated by the per-boot marker: at most once
-  //                        per boot, later launches fall back to the
-  //                        neutral hold).
-  //   m_esc_marker_path  - tmpfs marker recording that an arm sequence
-  //                        ran this boot; gates sweep mode.
-  //   m_disarm_on_exit   - if true, safe shutdown explicitly disables
-  //                        PWM output and clears the marker (allowing
-  //                        a sweep on the next launch). Signal is lost
-  //                        at process exit regardless (see NOTE).
+  //   m_disarm_on_exit   - if true, safe shutdown also raises OE
+  //                        (signal-cut; ESCs beep until next arm).
   bool m_initialize_esc;
-  std::string m_esc_arm_mode;
-  std::string m_esc_marker_path;
   bool m_disarm_on_exit;
   bool m_esc_armed;          // arming path completed this boot
   bool m_pwm_output_enabled; // OE state as last commanded by this app

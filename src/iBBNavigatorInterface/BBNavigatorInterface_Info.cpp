@@ -90,10 +90,8 @@ void showExampleConfigAndExit()
   blk("  // pwm_max_us = 1900                                          ");
   blk("                                                                ");
   blk("  // ESC lifecycle                                              ");
-  blk("  initialize_esc   = true      // arm on first launch per boot  ");
-  blk("  esc_arm_mode     = neutral   // neutral | sweep (legacy)      ");
-  blk("  esc_armed_marker = /dev/shm/bb_esc_armed                      ");
-  blk("  disarm_on_exit   = false     // true: cut PWM on exit         ");
+  blk("  initialize_esc   = true      // neutral-hold arm every launch ");
+  blk("  disarm_on_exit   = false     // true: cut PWM signal on exit  ");
   blk("                                                                ");
   blk("  // AHRS config (Allgeuer passive complementary filter)        ");
   blk("  sample_rate = 150                                             ");
@@ -125,8 +123,8 @@ void showInterfaceAndExit()
   blk("------------------------------------                            ");
   blk("  DESIRED_THRUST_L, DESIRED_THRUST_R - Thrust commands          ");
   blk("  ALL_STOP, MISSION_COMPLETE - Control signals                  ");
-  blk("  NVGR_DISARM - true: cut PWM signal (ESCs disarm), clear the   ");
-  blk("                per-boot arm marker; false: re-enable + re-arm  ");
+  blk("  NVGR_DISARM - true: cut PWM signal (ESCs stop on signal loss) ");
+  blk("                false: re-enable + neutral-hold re-arm          ");
   blk("  RC_CONNECTED, RC_FRAME_VALID, RC_CH1-16 - RC controller input ");
   blk("  RC_DEADMAN_ENABLED - Runtime override for RC deadman watchdog ");
   blk("  TELEOP_ACTIVE, TELEOP_THRUST_L/R - Laptop teleop (iTeleop)    ");
