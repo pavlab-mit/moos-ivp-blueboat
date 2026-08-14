@@ -41,7 +41,6 @@ static std::atomic<bool> g_disarm_on_exit{false};
 static std::atomic<int> g_left_pin{BBNavigatorInterface::kPwmIndexCh14};
 static std::atomic<int> g_right_pin{BBNavigatorInterface::kPwmIndexCh16};
 static std::atomic<bool> g_shutdown_done{false};
-static char g_esc_marker_path[256] = "/dev/shm/bb_esc_armed";
 
 // Commanded pulse range. Globals (not members) because the static
 // setPinPulseWidth() must work from the signal/atexit shutdown path.
@@ -95,14 +94,18 @@ void safePwmShutdown()
 
   if (g_disarm_on_exit.load())
   {
-    // Explicit disarm: OE high cuts all PCA9685 outputs, and clearing
-    // the per-boot marker re-permits a sweep on the next launch.
+    // Explicit signal-cut: OE high tri-states all PCA9685 outputs;
+    // the ESCs stop on signal loss and beep until the next arm.
     g_nav.pwm_enable(false);
-    ::unlink(g_esc_marker_path);
   }
-  // Either way the ESCs lose their signal when the process exits
-  // (navigator-cpp's shutdown() releases the OE line), so they disarm
-  // between missions and the next launch re-arms with a neutral hold.
+  // Otherwise the pin state PERSISTS after exit (bench-verified
+  // 2026-08-14): releasing the OE GPIO line does not reset it, so OE
+  // stays low and the chip free-runs the neutral just written. The
+  // ESCs therefore sit armed at neutral between missions - the fleet
+  // safe state by design: props stopped, signal present, silent, no
+  // re-arm needed. The bb_esc_failsafe watcher covers UNHANDLED
+  // deaths (SIGKILL/OOM), where this function never runs and the
+  // chip would otherwise free-run the last commanded thrust.
 }
 
 void signalHandler(int signum)
@@ -194,18 +197,15 @@ BBNavigatorInterface::BBNavigatorInterface()
   // surfaced in the appcast via m_last_sensor_error.
   m_last_sensor_error = g_nav.init(NAV_AUTO, PI_AUTO);
 
-  m_left_thruster_pin = PwmChannel::Ch14;
-  m_right_thruster_pin = PwmChannel::Ch16;
+  m_left_thruster_pin = kPwmIndexCh14;
+  m_right_thruster_pin = kPwmIndexCh16;
 
   m_thruster_enabled = true;
   m_left_thruster_invert = 1;
   m_right_thruster_invert = 1;
 
-  // ESC lifecycle defaults (see header). The marker default lives on
-  // tmpfs so a reboot always clears it.
+  // ESC lifecycle defaults (see header).
   m_initialize_esc = false;
-  m_esc_arm_mode = "neutral";
-  m_esc_marker_path = g_esc_marker_path;
   m_disarm_on_exit = false;
   m_esc_armed = false;
   m_pwm_output_enabled = false;
@@ -348,35 +348,15 @@ BBNavigatorInterface::~BBNavigatorInterface()
 //---------------------------------------------------------
 // ESC lifecycle
 
-bool BBNavigatorInterface::escMarkerExists() const
-{
-  return ::access(m_esc_marker_path.c_str(), F_OK) == 0;
-}
-
-void BBNavigatorInterface::writeEscMarker() const
-{
-  FILE *f = fopen(m_esc_marker_path.c_str(), "w");
-  if (f != nullptr)
-  {
-    fprintf(f, "armed\n");
-    fclose(f);
-  }
-}
-
-void BBNavigatorInterface::clearEscMarker() const
-{
-  ::unlink(m_esc_marker_path.c_str());
-}
-
-// Enable PWM output and arm the ESCs. The PWM signal does NOT survive
-// an app restart: navigator-cpp's shutdown() releases the OE line on
-// exit and pca9685_init() re-requests it disabled, so the ESCs lose
-// signal and disarm between missions. The neutral hold therefore runs
-// on EVERY launch - it is the documented Basic ESC 500 arming
-// procedure and commands zero throttle at all times, so repeating it
-// is harmless. The per-boot marker gates only the "sweep" mode: a
-// throttle sweep can run at most once per boot, and can never replay
-// into a live restart.
+// Enable PWM output and arm the ESCs. Pin state PERSISTS across app
+// restarts (bench-verified 2026-08-14: releasing the OE line does
+// not reset it), so between missions the ESCs normally sit ARMED at
+// the neutral the previous exit wrote. pca9685_init() parks all
+// channels and raises OE, so from init until the enable below the
+// ESCs see a brief signal gap. The neutral hold runs on EVERY
+// launch: it is the documented Basic ESC 500 arming procedure,
+// commands zero throttle at all times, and is harmless into
+// already-armed ESCs (the normal case).
 void BBNavigatorInterface::armIfNeeded()
 {
   std::string err;
@@ -405,40 +385,18 @@ void BBNavigatorInterface::armIfNeeded()
     return;
   }
 
-  const bool first_launch = !escMarkerExists();
-
-  if (m_esc_arm_mode == "sweep" && first_launch)
-  {
-    // Legacy max/min/neutral throttle sweep (both ESCs in parallel).
-    // Only reachable on the first launch per boot.
-    setPinPulseWidth(m_left_thruster_pin, 100);
-    setPinPulseWidth(m_right_thruster_pin, 100);
-    this_thread::sleep_for(chrono::milliseconds(500));
-    setPinPulseWidth(m_left_thruster_pin, -100);
-    setPinPulseWidth(m_right_thruster_pin, -100);
-    this_thread::sleep_for(chrono::milliseconds(500));
-    setPinPulseWidth(m_left_thruster_pin, 0);
-    setPinPulseWidth(m_right_thruster_pin, 0);
-    this_thread::sleep_for(chrono::milliseconds(250));
-    reportEvent("ESC arm sequence complete (sweep, first launch this boot)");
-  }
-  else
-  {
-    if (m_esc_arm_mode == "sweep")
-      reportEvent("Sweep already ran this boot (marker present); using neutral hold");
-    // BlueRobotics Basic ESC 500s arm on a stable neutral signal; hold
-    // 1500us for 2 seconds. No throttle excursion at any point.
-    setPinPulseWidth(m_left_thruster_pin, 0);
-    setPinPulseWidth(m_right_thruster_pin, 0);
-    this_thread::sleep_for(chrono::milliseconds(2000));
-    reportEvent("ESC arm sequence complete (neutral hold)");
-  }
+  // BlueRobotics Basic ESC 500s arm on a stable neutral signal; hold
+  // 1500us for 2 seconds. No throttle excursion at any point. (The
+  // legacy "sweep" arm mode - a max/min/neutral throttle sweep - was
+  // deleted 2026-08-14: a throttle sweep into ESCs that are now known
+  // to stay armed between missions is a prop-spin accident.)
+  setPinPulseWidth(m_left_thruster_pin, 0);
+  setPinPulseWidth(m_right_thruster_pin, 0);
+  this_thread::sleep_for(chrono::milliseconds(2000));
+  reportEvent("ESC arm sequence complete (neutral hold)");
 
   m_esc_armed = true;
-  if (first_launch)
-    writeEscMarker();
-  dbg_print("ESC arm sequence performed (%s%s)\n", m_esc_arm_mode.c_str(),
-            first_launch ? ", marker written" : "");
+  dbg_print("ESC arm sequence performed (neutral hold)\n");
 }
 
 void BBNavigatorInterface::requestDisarm(const std::string &reason)
@@ -453,7 +411,6 @@ void BBNavigatorInterface::requestDisarm(const std::string &reason)
   g_nav.pwm_enable(false);
   m_pwm_output_enabled = false;
   m_esc_armed = false;
-  clearEscMarker();
   reportEvent("ESCs DISARMED (" + reason + ")");
   dbg_print("ESCs disarmed: %s\n", reason.c_str());
 }
@@ -501,10 +458,9 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
     }
     else if (key == "NVGR_DISARM")
     {
-      // Operator / backseat commanded full disarm: cut the PWM signal
-      // so the ESCs disarm, and clear the per-boot marker so the next
-      // launch re-arms. Re-arm within this run by publishing
-      // NVGR_DISARM=false.
+      // Operator / backseat commanded signal-cut: OE high, the ESCs
+      // stop on signal loss. Re-arm within this run by publishing
+      // NVGR_DISARM=false (costs the 2 s neutral hold).
       if (msg.GetString() == "true")
         requestDisarm("NVGR_DISARM via MOOS");
       else if (!m_pwm_output_enabled)
@@ -1249,20 +1205,11 @@ bool BBNavigatorInterface::OnStartUp()
       else
         reportConfigWarning("pwm_max_us must be in (1500, 2500]");
     }
-    else if (param == "esc_arm_mode")
+    else if (param == "esc_arm_mode" || param == "esc_armed_marker")
     {
-      string v = tolower(value);
-      if (v == "neutral" || v == "sweep")
-      {
-        m_esc_arm_mode = v;
-        handled = true;
-      }
-      else
-        reportConfigWarning("esc_arm_mode must be 'neutral' or 'sweep'");
-    }
-    else if (param == "esc_armed_marker")
-    {
-      m_esc_marker_path = value;
+      // Deleted 2026-08-14 with the legacy sweep arm mode; accepted
+      // silently so older plugs don't warn. Neutral hold is the only
+      // arm procedure.
       handled = true;
     }
     else if (param == "disarm_on_exit")
@@ -1406,13 +1353,11 @@ bool BBNavigatorInterface::OnStartUp()
       reportUnhandledConfigWarning(orig);
   }
 
-  // Publish thruster pins / disarm policy / marker path to the async
-  // shutdown path before any arming happens.
+  // Publish thruster pins / disarm policy to the async shutdown
+  // path before any arming happens.
   g_left_pin.store(m_left_thruster_pin);
   g_right_pin.store(m_right_thruster_pin);
   g_disarm_on_exit.store(m_disarm_on_exit);
-  snprintf(g_esc_marker_path, sizeof(g_esc_marker_path), "%s",
-           m_esc_marker_path.c_str());
 
   // Surface the detected hardware once at startup.
   {
@@ -1561,8 +1506,7 @@ bool BBNavigatorInterface::buildReport()
   actab << "Pulse Range (us):" << (doubleToString(g_pwm_min_us.load(), 0) + "-" +
                                    doubleToString(g_pwm_max_us.load(), 0));
   actab << "PWM Output Enabled:" << (m_pwm_output_enabled ? "true" : "false");
-  actab << "ESC Armed This Boot:" << (m_esc_armed ? "true" : "false");
-  actab << "ESC Arm Mode:" << m_esc_arm_mode;
+  actab << "ESC Arm Seq Run:" << (m_esc_armed ? "true" : "false");
   actab << "Disarm On Exit:" << (m_disarm_on_exit ? "true" : "false");
 
   // Add thrust timeout information

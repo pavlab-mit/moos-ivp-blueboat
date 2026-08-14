@@ -51,26 +51,18 @@ ProcessConfig = iBBNavigatorInterface
   //---------------------------------------------------------
   // ESC LIFECYCLE
   //---------------------------------------------------------
-  // Arm the ESCs on startup. The PWM signal does not survive an app
-  // restart (the OE line is released at exit), so the ESCs disarm
-  // between missions and the arm procedure runs on EVERY launch.
+  // Arm the ESCs on startup: hold 1500us neutral for 2 s (the
+  // documented Basic ESC 500 procedure; zero throttle excursion).
+  // Runs on EVERY launch. Note (bench-verified 2026-08-14): pin
+  // state persists after app exit, so between missions the ESCs sit
+  // armed at the last-written neutral - the intended safe state
+  // (props stopped, signal present). Unhandled app deaths are
+  // covered by the independent bb_esc_failsafe watcher.
   initialize_esc      = true
 
-  // neutral: hold 1500us for 2 s - the documented Basic ESC 500
-  //          arming procedure. Zero throttle excursion; safe to
-  //          repeat every launch.
-  // sweep:   legacy max/min/neutral throttle sweep. Gated by a tmpfs
-  //          marker (esc_armed_marker) to at most ONCE per boot -
-  //          later launches fall back to the neutral hold, so a live
-  //          restart can never replay a sweep into armed ESCs.
-  esc_arm_mode        = neutral
-
-  // esc_armed_marker  = /dev/shm/bb_esc_armed
-
-  // true: safe shutdown explicitly disables PWM output and clears
-  //       the marker (re-permitting a sweep next launch). Signal is
-  //       lost at process exit regardless.
-  // Runtime disarm/re-arm any time: publish NVGR_DISARM = true/false.
+  // true: safe shutdown also raises OE (signal-cut: ESCs lose
+  //       signal and beep until the next launch re-arms them).
+  // Runtime signal-cut / re-arm any time: NVGR_DISARM = true/false.
   disarm_on_exit      = false
 
   // Zero thrust if no DESIRED_THRUST_L/R for this many seconds
