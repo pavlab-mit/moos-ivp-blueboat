@@ -103,9 +103,12 @@ void safePwmShutdown()
   // stays low and the chip free-runs the neutral just written. The
   // ESCs therefore sit armed at neutral between missions - the fleet
   // safe state by design: props stopped, signal present, silent, no
-  // re-arm needed. The bb_esc_failsafe watcher covers UNHANDLED
-  // deaths (SIGKILL/OOM), where this function never runs and the
-  // chip would otherwise free-run the last commanded thrust.
+  // re-arm needed. KNOWN GAP: on an UNHANDLED death (SIGKILL, kernel
+  // OOM) this function never runs and the chip free-runs the LAST
+  // COMMANDED THRUST until power is cut. An optional watcher exists
+  // (scripts/bb_esc_failsafe.sh) but is NOT deployed by fleet
+  // decision (2026-08-14); avoid kill -9 on this app with props in
+  // the water.
 }
 
 void signalHandler(int signum)
@@ -171,6 +174,10 @@ BBNavigatorInterface::BBNavigatorInterface()
     m_rc_channels[i] = 0.0;
   }
   m_rc_mode = false; // Default to MOOS control mode
+  m_rc_kill = false; // Boots running; KILL engages only from the handset
+  m_rc_ch8_last_state = 0;    // CH8 baseline not yet observed
+  m_rc_thrust_limit_enable = false;
+  m_rc_thrust_limit = 100.0;  // no cap until CH11 mail arrives
 
   // RC deadman defaults: ON, 2-second timeout. Last-good-time is
   // initialized to 0 so the deadman fires immediately at startup
@@ -559,6 +566,75 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
           dbg_print("RC mode: %s\n", m_rc_mode ? "true" : "false");
         }
 
+        // KILL switch (Channel 5) - neutral-lock, latched while
+        // connected with the same gating rationale as CH6 above:
+        // the disconnected fallback publishes CH5=1 (RUNNING), and
+        // trusting it would silently un-kill a killed boat the
+        // moment the link drops. On the kill edge the thrusters go
+        // neutral IMMEDIATELY (not waiting for Iterate); the
+        // per-iterate final override below keeps them there.
+        if (channel == 4 && m_rc_connected) // Channel 5 (zero-indexed as 4)
+        {
+          bool kill = (m_rc_channels[channel] == 2.0);
+          if (kill != m_rc_kill)
+          {
+            m_rc_kill = kill;
+            if (kill)
+            {
+              m_desired_thrust_left = 0;
+              m_desired_thrust_right = 0;
+              m_latest_set_thrust_left.store(0.0);
+              m_latest_set_thrust_right.store(0.0);
+              setPinPulseWidth(m_left_thruster_pin, 0);
+              setPinPulseWidth(m_right_thruster_pin, 0);
+              reportRunWarning("RC KILL engaged - thrust locked at neutral");
+            }
+            else
+            {
+              retractRunWarning("RC KILL engaged - thrust locked at neutral");
+              reportEvent("RC KILL released - thrust unlocked");
+            }
+          }
+        }
+
+        // DEADMAN_EN switch (Channel 8) - handset control of the RC
+        // deadman watchdog. Connected-gated like CH6, and EDGE-
+        // triggered: only a switch state CHANGE writes the runtime
+        // flag, so this and the backseat RC_DEADMAN_ENABLED writer
+        // coexist (last writer wins) instead of fighting every
+        // iterate. The first sample after boot/reconnect records
+        // the baseline without acting, so a pre-positioned switch
+        // doesn't silently override the configured default.
+        if (channel == 7 && m_rc_connected) // Channel 8 (zero-indexed as 7)
+        {
+          int s = (int)m_rc_channels[channel]; // 1=ENABLED 2=DISABLED
+          if (s == 1 || s == 2)
+          {
+            if (m_rc_ch8_last_state != 0 && s != m_rc_ch8_last_state)
+            {
+              m_rc_deadman_enabled = (s == 1);
+              reportEvent(std::string("RC deadman ") +
+                          (m_rc_deadman_enabled ? "ENABLED" : "DISABLED") +
+                          " via handset switch (CH8)");
+            }
+            m_rc_ch8_last_state = s;
+          }
+        }
+
+        // THRUST_LIMIT pot (Channel 11) - operator authority cap in
+        // percent (iRCInterface floors it at 25). Deliberately NOT
+        // connected-gated: the disconnected fallback publishes 100
+        // (cap released), and since the limit only touches manual
+        // modes - which need a live link anyway - that fallback
+        // never drives a thruster.
+        if (channel == 10) // Channel 11 (zero-indexed as 10)
+        {
+          double pct = m_rc_channels[channel];
+          if (pct < 25.0)  pct = 25.0;
+          if (pct > 100.0) pct = 100.0;
+          m_rc_thrust_limit = pct;
+        }
+
         dbg_print("RC_CH%d: %0.2f\n", channel + 1, m_rc_channels[channel]);
       }
     }
@@ -694,6 +770,16 @@ void BBNavigatorInterface::calculateRCThrust()
     rclamp(left_thrust, -100.0, 100.0);
     rclamp(right_thrust, -100.0, 100.0);
 
+    // CH11 THRUST_LIMIT: operator authority cap, manual sources
+    // only (docs/rc_controllers.md 7.2). Applied after the mix and
+    // clamps so the cap scales the final output symmetrically.
+    if (m_rc_thrust_limit_enable)
+    {
+      double k = m_rc_thrust_limit / 100.0;
+      left_thrust  *= k;
+      right_thrust *= k;
+    }
+
     m_desired_thrust_left = left_thrust * m_left_thruster_invert;
     m_desired_thrust_right = right_thrust * m_right_thruster_invert;
 
@@ -797,8 +883,12 @@ bool BBNavigatorInterface::Iterate()
   // handlers so all three command sources share one convention.
   else if (m_teleop_engaged)
   {
-    m_desired_thrust_left = -1.0 * m_teleop_thrust_left * m_left_thruster_invert;
-    m_desired_thrust_right = -1.0 * m_teleop_thrust_right * m_right_thruster_invert;
+    // Same CH11 authority cap as calculateRCThrust: the pot caps
+    // BOTH manual sources; autonomy is never limited.
+    const double tl_k = m_rc_thrust_limit_enable
+                            ? m_rc_thrust_limit / 100.0 : 1.0;
+    m_desired_thrust_left = -1.0 * m_teleop_thrust_left * tl_k * m_left_thruster_invert;
+    m_desired_thrust_right = -1.0 * m_teleop_thrust_right * tl_k * m_right_thruster_invert;
 
     // Teleop counts as a thrust command (mirrors calculateRCThrust)
     m_last_thrust_command_time = MOOSTime();
@@ -850,6 +940,20 @@ bool BBNavigatorInterface::Iterate()
     reportEvent("RC deadman cleared");
   Notify("NVGR_RC_DEADMAN_ACTIVE",
          m_rc_deadman_active ? "true" : "false");
+
+  // RC KILL (CH5) - neutral-lock FINAL override
+  // (docs/rc_controllers.md 7.1). Placed after every arbitration
+  // branch - RC, teleop, autonomy, ALL_STOP exemptions, deadman -
+  // so nothing below this line can re-command thrust while killed.
+  // Unlike ALL_STOP, KILL overrides the manual rescue modes too:
+  // that is its whole meaning. ESCs stay armed at the neutral this
+  // enforces, so releasing KILL restores thrust instantly.
+  if (m_rc_kill)
+  {
+    m_desired_thrust_left = 0;
+    m_desired_thrust_right = 0;
+  }
+  Notify("NVGR_RC_KILL", m_rc_kill ? "true" : "false");
 
   // Apply dead band to thrusters
   if (fabs(m_desired_thrust_left) < m_thruster_dead_band)
@@ -1132,6 +1236,11 @@ bool BBNavigatorInterface::OnStartUp()
     else if (param == "rc_deadman_enabled")
     {
       m_rc_deadman_enabled = (tolower(value) == "true");
+      handled = true;
+    }
+    else if (param == "rc_thrust_limit_enable")
+    {
+      m_rc_thrust_limit_enable = (tolower(value) == "true");
       handled = true;
     }
     else if (param == "rc_deadman_timeout")
@@ -1525,6 +1634,11 @@ bool BBNavigatorInterface::buildReport()
   double rc_age_now = MOOSTime() - m_last_rc_good_time;
   actab << "RC Mail Age (sec):" << rc_age_now;
   actab << "RC Deadman Tripped:" << (m_rc_deadman_active ? "true" : "false");
+  actab << "RC Kill (CH5):" << (m_rc_kill ? "KILLED" : "running");
+  actab << "RC Thrust Limit (CH11):" <<
+      (m_rc_thrust_limit_enable
+           ? doubleToString(m_rc_thrust_limit, 0) + "%"
+           : "disabled");
   actab << "RC Channel 1 (Turning):" << m_rc_channels[0];
   actab << "RC Channel 3 (Speed):" << m_rc_channels[2];
   actab << "RC Channel 6 (Mode Switch):" << m_rc_channels[5];

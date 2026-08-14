@@ -56,8 +56,8 @@ ProcessConfig = iBBNavigatorInterface
   // Runs on EVERY launch. Note (bench-verified 2026-08-14): pin
   // state persists after app exit, so between missions the ESCs sit
   // armed at the last-written neutral - the intended safe state
-  // (props stopped, signal present). Unhandled app deaths are
-  // covered by the independent bb_esc_failsafe watcher.
+  // (props stopped, signal present). Known gap: an unhandled app
+  // death (kill -9 / OOM) leaves the last commanded thrust running.
   initialize_esc      = true
 
   // true: safe shutdown also raises OE (signal-cut: ESCs lose
@@ -77,9 +77,18 @@ ProcessConfig = iBBNavigatorInterface
   // arrives. Disable for over-the-horizon missions where running
   // outside RC range is acceptable, either at config time
   // (rc_deadman_enabled = false) or at runtime by publishing
-  // RC_DEADMAN_ENABLED = "false" to the MOOSDB.
+  // RC_DEADMAN_ENABLED = "false" to the MOOSDB, or from the handset
+  // DEADMAN switch (RC_CH8, SW2) - switch changes and backseat
+  // writes both move the same runtime flag, last writer wins.
   rc_deadman_enabled = false
   rc_deadman_timeout = 2.0
+
+  // CH11 THRUST_LIMIT (S1 pot): operator authority cap in percent
+  // (floored at 25 in iRCInterface), applied to the MANUAL thrust
+  // sources only - RC drive and laptop teleop. Autonomy is never
+  // limited. Enabled for the fleet: this is the shallow-water /
+  // new-operator / first-splash knob (docs/rc_controllers.md 7.2).
+  rc_thrust_limit_enable = true
 
   //=========================================================
   // LAPTOP TELEOP (commands published by iTeleop)

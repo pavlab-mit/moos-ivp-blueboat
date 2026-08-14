@@ -165,6 +165,30 @@ private: // Configuration variables
   double m_rc_channels[16];  // Store RC channel values
   bool m_rc_mode;            // Mode switch: false = MOOS control, true = RC control
 
+  // RC KILL (CH5) - neutral-lock final override
+  // (docs/rc_controllers.md 7.1). While true, NO source may command
+  // thrust - RC, teleop, autonomy - enforced as the last step of
+  // thrust arbitration every iterate. Latched from RC_CH5 mail only
+  // while m_rc_connected (the disconnected-fallback CH5=1 must never
+  // silently un-kill a killed boat). ESCs stay armed at neutral, so
+  // un-kill recovery is instant - no re-arm. The hardware signal-cut
+  // (NVGR_DISARM) remains the independent emergency path.
+  bool m_rc_kill;
+
+  // CH8 DEADMAN_EN switch edge detector (docs/rc_controllers.md
+  // 7.3). Edge-triggered so the handset switch and the backseat
+  // RC_DEADMAN_ENABLED writer don't fight: only a switch state
+  // CHANGE writes m_rc_deadman_enabled (last writer wins). 0 =
+  // baseline not yet observed (first sample records, doesn't act).
+  int m_rc_ch8_last_state;
+
+  // CH11 THRUST_LIMIT (docs/rc_controllers.md 7.2): operator
+  // authority cap from the S1 pot, percent 25-100, applied to the
+  // MANUAL sources only (RC + teleop) - autonomy is never limited.
+  // Feature-gated by rc_thrust_limit_enable (default off).
+  bool   m_rc_thrust_limit_enable;
+  double m_rc_thrust_limit;
+
   // RC deadman watchdog. When enabled, the vehicle is safed
   // (thrust zeroed) if the RC link has been bad for longer than
   // m_rc_deadman_timeout seconds. Default-on; can be disabled at
@@ -233,9 +257,10 @@ private: // State variables
   // wire (props stopped, signal present), NOT absence of signal.
   // The neutral-hold arm procedure runs on every launch
   // (pca9685_init parks the channels first, so init is state-
-  // independent). Unhandled deaths (SIGKILL/OOM), where the chip
-  // would free-run the last commanded thrust, are covered by the
-  // independent bb_esc_failsafe watcher.
+  // independent). KNOWN GAP: on an unhandled death (SIGKILL/OOM)
+  // the chip free-runs the last commanded thrust; the optional
+  // bb_esc_failsafe watcher (scripts/) is NOT deployed, by fleet
+  // decision 2026-08-14.
   //   m_initialize_esc   - run the arm procedure at startup
   //                        (legacy param name kept).
   //   m_disarm_on_exit   - if true, safe shutdown also raises OE

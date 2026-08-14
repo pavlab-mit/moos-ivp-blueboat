@@ -81,6 +81,9 @@ RCInterface::RCInterface()
   // Until a valid KILL decode arrives, the latch holds the
   // operator-absent default: RUNNING.
   m_kill_state = 1;
+
+  m_mark_last_state = 1;
+  m_mark_count = 0;
 }
 
 //---------------------------------------------------------
@@ -652,6 +655,21 @@ bool RCInterface::Iterate()
       }
       m_scaled_channels[d.idx] = s;
       Notify("RC_CH" + intToString(d.idx+1), (double)s);
+    }
+
+    // CH12 MARK (SH momentary): rising edge -> one countable event.
+    // The level is already published as RC_CH12 above; RC_MARK is
+    // what consumers (pLogger, operators reading the alog) actually
+    // want - one increment per press, no re-fires while held.
+    {
+      int s = (int)m_scaled_channels[11];
+      if (s == 2 && m_mark_last_state == 1) {
+        m_mark_count++;
+        Notify("RC_MARK", (double)m_mark_count);
+        reportEvent("MARK #" + intToString((int)m_mark_count) +
+                    " from handset");
+      }
+      m_mark_last_state = s;
     }
 
     // CH11 THRUST_LIMIT (S1 pot): full range on the wire,

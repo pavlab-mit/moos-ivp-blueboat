@@ -219,6 +219,14 @@ class RCInterface : public AppCastingMOOSApp
    // (rc_model_build_yip.md), so an invalid KILL value holds the
    // last valid state instead of defaulting.
    int        m_kill_state;
+
+   // CH12 MARK edge detector: a rising edge (1->2, SH pressed)
+   // publishes an incrementing RC_MARK count - one countable event
+   // per press for the log, while the level keeps going out as
+   // RC_CH12. State is not touched during disconnects, so a press
+   // held across a dropout cannot double-count.
+   int          m_mark_last_state;
+   unsigned int m_mark_count;
 };
 
 #endif

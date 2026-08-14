@@ -68,6 +68,7 @@ BB_Status::BB_Status()
   m_rc_connected = false;
   m_rc_failsafe  = false;
   m_rc_deadman   = false;
+  m_rc_kill      = false;
   m_rc_ch6       = 0.0;
   m_rc_time      = 0.0;
 
@@ -186,6 +187,7 @@ bool BB_Status::OnNewMail(MOOSMSG_LIST &NewMail)
     else if(key == "RC_CONNECTED")            { m_rc_connected = msgBool(msg); m_rc_time = mtime; }
     else if(key == "RC_FAILSAFE")             { m_rc_failsafe = msgBool(msg);  m_rc_time = mtime; }
     else if(key == "NVGR_RC_DEADMAN_ACTIVE")  { m_rc_deadman = msgBool(msg);   m_rc_time = mtime; }
+    else if(key == "NVGR_RC_KILL")            { m_rc_kill = msgBool(msg);      m_rc_time = mtime; }
     else if(key == "RC_CH6")                  { m_rc_ch6 = dval;               m_rc_time = mtime; }
 
     // ---- Laptop teleop (native front seat) ----
@@ -247,6 +249,11 @@ string BB_Status::deriveMode() const
     return "RC_UNKNOWN";
   if(m_rc_failsafe)
     return "FAILSAFE";
+
+  // RC KILL (CH5 neutral-lock) overrides every command source,
+  // manual included - report it above MANUAL.
+  if(m_rc_kill)
+    return "KILLED";
 
   // CH6 == 2.0 (and connected) is the manual/RC-override position,
   // matching the convention used by pBB_Health.
@@ -326,6 +333,7 @@ string BB_Status::buildStatusString()
   // RC / override
   f.push_back("rc=" + string(m_rc_connected ? "conn" : "disc"));
   f.push_back("failsafe=" + string(m_rc_failsafe ? "true" : "false"));
+  f.push_back("kill=" + string(m_rc_kill ? "true" : "false"));
   f.push_back("deadman=" + string(m_rc_deadman ? "true" : "false"));
   f.push_back("teleop=" + string(m_teleop_engaged ? "true" : "false"));
 
@@ -483,6 +491,7 @@ void BB_Status::registerVariables()
   Register("RC_CONNECTED", 0);
   Register("RC_FAILSAFE", 0);
   Register("NVGR_RC_DEADMAN_ACTIVE", 0);
+  Register("NVGR_RC_KILL", 0);
   Register("RC_CH6", 0);
 
   // Laptop teleop (native front seat)
