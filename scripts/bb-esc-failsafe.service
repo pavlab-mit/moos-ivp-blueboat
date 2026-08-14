@@ -1,0 +1,23 @@
+# BlueBoat ESC runaway failsafe (see scripts/bb_esc_failsafe.sh).
+# Guards against an unhandled iBBNavigatorInterface death leaving the
+# PCA9685 free-running the last commanded thrust (bench-verified
+# 2026-08-14; docs/rc_controllers.md section 8.3).
+#
+# Install:
+#   cp scripts/bb_esc_failsafe.sh /usr/local/bin/
+#   cp scripts/bb-esc-failsafe.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now bb-esc-failsafe
+
+[Unit]
+Description=BlueBoat ESC runaway failsafe (PCA9685 neutral guard)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bb_esc_failsafe.sh
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target
