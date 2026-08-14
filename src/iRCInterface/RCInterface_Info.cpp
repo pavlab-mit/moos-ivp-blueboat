@@ -136,6 +136,8 @@ void showInterfaceAndExit()
   blk("  RC_CH10         = PAYLOAD_MODE 3-pos                          ");
   blk("  RC_CH11         = THRUST_LIMIT percent, floored at 25         ");
   blk("  RC_CH12         = MARK         1=idle    2=pressed            ");
+  blk("  RC_MARK         = MARK press count (rising edge only, one    ");
+  blk("                    increment per press - the loggable event)   ");
   blk("  RC_CH13..RC_CH16= reserved, raw 11-bit values                 ");
   blk("  RC_CH17, RC_CH18= always \"false\" (no CRSF equivalent)       ");
   blk("  RC_FRAME_VALID  = per-frame validity (safety gate)            ");

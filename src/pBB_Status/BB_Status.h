@@ -73,6 +73,7 @@ class BB_Status : public AppCastingMOOSApp
    bool   m_rc_connected;
    bool   m_rc_failsafe;
    bool   m_rc_deadman;
+   bool   m_rc_kill;           // NVGR_RC_KILL (CH5 neutral-lock)
    double m_rc_ch6;
    double m_rc_time;
 

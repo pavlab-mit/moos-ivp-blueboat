@@ -92,6 +92,7 @@ void showExampleConfigAndExit()
   blk("  // ESC lifecycle                                              ");
   blk("  initialize_esc   = true      // neutral-hold arm every launch ");
   blk("  disarm_on_exit   = false     // true: cut PWM signal on exit  ");
+  blk("  rc_thrust_limit_enable = false // CH11 pot caps RC+teleop     ");
   blk("                                                                ");
   blk("  // AHRS config (Allgeuer passive complementary filter)        ");
   blk("  sample_rate = 150                                             ");
@@ -126,6 +127,9 @@ void showInterfaceAndExit()
   blk("  NVGR_DISARM - true: cut PWM signal (ESCs stop on signal loss) ");
   blk("                false: re-enable + neutral-hold re-arm          ");
   blk("  RC_CONNECTED, RC_FRAME_VALID, RC_CH1-16 - RC controller input ");
+  blk("    CH5 KILL (2=neutral-lock, latched while connected)          ");
+  blk("    CH6 MODE (2=RC drive), CH8 DEADMAN_EN (edge-triggered       ");
+  blk("    toggle of the watchdog), CH11 THRUST_LIMIT (manual cap %)   ");
   blk("  RC_DEADMAN_ENABLED - Runtime override for RC deadman watchdog ");
   blk("  TELEOP_ACTIVE, TELEOP_THRUST_L/R - Laptop teleop (iTeleop)    ");
   blk("                                                                ");
@@ -143,6 +147,7 @@ void showInterfaceAndExit()
   blk("    NVGR_THRUST_LEFT, NVGR_THRUST_RIGHT (+_WIRE variants)        ");
   blk("    NVGR_THRUST_TIMEOUT - autonomous-mode command timeout        ");
   blk("    NVGR_RC_DEADMAN_ACTIVE - RC deadman state                    ");
+  blk("    NVGR_RC_KILL - RC KILL neutral-lock engaged (CH5)            ");
   blk("    NVGR_ESC_ARMED - PWM output enable state                     ");
   blk("    NVGR_LEAK - leak detector state                              ");
   blk("    NVGR_HW_VERSION - detected Navigator/Pi hardware             ");
