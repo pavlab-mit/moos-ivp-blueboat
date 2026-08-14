@@ -178,6 +178,7 @@ BBNavigatorInterface::BBNavigatorInterface()
   m_rc_ch8_last_state = 0;    // CH8 baseline not yet observed
   m_rc_thrust_limit_enable = false;
   m_rc_thrust_limit = 100.0;  // no cap until CH11 mail arrives
+  m_rc_contract_v2 = false;   // legacy v1 wire unless the plug says v2
 
   // RC deadman defaults: ON, 2-second timeout. Last-good-time is
   // initialized to 0 so the deadman fires immediately at startup
@@ -754,7 +755,12 @@ void BBNavigatorInterface::calculateRCThrust()
   {
 
     double forward_thrust = m_rc_channels[2]; // Already in [-100, 100]
-    double mixer = -m_rc_channels[0];         // Turning input in [-100, 100]
+
+    // Turning input in [-100, 100]. v2 wire is + = starboard and the
+    // mixer adds +CH1 to the LEFT thruster (more port thrust = yaw
+    // starboard); v1 wire arrives negated, hence the legacy minus.
+    double mixer = m_rc_contract_v2 ?  m_rc_channels[0]
+                                    : -m_rc_channels[0];
 
     // Scale mixer
     mixer *= (m_turn_scale / 100.0); // So m_turn_scale=50 means 50% influence
@@ -780,8 +786,13 @@ void BBNavigatorInterface::calculateRCThrust()
       right_thrust *= k;
     }
 
-    m_desired_thrust_left = left_thrust * m_left_thruster_invert;
-    m_desired_thrust_right = right_thrust * m_right_thruster_invert;
+    // Output transform. v2: the same -1 * value * invert used by
+    // the DESIRED_THRUST_L/R and teleop paths - one convention for
+    // all three command sources. v1 (legacy): no -1, because the
+    // old handsets sent the sticks negated on the wire.
+    const double out_sign = m_rc_contract_v2 ? -1.0 : 1.0;
+    m_desired_thrust_left = out_sign * left_thrust * m_left_thruster_invert;
+    m_desired_thrust_right = out_sign * right_thrust * m_right_thruster_invert;
 
     // Update the last command time since RC control counts as a thrust command
     m_last_thrust_command_time = MOOSTime();
@@ -1243,6 +1254,15 @@ bool BBNavigatorInterface::OnStartUp()
       m_rc_thrust_limit_enable = (tolower(value) == "true");
       handled = true;
     }
+    else if (param == "rc_stick_convention")
+    {
+      string v = tolower(value);
+      if (v == "v1" || v == "v2")
+        m_rc_contract_v2 = (v == "v2");
+      else
+        reportConfigWarning("rc_stick_convention must be 'v1' or 'v2'");
+      handled = true;
+    }
     else if (param == "rc_deadman_timeout")
     {
       m_rc_deadman_timeout = stod(value);
@@ -1635,6 +1655,8 @@ bool BBNavigatorInterface::buildReport()
   actab << "RC Mail Age (sec):" << rc_age_now;
   actab << "RC Deadman Tripped:" << (m_rc_deadman_active ? "true" : "false");
   actab << "RC Kill (CH5):" << (m_rc_kill ? "KILLED" : "running");
+  actab << "RC Stick Convention:" << (m_rc_contract_v2 ? "v2 (CRSF/TX16S)"
+                                                       : "v1 (legacy SBUS)");
   actab << "RC Thrust Limit (CH11):" <<
       (m_rc_thrust_limit_enable
            ? doubleToString(m_rc_thrust_limit, 0) + "%"

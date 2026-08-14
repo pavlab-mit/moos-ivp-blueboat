@@ -103,6 +103,12 @@ ProcessConfig = iBBNavigatorInterface
   //=========================================================
   // RC THRUST MIXER (engaged when RC_CH6 == 2)
   //=========================================================
+  // Stick sign convention: v1 (default) = legacy RadioLink/SBUS
+  // wire (iRCReader boats); v2 = RC Contract v2 wire (CRSF/TX16S,
+  // + = ahead / + = starboard). Must match the RC app + handset in
+  // use. Mismatch symptom: turns correct, throttle reversed.
+  rc_stick_convention = v1
+
   theta_b     = 90.0    // bank-angle limit (deg) for turn mix
   turn_scale  = 100     // turn sensitivity (percent)
 
