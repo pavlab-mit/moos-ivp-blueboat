@@ -189,6 +189,21 @@ private: // Configuration variables
   bool   m_rc_thrust_limit_enable;
   double m_rc_thrust_limit;
 
+  // RC stick sign convention (rc_stick_convention = v1|v2).
+  //   false = "v1" (default): legacy RadioLink/SBUS wire - sticks
+  //     arrive negated, so the mixer negates CH1 and the output
+  //     skips the -1 transform. Kept as default so the iRCReader
+  //     fallback remains a pure config swap.
+  //   true = "v2": RC Contract v2 wire (+ = ahead on CH3,
+  //     + = starboard on CH1; CRSF/TX16S handsets). Mixer uses +CH1
+  //     and the output applies the SAME -1 * value * invert
+  //     transform as the autonomy and teleop paths - all three
+  //     command sources genuinely share one convention.
+  // Getting this wrong is benign-looking but dangerous: v2 wire
+  // through v1 math gives correct turns with REVERSED throttle
+  // (the CH1 negation and the missing -1 cancel in yaw only).
+  bool m_rc_contract_v2;
+
   // RC deadman watchdog. When enabled, the vehicle is safed
   // (thrust zeroed) if the RC link has been bad for longer than
   // m_rc_deadman_timeout seconds. Default-on; can be disabled at

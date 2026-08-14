@@ -93,6 +93,7 @@ void showExampleConfigAndExit()
   blk("  initialize_esc   = true      // neutral-hold arm every launch ");
   blk("  disarm_on_exit   = false     // true: cut PWM signal on exit  ");
   blk("  rc_thrust_limit_enable = false // CH11 pot caps RC+teleop     ");
+  blk("  rc_stick_convention = v1     // v1 legacy SBUS | v2 CRSF wire ");
   blk("                                                                ");
   blk("  // AHRS config (Allgeuer passive complementary filter)        ");
   blk("  sample_rate = 150                                             ");
