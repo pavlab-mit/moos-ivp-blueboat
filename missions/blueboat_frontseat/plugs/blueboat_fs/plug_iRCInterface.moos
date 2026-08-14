@@ -1,9 +1,12 @@
 //--------------------------------------------------------
 // iRCInterface Config Block (CRSF successor to iRCReader)
 //
-// NOT yet wired into meta_vehicle.moos -- the switch from
-// iRCReader happens after the MOOS HIL test passes
-// (docs/rc_hil_test.md) and field control parity is verified.
+// Wired into meta_vehicle.moos 2026-08-14 (replacing
+// plug_iRCReader.moos). The HIL checklist (docs/archive/rc/
+// rc_hil_test.md, with the corrected CH5/CH8 = 1/2 expectations)
+// is run inside this full mission on the bench navigator, props
+// off. SBUS fallback = swap the two iRCReader lines back in
+// meta_vehicle.moos; never run both apps (one serial port).
 
 ProcessConfig = iRCInterface
 {

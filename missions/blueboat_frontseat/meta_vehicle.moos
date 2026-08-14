@@ -12,7 +12,11 @@ ProcessConfig = ANTLER
   //Core vehicle 
   Run = MOOSDB                 @ NewConsole = false
   Run = uProcessWatch          @ NewConsole = false
-  Run = iRCReader              @ NewConsole = false
+  // CRSF RC stack (iRCInterface). The SBUS fallback is a config
+  // swap, not a rebuild: change these two iRCInterface lines back
+  // to iRCReader + plug_iRCReader.moos. NEVER run both - they
+  // would split one serial port and both would see corruption.
+  Run = iRCInterface           @ NewConsole = false
   Run = iUnicore               @ NewConsole = false
   Run = iBBNavigatorInterface  @ NewConsole = false
   Run = iFrontSeatBroker       @ NewConsole = false
@@ -30,7 +34,7 @@ ProcessConfig = ANTLER
 
 #include plugs/blueboat_fs/plug_iFrontSeatBroker.moos
 #include plugs/blueboat_fs/plug_iUnicore.moos
-#include plugs/blueboat_fs/plug_iRCReader.moos
+#include plugs/blueboat_fs/plug_iRCInterface.moos
 #include plugs/blueboat_fs/plug_iBBNavigatorInterface.moos
 #include plugs/blueboat_fs/plug_iTeleop.moos
 #include plugs/blueboat_fs/plug_uProcessWatch.moos
