@@ -10,6 +10,10 @@ PROJECT( IVP_BLUEBOAT )
 
 set (CMAKE_CXX_STANDARD 14)
 
+# Host-side unit tests are opt-in so the normal build stays lean:
+#   ./build.sh --unit_tests
+option(BUILD_UNIT_TESTS "Build unit test binaries" OFF)
+
 #=======================================================================
 # Set the output directories for the binary and library files
 #=======================================================================

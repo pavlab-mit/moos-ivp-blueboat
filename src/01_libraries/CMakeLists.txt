@@ -10,6 +10,9 @@ ADD_SUBDIRECTORY(lib_MadgwickAHRS)
 # SBUS protocol parser for RC receivers
 ADD_SUBDIRECTORY(lib_sbus)
 
+# CRSF protocol parser for ELRS receivers
+ADD_SUBDIRECTORY(lib_crsf)
+
 # Unicore GNSS parser
 ADD_SUBDIRECTORY(lib_unicore)
 

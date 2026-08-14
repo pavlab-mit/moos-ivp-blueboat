@@ -3,6 +3,7 @@
 INVOCATION_ABS_DIR=`pwd`
 BUILD_TYPE="None"
 CMD_LINE_ARGS=""
+BUILD_UNIT_TESTS="OFF"
 
 #-------------------------------------------------------------------
 #  Part 1: Check for and handle command-line arguments
@@ -15,6 +16,7 @@ for ARGI; do
         printf "  --debug,   -d                     \n"
         printf "  --release, -r                     \n"
         printf "  --minrobot, -m                    \n"
+        printf "  --unit_tests                      \n"
 	printf "Notes:                              \n"
 	printf " (1) All other command line args will be passed as args    \n"
 	printf "     to \"make\" when it is eventually invoked.            \n"
@@ -29,6 +31,8 @@ for ARGI; do
         BUILD_TYPE="Release"
     elif [ "${ARGI}" = "--minrobot" -o "${ARGI}" = "-n" ] ; then
 	echo ""
+    elif [ "${ARGI}" = "--unit_tests" ] ; then
+        BUILD_UNIT_TESTS="ON"
     else
 	CMD_LINE_ARGS=$CMD_LINE_ARGS" "$ARGI
     fi
@@ -41,7 +45,8 @@ done
 mkdir -p build
 cd build
 
-cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} ../ || exit 1
+cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+      -DBUILD_UNIT_TESTS=${BUILD_UNIT_TESTS} ../ || exit 1
 
 make ${CMD_LINE_ARGS}
 cd ${INVOCATION_ABS_DIR}
