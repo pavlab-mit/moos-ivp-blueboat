@@ -7,6 +7,15 @@
 # SBUS / RC-link diagnostic (builds everywhere; runs on the vehicle)
 ADD_SUBDIRECTORY(sbus_probe)
 
+# RC-link diagnostic for BOTH protocols (SBUS + CRSF), with
+# protocol auto-detection. Supersedes sbus_probe; the older tool
+# stays until the fleet migration to CRSF is complete.
+ADD_SUBDIRECTORY(rc_probe)
+
+# CRSF telemetry downlink test: sends battery + flight-mode frames
+# and watches the receiver's downlink LQ to confirm the TX path.
+ADD_SUBDIRECTORY(rc_telem_test)
+
 # Doodle Radio utility (requires JSON library)
 IF(${DOODLE_RADIO_AVAIL})
     ADD_SUBDIRECTORY(doodle_radio_utility)

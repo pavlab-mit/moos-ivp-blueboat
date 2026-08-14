@@ -1,0 +1,28 @@
+//--------------------------------------------------------
+// iRCInterface Config Block (CRSF successor to iRCReader)
+//
+// NOT yet wired into meta_vehicle.moos -- the switch from
+// iRCReader happens after the MOOS HIL test passes
+// (docs/rc_hil_test.md) and field control parity is verified.
+
+ProcessConfig = iRCInterface
+{
+  AppTick    = 16
+  CommsTick  = 16
+
+  // UART wired to the CRSF receiver. 420k 8N1: any Pi UART
+  // works -- no parity constraint, no disable-bt (that advice
+  // was SBUS-only).
+  //   RadioMaster XR4: /dev/ttyAMA1 (Navigator SERIAL 3)
+  // Verify with: rc_probe -p crsf -d <dev>
+  device = /dev/ttyAMA1
+
+  // Telemetry back to the handset. Non-blocking writes; can
+  // never stall RC decode.
+  telemetry = true
+  telem_hz  = 2     // battery + flight-mode string
+  gps_hz    = 1     // GPS + distance, 0 = off
+
+  // note: validated_channels is gone -- CRSF frames are
+  // CRC-validated, so the SBUS range-check knob has no meaning.
+}
