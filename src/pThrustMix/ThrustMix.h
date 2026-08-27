@@ -2,97 +2,88 @@
 /*    NAME: J. Wenger                                       */
 /*    ORGN: MIT, Cambridge MA                               */
 /*    FILE: ThrustMix.h                                     */
-/*    DATE: Oct 19, 2025                                    */
-/*    Brief: Differential thrust mixer for BlueBoat        */
-/*           Converts DESIRED_THRUST + DESIRED_RUDDER       */
-/*           to asymmetric DESIRED_THRUST_L/R               */
+/*    DATE: 2026-08-27 (rewrite)                            */
+/*                                                          */
+/*    Brief: Front-seat thrust mixer.                       */
+/*                                                          */
+/*      BB_SELECTED_CMD  ->  BB_MIXED_CMD                   */
+/*                                                          */
+/*    Converts the arbiter's semantic surge/yaw into         */
+/*    physical left/right motor effort using the ArduRover   */
+/*    4.7 skid-steer allocation, and copies the upstream     */
+/*    lineage onward untouched.                              */
+/*                                                          */
+/*    This app is deliberately thin. Every rule that matters */
+/*    lives in lib_bb_command's MixerStage, where it is      */
+/*    tested without MOOS, a clock, or a boat. What is left  */
+/*    here is mail in, publication out.                      */
+/*                                                          */
+/*    WHAT THIS APP MUST NOT LEARN TO DO:                    */
+/*      - subscribe to RC, teleop, autonomy or ALL_STOP.     */
+/*        It sees one input on purpose; a mixer that can     */
+/*        observe the sources will eventually be asked to    */
+/*        arbitrate between them, and then there are two     */
+/*        authority policies in the system.                  */
+/*      - emit PWM or apply ESC inversion. Motor effort is   */
+/*        physical and forward-positive all the way to the   */
+/*        Navigator's EscMapper (invariant 9).               */
+/*      - close any feedback loop. The old mixer had optional*/
+/*        speed-gain scheduling and a yaw-rate correction;   */
+/*        both are gone. Yaw control belongs to pBBPID, and  */
+/*        two interacting yaw loops is not a design.         */
+/*                                                          */
+/*    Replaces the k_inner/k_outer differential mixer. See   */
+/*    docs/control_refactor_plan.md section 14.1 for the A/B */
+/*    against 72 minutes of recorded commands.               */
 /************************************************************/
 
 #ifndef ThrustMix_HEADER
 #define ThrustMix_HEADER
 
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
+
+#include "mixer_stage.h"
+
 #include <string>
-#include <vector>
-#include <utility>
 
 class ThrustMix : public AppCastingMOOSApp
 {
  public:
-   ThrustMix();
-   ~ThrustMix();
-
- protected: // Standard MOOSApp functions to overload
-   bool OnNewMail(MOOSMSG_LIST &NewMail);
-   bool Iterate();
-   bool OnConnectToServer();
-   bool OnStartUp();
-
- protected: // Standard AppCastingMOOSApp function to overload
-   bool buildReport();
+  ThrustMix();
+  ~ThrustMix() {}
 
  protected:
-   void registerVariables();
-   double getSpeedGainFactor(double speed);
-   bool parseSpeedGainPoints(const std::string& config_str);
+  bool OnNewMail(MOOSMSG_LIST &NewMail);
+  bool Iterate();
+  bool OnConnectToServer();
+  bool OnStartUp();
+  bool buildReport();
 
- private: // Configuration variables
+ protected:
+  void registerVariables();
 
-   // Basic mixing gains
-   double m_k_inner_base;
-   double m_k_outer_base;
+ private:
+  // Owned logic.
+  bb::MixerConfig     m_cfg;
+  bb::MixerStage*     m_stage;        // constructed in OnStartUp, after config
+  bb::DecisionMailbox m_selected;
 
-   // Yaw-priority allocation: give the differential (yaw) component the
-   // thruster budget first and let common thrust (speed) take what is left.
-   bool   m_yaw_priority;    // true = new allocation, false = legacy shift
-   double m_max_diff;        // cap on differential magnitude, 0 = uncapped
-   double m_thrust_derate;   // achieved common/commanded ratio (telemetry)
+  // Wire names, configurable so a bench rig can rename them
+  // without recompiling.
+  std::string m_selected_var;
+  std::string m_mixed_var;
 
-   // Speed-dependent scaling
-   bool m_enable_speed_scaling;
-   std::vector<std::pair<double, double>> m_speed_gain_table; // (speed, gain) pairs
+  // Cycle timing. dt is measured, not assumed from AppTick: a
+  // descheduled app that pretended it ran on schedule would hand
+  // the slew limiter a lie.
+  double m_last_iterate_time;
 
-   // Yaw rate feedback
-   bool m_enable_yaw_feedback;
-   double m_k_yaw_correction;
-   double m_max_yaw_rate;      // deg/s
-   double m_k_heading_to_rate; // heading error -> desired rate
+  // Latest result, for buildReport().
+  bb::MixedCommand m_last;
+  bool             m_have_last;
 
-   // Variable names for inputs/outputs
-   std::string m_desired_thrust_var;
-   std::string m_desired_rudder_var;
-   std::string m_feedback_speed_var;
-   std::string m_feedback_yaw_var;
-   std::string m_feedback_heading_var;
-   std::string m_desired_heading_var;
-   std::string m_desired_thrust_l_var;
-   std::string m_desired_thrust_r_var;
-
- private: // State variables
-
-   // Input values
-   double m_desired_thrust;
-   double m_desired_rudder;
-   double m_nav_speed;
-   double m_nav_yaw_rate;
-   double m_nav_heading;
-   double m_desired_heading;
-
-   // Computed values
-   double m_mixer;          // Normalized mixer value [-1, 1]
-   double m_k_inner;        // Active inner gain
-   double m_k_outer;        // Active outer gain
-   double m_speed_gain_factor;
-   double m_thrust_l;
-   double m_thrust_r;
-
-   // Flags
-   bool m_have_thrust;
-   bool m_have_rudder;
-   bool m_have_speed;
-   bool m_have_yaw_rate;
-   bool m_have_heading;
-   bool m_have_desired_heading;
+  uint64_t m_iterations;
+  uint64_t m_stop_cycles;
 };
 
-#endif 
+#endif

@@ -38,6 +38,10 @@ ENDIF()
 # test_gnss_heading uses the UM982 (Unicore) parser library
 ADD_SUBDIRECTORY(test_gnss_heading)
 
+# bb_replay: offline .alog replay of the command pipeline. Pure
+# host tool (lib_bb_command only) -- builds everywhere.
+ADD_SUBDIRECTORY(bb_replay)
+
 ##############################################################################
 #                           END of CMakeLists.txt
 ##############################################################################
