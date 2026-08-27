@@ -16,6 +16,7 @@
 #include "ACTable.h"
 #include "MBUtils.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -246,6 +247,12 @@ bool BBNavigatorInterface::Iterate()
   ++m_iterations;
   drainNotes();
 
+  // Per-section cost, published so uLoadWatch's whole-Iterate LEN
+  // can be decomposed from the alog instead of guessed at. The
+  // first dock session showed AvgLen ~1.07 (a full tick) with no
+  // obvious owner; these two numbers name it.
+  const auto t_iter0 = std::chrono::steady_clock::now();
+
   const double now = MOOSTime();
   const bb::NavigatorSafetyState safety = snapshotSafety();
 
@@ -275,7 +282,15 @@ bool BBNavigatorInterface::Iterate()
   Notify("NVGR_PWM_WATCHDOG_COUNT", (double)m_pwm_watchdog_count.load());
   Notify("NVGR_ARM_STATE", bb::to_string((bb::ArmState)m_arm_state_pub.load()));
 
+  const auto t_cmd_done = std::chrono::steady_clock::now();
+
   publishSensorTelemetry();
+
+  const auto t_sens_done = std::chrono::steady_clock::now();
+  Notify("NVGR_ITER_CMD_MS",
+         std::chrono::duration<double, std::milli>(t_cmd_done - t_iter0).count());
+  Notify("NVGR_ITER_SENSOR_MS",
+         std::chrono::duration<double, std::milli>(t_sens_done - t_cmd_done).count());
 
   AppCastingMOOSApp::PostReport();
   return true;
