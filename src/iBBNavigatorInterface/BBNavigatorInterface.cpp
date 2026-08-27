@@ -29,6 +29,8 @@ Navigator g_nav;
 
 void safePwmShutdown();          // NavActuator.cpp
 void g_disarm_on_exit_set(bool v);// NavActuator.cpp
+void g_neutral_park_set(int left_pin, double left_us,
+                        int right_pin, double right_us); // NavActuator.cpp
 void signalHandler(int signum);  // NavActuator.cpp
 
 //---------------------------------------------------------
@@ -485,6 +487,10 @@ bool BBNavigatorInterface::OnStartUp()
   m_arm = new bb::ArmSequencer(m_arm_cfg);
 
   g_disarm_on_exit_set(m_disarm_on_exit);
+  // The exit paths park the thrusters at the SAME trim the mapper
+  // uses, so the parked pulse and commanded neutral cannot drift.
+  g_neutral_park_set(m_left_thruster_pin,  m_act_cfg.left.trim_us,
+                     m_right_thruster_pin, m_act_cfg.right.trim_us);
   atexit(safePwmShutdown);
   signal(SIGINT,  signalHandler);
   signal(SIGTERM, signalHandler);

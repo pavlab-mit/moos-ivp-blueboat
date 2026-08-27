@@ -28,19 +28,30 @@ extern Navigator g_nav;
 
 // Signal-handler state. A handler may run at any instant, on any
 // thread, with locks held elsewhere -- so it may only touch
-// lock-free values and call navigator_force_pwm_off(), which
-// navigator-cpp provides for exactly this.
+// lock-free values and do the minimum I2C writes needed to park
+// the chip.
 static std::atomic<bool> g_shutdown_done{false};
 static std::atomic<bool> g_disarm_on_exit{false};
+static std::atomic<int>    g_park_left_pin{-1};
+static std::atomic<int>    g_park_right_pin{-1};
+static std::atomic<double> g_park_left_us{1510.0};
+static std::atomic<double> g_park_right_us{1510.0};
 
 //---------------------------------------------------------
 // Safe shutdown.
 //
-// Uses navigator-cpp main's pca9685 teardown rather than the
-// hand-rolled "write neutral 50 times" loop this replaced. That
-// loop existed because there was no orderly stop available;
-// there is now, and it latches every channel full-off and reads
-// back to confirm.
+// The default (disarm_on_exit = false) is the fleet safe state:
+// NEUTRAL-ON-THE-WIRE. Pin state persists after exit, so parking
+// the thruster channels at trim and leaving the chip RUNNING
+// keeps the ESCs armed and silent -- props stopped, no re-arm on
+// the next launch, no panic beeping.
+//
+// The first dock session (2026-08-28) proved why this must not be
+// a full teardown: g_nav.shutdown() latches every channel off and
+// raises OE, so a Ctrl-C cut the signal and set the ESCs beeping.
+// That teardown is exactly right for disarm_on_exit = true, and
+// wrong for the default. The next launch's set_frequency is safe
+// either way -- navigator-cpp main handles the RESTART trap.
 
 void safePwmShutdown()
 {
@@ -53,16 +64,28 @@ void safePwmShutdown()
     std::string detail;
     navigator_force_pwm_off(&detail);
   } else {
-    // Leave the chip parked at neutral with the signal present.
-    // Pin state PERSISTS after exit, so this is the fleet safe
-    // state: props stopped, ESCs still armed, no re-arm needed.
-    g_nav.shutdown();
+    // Park neutral, leave the chip running, touch nothing else --
+    // in particular do NOT touch OE: if the operator deliberately
+    // disarmed (signal cut), exiting must not re-enable output.
+    const int lp = g_park_left_pin.load();
+    const int rp = g_park_right_pin.load();
+    if (lp >= 0) g_nav.pwm_set_pulse_us(lp, (float)g_park_left_us.load());
+    if (rp >= 0) g_nav.pwm_set_pulse_us(rp, (float)g_park_right_us.load());
   }
 }
 
-// Set from OnStartUp. Kept next to the handler that reads it so
+// Set from OnStartUp. Kept next to the handler that reads them so
 // the two cannot drift into different translation units.
 void g_disarm_on_exit_set(bool v) { g_disarm_on_exit.store(v); }
+
+void g_neutral_park_set(int left_pin, double left_us,
+                        int right_pin, double right_us)
+{
+  g_park_left_pin.store(left_pin);
+  g_park_left_us.store(left_us);
+  g_park_right_pin.store(right_pin);
+  g_park_right_us.store(right_us);
+}
 
 void signalHandler(int signum)
 {
