@@ -83,8 +83,7 @@ BBNavigatorInterface::BBNavigatorInterface()
     m_imu_read_errors(0), m_imu_glitch_count(0),
     m_sensor_rate_hz(0.0),
     m_iterations(0), m_stop_cycles(0),
-    m_last_stop_reason(bb::StopReason::STARTUP),
-    m_nav_init_ok(false)
+    m_last_stop_reason(bb::StopReason::STARTUP)
 {
   for (int i = 0; i < 3; i++) { m_gyro_bias[i] = 0; m_accel_bias[i] = 0; m_mag_bias[i] = 0; }
   for (int i = 0; i < 9; i++) m_mag_scale[i] = (i % 4 == 0) ? 1.0 : 0.0;
@@ -449,16 +448,24 @@ bool BBNavigatorInterface::OnStartUp()
   }
 
   // --- hardware, and whether it actually came up ----------
+  //
+  // init() returns a WARNINGS string and reports partial init as
+  // usable (navigator-cpp nav.cpp: "non-empty = partial init
+  // (still usable)"). The predicate that decides whether the
+  // props may turn is is_pwm_ready() -- initialized AND the
+  // PCA9685 came up -- exactly as plan section 3.1 intended.
+  //
+  // Treating ANY sub-device warning as a grounding fault was the
+  // first dock test's actual failure: a NACKing magnetometer on a
+  // use_mag=false boat held HARDWARE_FAULT with pwm_ready yes.
+  // A dead sensor degrades sensing (and autonomy self-inhibits
+  // upstream without nav data); it must not ground manual drive.
   m_nav_init_error = g_nav.init(NAV_AUTO, PI_AUTO);
-  m_nav_init_ok    = m_nav_init_error.empty() && g_nav.is_initialized();
-  if (!m_nav_init_ok) {
-    // Not fatal: the sensors half may still be useful for
-    // diagnosis, and refusing to start makes a board fault harder
-    // to investigate, not easier. But hardware_healthy is false,
-    // so ActuatorStage will hold the props at neutral.
-    reportRunWarning("Navigator init FAILED: " +
-                     (m_nav_init_error.empty() ? "not initialised" : m_nav_init_error));
-  }
+  if (!m_nav_init_error.empty())
+    reportRunWarning("Navigator PARTIAL init: " + m_nav_init_error);
+  if (!g_nav.is_pwm_ready())
+    reportRunWarning("PCA9685 not ready: actuation stays disabled "
+                     "(HARDWARE_FAULT) until it is");
 
   // --- configuration validation --------------------------
   const string cfg_err = m_act_cfg.validate();
@@ -521,7 +528,8 @@ bool BBNavigatorInterface::buildReport()
 
   NavVersion nv = g_nav.detected_version();
   m_msgs << "Board:   " << (nv == NAV_V1 ? "V1" : nv == NAV_V2 ? "V2" : "UNKNOWN")
-         << "   init " << (m_nav_init_ok ? "OK" : ("FAILED: " + m_nav_init_error))
+         << "   init " << (m_nav_init_error.empty() ? "OK"
+                                                    : ("PARTIAL: " + m_nav_init_error))
          << "   pwm_ready " << (g_nav.is_pwm_ready() ? "yes" : "NO") << endl;
   m_msgs << "ESC:     " << bb::to_string((bb::ArmState)m_arm_state_pub.load())
          << "   output " << (m_pwm_output_enabled.load() ? "enabled" : "CUT")
