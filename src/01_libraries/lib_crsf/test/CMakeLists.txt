@@ -14,4 +14,5 @@ set(TESTS
 foreach(test_name ${TESTS})
     add_executable(${test_name} ${test_name}.cpp)
     target_link_libraries(${test_name} PRIVATE crsf)
+    add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()

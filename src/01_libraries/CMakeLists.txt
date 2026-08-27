@@ -13,6 +13,9 @@ ADD_SUBDIRECTORY(lib_sbus)
 # CRSF protocol parser for ELRS receivers
 ADD_SUBDIRECTORY(lib_crsf)
 
+# Command pipeline core: envelope, lease, slew, skid mixer, ESC map
+ADD_SUBDIRECTORY(lib_bb_command)
+
 # Unicore GNSS parser
 ADD_SUBDIRECTORY(lib_unicore)
 
