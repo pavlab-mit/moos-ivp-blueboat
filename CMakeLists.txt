@@ -14,6 +14,14 @@ set (CMAKE_CXX_STANDARD 14)
 #   ./build.sh --unit_tests
 option(BUILD_UNIT_TESTS "Build unit test binaries" OFF)
 
+# CTest. Tests register themselves via add_test() in each
+# lib's test/CMakeLists.txt, so:
+#   ./build.sh --unit_tests && (cd build && ctest --output-on-failure)
+# runs every host-side test in the repo with one command.
+if(BUILD_UNIT_TESTS)
+    enable_testing()
+endif()
+
 #=======================================================================
 # Set the output directories for the binary and library files
 #=======================================================================
