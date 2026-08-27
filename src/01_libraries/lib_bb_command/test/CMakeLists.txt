@@ -16,6 +16,7 @@ set(TESTS
     test_command_mailbox
     test_authority
     test_mixer_stage
+    test_actuator_stage
     test_slew_limiter
     test_skid_mixer
     test_esc_mapper

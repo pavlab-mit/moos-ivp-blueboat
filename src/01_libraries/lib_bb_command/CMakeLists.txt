@@ -16,6 +16,7 @@ set(SRC command_envelope.cpp
         command_mailbox.cpp
         authority.cpp
         mixer_stage.cpp
+        actuator_stage.cpp
         slew_limiter.cpp
         skid_mixer.cpp
         esc_mapper.cpp)
@@ -24,6 +25,7 @@ set(HEADERS command_envelope.h
             command_mailbox.h
             authority.h
             mixer_stage.h
+            actuator_stage.h
             slew_limiter.h
             skid_mixer.h
             esc_mapper.h)

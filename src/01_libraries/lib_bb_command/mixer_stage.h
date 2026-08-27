@@ -120,6 +120,73 @@ class MixerStage
 // Serialise as BB_MIXED_CMD (design doc 6.2).
 std::string serialize_mixed(const MixedCommand& m);
 
+// ---------------------------------------------------------
+// Consumer side, for iBBNavigatorInterface.
+//
+// The Navigator needs the effort pair, the stop flag, and the
+// lineage to copy onward. It does NOT need the mixer's
+// intermediates, and deliberately cannot see the sources: a
+// hardware interface that can observe who is driving will
+// eventually be asked to decide, and then there are two authority
+// policies in the system again.
+
+struct MixedSnapshot
+{
+  std::string   mix_epoch;
+  uint64_t      mix_seq = 0;
+  double        mix_time = 0.0;
+  std::string   mixer_model;
+
+  std::string   decision_epoch;
+  uint64_t      decision_seq = 0;
+  CommandSource selected = CommandSource::NONE;
+  std::string   source_producer;
+  std::string   source_epoch;
+  uint64_t      source_seq = 0;
+
+  bool       hard_stop = true;
+  StopReason stop_reason = StopReason::STARTUP;
+
+  double left_effort  = 0.0;
+  double right_effort = 0.0;
+
+  double rx_time = 0.0;   // local arrival, drives freshness
+};
+
+struct MixedParseResult
+{
+  bool          ok = false;
+  std::string   reject_reason;
+  std::string   detail;
+  MixedSnapshot mixed;
+};
+
+MixedParseResult parse_mixed(const std::string& text);
+
+class MixedMailbox
+{
+ public:
+  MixedMailbox();
+  AcceptResult accept(const std::string& text, double arrival_time);
+
+  bool has_mixed() const { return m_has; }
+  const MixedSnapshot& snapshot() const { return m_mixed; }
+  double age(double now) const;
+  bool   fresh(double now, double timeout_sec) const;
+
+  uint64_t accepted_count()     const { return m_accepted; }
+  uint64_t duplicate_count()    const { return m_duplicates; }
+  uint64_t out_of_order_count() const { return m_out_of_order; }
+  uint64_t reject_count()       const { return m_rejects; }
+  const std::string& last_reject_reason() const { return m_last_reject_reason; }
+
+ private:
+  MixedSnapshot m_mixed;
+  bool     m_has;
+  uint64_t m_accepted, m_duplicates, m_out_of_order, m_rejects;
+  std::string m_last_reject_reason;
+};
+
 } // namespace bb
 
 #endif

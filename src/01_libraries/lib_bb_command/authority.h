@@ -72,6 +72,15 @@ enum class StopReason {
   AUTONOMY_STALE,
   MIXER_INPUT_STALE,
   MIXER_INPUT_INVALID,
+  // Navigator-local. The arbiter never emits these; they describe
+  // the hardware and the sidebands that bypass the command path.
+  NAV_INPUT_STALE,
+  NAV_INPUT_INVALID,
+  RC_KILL,
+  RC_DEADMAN,
+  PWM_DISARMED,
+  HARDWARE_FAULT,
+  SHUTDOWN,
   INTERNAL_FAULT
 };
 
@@ -220,6 +229,12 @@ struct DecisionParseResult
 };
 
 DecisionParseResult parse_decision(const std::string& text);
+
+// Shared by the decision and mixed parsers. `ok` is set false for
+// an unrecognised token rather than defaulting, so a typo on the
+// wire is a rejection and not a silent NONE.
+CommandSource source_from_string(const std::string& s, bool& ok);
+StopReason    stop_from_string(const std::string& s, bool& ok);
 
 // Same lease discipline as CommandMailbox, keyed on
 // (decision_epoch, decision_seq). An arbiter restart changes the
