@@ -34,7 +34,10 @@ ProcessConfig = iFrontSeatBroker
    // Command pipeline state (arbiter + Navigator). BB_CMD_AUTHORITY
    // replaces the retired NVGR_RC_MODE / NVGR_TELEOP_ENGAGED: the
    // arbiter is the only process that knows who is driving.
-   tx_vars = BB_CMD_AUTHORITY, NVGR_STOP_REASON
+   // BB_CMD_STOP_REASON is what lets the back seat see "autonomy is
+   // being OFFERED the boat" (stop=AUTONOMY_INVALID) -- the
+   // handling_block script keys its go-signal on it.
+   tx_vars = BB_CMD_AUTHORITY, BB_CMD_STOP_REASON, NVGR_STOP_REASON
 
    // Applied effort, returned to the back seat as TELEMETRY
    // (design doc 14): pBB_DGPS_EKF keys its drift estimator off
