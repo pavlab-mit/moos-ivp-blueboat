@@ -869,6 +869,25 @@ void RCInterface::publishRcInputState(bool frame_valid, bool rc_connected,
   cmd.authority_limit = m_thrust_limit_enable ? m_authority_pct : 100.0;
 
   Notify(m_rc_input_var, bb::serialize_command(cmd));
+
+  // --- HARDWARE SIDEBANDS ---------------------------------
+  //
+  // These two exist for iBBNavigatorInterface and are deliberately
+  // PLAIN BOOLEANS, not fields inside RC_INPUT_STATE.
+  //
+  // Both bypass the command path entirely: the kill must stop the
+  // boat when the arbiter or the mixer has failed, and the deadman
+  // exists precisely for running code that is not trusted yet. A
+  // sideband that requires parsing the same contract as the
+  // command path can fail the same way the command path fails,
+  // which defeats the point of having one.
+  //
+  // RC_KILL_ASSERTED is latched state and survives link loss --
+  // a killed boat stays killed when the handset goes away.
+  // RC_LINK_ALIVE is instantaneous link presence, which is what
+  // the opt-in deadman watches.
+  Notify("RC_KILL_ASSERTED", (m_kill_state == 2) ? "true" : "false");
+  Notify("RC_LINK_ALIVE",    rc_connected ? "true" : "false");
 }
 
 //---------------------------------------------------------

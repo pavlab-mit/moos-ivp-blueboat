@@ -12,6 +12,8 @@
 
 SET(SRC
   BBNavigatorInterface.cpp
+  NavActuator.cpp
+  NavSensors.cpp
   BBNavigatorInterface_Info.cpp
   main.cpp
 )
@@ -23,6 +25,7 @@ TARGET_INCLUDE_DIRECTORIES(iBBNavigatorInterface PRIVATE
 )
 
 TARGET_LINK_LIBRARIES(iBBNavigatorInterface
+   bb_command
   ${MOOS_LIBRARIES}
   ${SYSTEM_LIBS}
   ${NAVIGATOR_CPP_LIB}

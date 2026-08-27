@@ -22,6 +22,13 @@ const char* to_string(StopReason r)
     case StopReason::AUTONOMY_STALE:    return "AUTONOMY_STALE";
     case StopReason::MIXER_INPUT_STALE: return "MIXER_INPUT_STALE";
     case StopReason::MIXER_INPUT_INVALID: return "MIXER_INPUT_INVALID";
+    case StopReason::NAV_INPUT_STALE:   return "NAV_INPUT_STALE";
+    case StopReason::NAV_INPUT_INVALID: return "NAV_INPUT_INVALID";
+    case StopReason::RC_KILL:           return "RC_KILL";
+    case StopReason::RC_DEADMAN:        return "RC_DEADMAN";
+    case StopReason::PWM_DISARMED:      return "PWM_DISARMED";
+    case StopReason::HARDWARE_FAULT:    return "HARDWARE_FAULT";
+    case StopReason::SHUTDOWN:          return "SHUTDOWN";
     case StopReason::INTERNAL_FAULT:    return "INTERNAL_FAULT";
   }
   return "INTERNAL_FAULT";
@@ -302,6 +309,8 @@ bool dec_u64(const std::string& s, uint64_t& out)
   return true;
 }
 
+} // namespace
+
 CommandSource source_from_string(const std::string& s, bool& ok)
 {
   ok = true;
@@ -329,10 +338,19 @@ StopReason stop_from_string(const std::string& s, bool& ok)
   if (s == "AUTONOMY_STALE")    return StopReason::AUTONOMY_STALE;
   if (s == "MIXER_INPUT_STALE") return StopReason::MIXER_INPUT_STALE;
   if (s == "MIXER_INPUT_INVALID") return StopReason::MIXER_INPUT_INVALID;
+  if (s == "NAV_INPUT_STALE")   return StopReason::NAV_INPUT_STALE;
+  if (s == "NAV_INPUT_INVALID") return StopReason::NAV_INPUT_INVALID;
+  if (s == "RC_KILL")           return StopReason::RC_KILL;
+  if (s == "RC_DEADMAN")        return StopReason::RC_DEADMAN;
+  if (s == "PWM_DISARMED")      return StopReason::PWM_DISARMED;
+  if (s == "HARDWARE_FAULT")    return StopReason::HARDWARE_FAULT;
+  if (s == "SHUTDOWN")          return StopReason::SHUTDOWN;
   if (s == "INTERNAL_FAULT")    return StopReason::INTERNAL_FAULT;
   ok = false;
   return StopReason::INTERNAL_FAULT;
 }
+
+namespace {
 
 DecisionParseResult dfail(const char* reason, const std::string& detail)
 {
