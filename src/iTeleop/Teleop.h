@@ -15,6 +15,7 @@
 
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
 #include "BrokerV2Codec.hpp"
+#include "command_envelope.h"
 
 #include <netinet/in.h>
 
@@ -54,6 +55,7 @@ protected:
    void deactivateSession(const std::string &reason, bool warn);
    void sendAck(const sockaddr_in &dest, const std::string &ack_type, double seq);
    void publishTeleopState();
+   void publishTeleopCmd();
    bool ownerMatches(const broker_v2::FieldMap &fields, const sockaddr_in &src) const;
    std::string fusedMode() const;
    static std::string addrToString(const sockaddr_in &addr);
@@ -93,10 +95,31 @@ private:
   double m_last_owner_frame_time;
   double m_last_ack_time;
 
-  // Latest teleop command (wire convention, matches DESIRED_THRUST_L/R)
+  // Latest teleop command.
+  //
+  // The GUI speaks TANK (THRUST_L/THRUST_R). The command contract
+  // speaks SEMANTIC surge/yaw (invariant 2). Both are held: the
+  // tank pair for the legacy TELEOP_THRUST_L/R publications that
+  // the current Navigator still consumes, and the semantic pair
+  // for TELEOP_CMD.
+  //
+  // A GUI that sends SURGE/YAW directly is preferred and its
+  // values are used verbatim. Otherwise they are derived from the
+  // tank pair -- see publishTeleopCmd() for why that conversion
+  // is an approximation and not a round trip.
   double m_cmd_thrust_left;
   double m_cmd_thrust_right;
+  double m_cmd_surge;
+  double m_cmd_yaw;
+  bool m_cmd_is_semantic;   // GUI sent SURGE/YAW rather than tank
   bool m_estop;
+
+  // Command contract identity. The epoch is minted once per
+  // launch; the sequence advances on every publication so the
+  // arbiter's lease can tell a live session from a stuck one.
+  std::string m_cmd_epoch;
+  uint64_t    m_cmd_seq;
+  std::string m_teleop_cmd_var;
 
   // Cached vehicle telemetry for acks (from OnNewMail)
   double m_applied_thrust_left;   // NVGR_THRUST_LEFT_WIRE

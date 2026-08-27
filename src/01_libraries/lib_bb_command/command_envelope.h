@@ -90,6 +90,14 @@ struct ParseResult
   SemanticCommand command;
 };
 
+// Mint a per-launch epoch identifier.
+//
+// Deliberately NOT wall-clock (design doc section 4): two boats
+// booting in the same second must not collide, and a clock that
+// steps backwards must not make a new session look like an old
+// one. Random plus pid is enough for a log join key.
+std::string make_epoch(const std::string& prefix);
+
 // Parse one wire string. `source` is stamped onto the result by
 // the caller's mailbox; it is not read from the text.
 ParseResult parse_command(const std::string& text, CommandSource source);

@@ -14,6 +14,7 @@
 
 #include <string>
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
+#include "command_envelope.h"
 #include "BBPIDEngine.h"
 
 class BBPID : public AppCastingMOOSApp
@@ -53,6 +54,18 @@ class BBPID : public AppCastingMOOSApp
    std::string m_thrust_var;
    std::string m_rudder_var;
 
+   // AUTONOMY_CMD: the coherent command contract consumed by
+   // pBBCommandArbiter across the seat boundary.
+   //
+   // thrust/rudder are ALREADY the semantic pair this controller
+   // computes together; publishing them as two scalars is the
+   // coherent-pair violation (invariant 5) that this replaces.
+   // The scalars stay as diagnostics.
+   std::string m_autonomy_cmd_var;
+   std::string m_autonomy_epoch;
+   uint64_t    m_autonomy_seq;
+   bool        m_publish_autonomy_cmd;
+
  private: // Latest input state
    double m_desired_speed;
    double m_desired_heading;
@@ -72,6 +85,8 @@ class BBPID : public AppCastingMOOSApp
 
  private: // Bookkeeping
    bool   m_active;          // false until first desired+nav mail
+
+   void publishAutonomyCmd(double surge, double yaw, bool valid);
    double m_last_thrust;
    double m_last_rudder;
    unsigned int m_iterations_run;

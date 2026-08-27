@@ -14,26 +14,8 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <ctime>
-#include <unistd.h>
 
 using namespace std;
-
-//---------------------------------------------------------
-// A per-launch epoch. Deliberately NOT wall-clock: two boats
-// booting in the same second must not be able to collide, and a
-// clock that steps must not be able to make a new session look
-// like an old one. Random plus pid is enough for a log join key.
-
-static string make_epoch(const char* prefix)
-{
-  unsigned seed = (unsigned)::getpid();
-  seed ^= (unsigned)::time(NULL) * 2654435761u;
-  ::srandom(seed);
-  char buf[32];
-  snprintf(buf, sizeof(buf), "%s-%06lx", prefix, (long)(::random() & 0xFFFFFF));
-  return string(buf);
-}
 
 //---------------------------------------------------------
 
@@ -187,7 +169,7 @@ bool ThrustMix::OnStartUp()
     return false;
   }
 
-  m_stage = new bb::MixerStage(m_cfg, make_epoch("mix"));
+  m_stage = new bb::MixerStage(m_cfg, bb::make_epoch("mix"));
 
   registerVariables();
   return true;

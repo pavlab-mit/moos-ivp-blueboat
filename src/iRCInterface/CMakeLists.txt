@@ -12,6 +12,7 @@ SET(SRC
 ADD_EXECUTABLE(iRCInterface ${SRC})
 
 TARGET_LINK_LIBRARIES(iRCInterface
+   bb_command
    ${MOOS_LIBRARIES}
    apputil
    mbutil

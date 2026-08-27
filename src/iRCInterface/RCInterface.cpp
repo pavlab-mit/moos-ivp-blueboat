@@ -82,6 +82,18 @@ RCInterface::RCInterface()
   // operator-absent default: RUNNING.
   m_kill_state = 1;
 
+  // 0 = never decoded. The contract publishes mode=UNKNOWN until
+  // a real frame arrives, which the arbiter reads as not-manual
+  // so a boat launched with the handset off can still run
+  // (plan decision (e)).
+  m_mode_state    = 0;
+  m_deadman_state = 0;
+  m_authority_pct = 100.0;
+
+  m_rc_input_var        = "RC_INPUT_STATE";
+  m_rc_input_seq        = 0;
+  m_thrust_limit_enable = false;
+
   m_mark_last_state = 1;
   m_mark_count = 0;
 }
@@ -655,6 +667,12 @@ bool RCInterface::Iterate()
       }
       m_scaled_channels[d.idx] = s;
       Notify("RC_CH" + intToString(d.idx+1), (double)s);
+
+      // Latch the two the command contract carries. Only while
+      // connected: a dropout must never rewrite the operator's
+      // last real choice (see RCInterface.h).
+      if (d.idx == 5) m_mode_state    = s;   // CH6 MODE
+      if (d.idx == 7) m_deadman_state = s;   // CH8 DEADMAN_EN
     }
 
     // CH12 MARK (SH momentary): rising edge -> one countable event.
@@ -684,6 +702,7 @@ bool RCInterface::Iterate()
       if (pct < RC_THRUST_LIMIT_FLOOR_PCT)
         pct = RC_THRUST_LIMIT_FLOOR_PCT;
       m_scaled_channels[10] = pct;
+      m_authority_pct = pct;
       Notify("RC_CH11", pct);
     }
 
@@ -736,6 +755,11 @@ bool RCInterface::Iterate()
     }
   }
 
+  // The command contract. Published EVERY iterate, connected or
+  // not, so the arbiter's lease sees a live producer and can tell
+  // "operator present but cannot command" from "producer dead".
+  publishRcInputState(frame_valid, rc_connected, failsafe);
+
   // New, additive: direct link health from CRSF 0x14. Uplink
   // only — ELRS never populates the downlink fields (see
   // crsf_frames.h). Published while stats are fresh so the last
@@ -749,6 +773,102 @@ bool RCInterface::Iterate()
 
   AppCastingMOOSApp::PostReport();
   return(true);
+}
+
+//---------------------------------------------------------
+// Procedure: publishRcInputState()
+//
+// RC_INPUT_STATE: conditioned semantic operator intent, as one
+// coherent snapshot (design doc 5.1).
+//
+// CH3 and CH1 are ALREADY plus-is-ahead and plus-is-starboard in
+// the handset mixes, which is the contract's convention exactly.
+// So surge and yaw are those channels verbatim -- no sign
+// transform lives here, and none should. This is what retires
+// rc_stick_convention: the v1/v2 knob existed because the
+// Navigator's RC mixer implemented the legacy RadioLink wire, and
+// once RC emits semantic values there is nothing left to get
+// backwards. The old "turns correct, throttle reversed" failure
+// mode stops being expressible.
+//
+// This function owns NO mixing, NO ESC signs, and NO authority
+// policy. It reports what the operator is asking for and how much
+// of that can be trusted; the arbiter decides whether it counts.
+
+void RCInterface::publishRcInputState(bool frame_valid, bool rc_connected,
+                                      bool failsafe)
+{
+  bb::SemanticCommand cmd;
+  cmd.version     = bb::kCommandContractVersion;
+  cmd.producer    = "iRCInterface";
+  cmd.epoch       = m_rc_input_epoch;
+  cmd.seq         = ++m_rc_input_seq;
+  cmd.source_time = MOOSTime();
+
+  // valid means "these sticks are trustworthy this instant".
+  // A single bad frame drops it, which is sharper than the
+  // debounced rc_connected and is what gates thrust.
+  cmd.valid = rc_connected && frame_valid && !failsafe;
+
+  // Sticks pass through only while the frame is good. On a bad
+  // frame we publish zero AND valid=0: the zero keeps a stale
+  // deflection off the wire, the flag is what the arbiter acts on.
+  if (cmd.valid) {
+    cmd.surge = m_scaled_channels[2];   // CH3 THRUST,  + = ahead
+    cmd.yaw   = m_scaled_channels[0];   // CH1 STEER,   + = starboard
+  } else {
+    cmd.surge = 0.0;
+    cmd.yaw   = 0.0;
+  }
+
+  // MODE and KILL are RETAINED across a dropout -- the whole
+  // point. See the note in RCInterface.h.
+  const char* mode = "UNKNOWN";
+  if (m_mode_state == 2)      mode = "MANUAL";
+  else if (m_mode_state == 1) mode = "NON_MANUAL";
+  cmd.extra["mode"] = mode;
+
+  cmd.extra["kill"] = (m_kill_state == 2) ? "1" : "0";
+
+  // link state, using the MEASURED failsafe signature from
+  // docs/archive/rc/rc_characterization.md (2026-08-11):
+  //
+  //   - 0x16 RC frames stop DEAD on TX loss. No fade, no
+  //     fabricated values, no failsafe frames. So frame staleness
+  //     is the complete and correct loss detector, and there is
+  //     nothing to misread on the way down.
+  //   - 0x14 link stats keep coming for ~1.1 s with uplink LQ
+  //     decaying linearly 100 -> 0, then pin at 0 until the
+  //     receiver goes silent at ~3.5 s.
+  //
+  // That decay is roughly a second of genuine early warning, and
+  // it is the only thing that distinguishes "about to lose the
+  // operator" from "fine". DEGRADED reports it while the frames
+  // are still valid, so the log shows the link dying before the
+  // command actually stops -- an incident review can then tell a
+  // range problem from an app fault.
+  const char* link = "LOST";
+  const bool lq_fresh = m_report.have_link &&
+                        (microsNow() - m_report.last_link_us) < 2000000ull;
+  const bool lq_weak  = lq_fresh && (m_report.link.uplink_lq < RC_LINK_LQ_DEGRADED);
+
+  if (rc_connected && frame_valid && !failsafe)
+    link = lq_weak ? "DEGRADED" : "VALID";
+  else if (rc_connected)
+    link = "DEGRADED";
+  cmd.extra["link"] = link;
+  if (lq_fresh) cmd.extra["lq"] = intToString(m_report.link.uplink_lq);
+
+  cmd.extra["deadman_switch"] =
+      (m_deadman_state == 2) ? "DISABLED" : "ENABLED";
+
+  // CH11 THRUST_LIMIT: the operator authority cap, still behind
+  // its enable flag. Disabled publishes full authority rather
+  // than omitting the field, so a log always shows what cap was
+  // in force. The arbiter applies it to MANUAL sources only.
+  cmd.authority_limit = m_thrust_limit_enable ? m_authority_pct : 100.0;
+
+  Notify(m_rc_input_var, bb::serialize_command(cmd));
 }
 
 //---------------------------------------------------------
@@ -772,7 +892,17 @@ bool RCInterface::OnStartUp()
     string value = line;
 
     bool handled = false;
-    if (param == "device")
+    if (param == "rc_input_var") {
+      m_rc_input_var = value;
+      handled = true;
+    }
+    else if (param == "thrust_limit_enable") {
+      // CH11 operator authority cap. Off by default so a boat
+      // that has never been told about the pot cannot be
+      // silently limited by one; the fleet plug turns it on.
+      handled = setBooleanOnString(m_thrust_limit_enable, value);
+    }
+    else if (param == "device")
     {
       // UART wired to the RC receiver, e.g. /dev/ttyAMA1
       // (Navigator SERIAL 3, GPIO 4/5). CRSF is 8N1 so any Pi
@@ -846,6 +976,11 @@ bool RCInterface::OnStartUp()
   m_work.port_open = (m_fd >= 0);
 
   m_serial_thread = std::thread(&RCInterface::SerialThreadFunction, this);
+
+  // A fresh epoch per launch: the arbiter rebases its sequence
+  // comparison on an epoch change rather than treating a
+  // restarted receiver as one whose sequences regressed.
+  m_rc_input_epoch = bb::make_epoch("rci");
 
   registerVariables();
   return(true);
