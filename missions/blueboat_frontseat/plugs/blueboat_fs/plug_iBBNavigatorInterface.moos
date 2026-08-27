@@ -16,172 +16,115 @@
 
 ProcessConfig = iBBNavigatorInterface
 {
-  AppTick   = 10
-  CommsTick = 10
+  AppTick   = 50
+  CommsTick = 50
 
   //=========================================================
-  // THRUST CONTROL
+  // COMMAND PATH
   //=========================================================
-  // Pin assignments are 1-indexed (Navigator board PWM channels).
-  left_thruster_pin   = 14
-  right_thruster_pin  = 16
+  // The ONLY command input is BB_MIXED_CMD, from pThrustMix.
+  // This app no longer arbitrates, mixes, filters, or applies a
+  // deadband -- see docs/control_refactor_plan.md section 16.
+  mixed_cmd_timeout_sec  = 0.5
 
-  max_thrust          = 100
-  min_thrust          = -100
-  thruster_dead_band  = 5
+  // How long a committed actuator frame stays valid to the PWM
+  // thread. Past this the writer neutralises on its own, so a
+  // stalled Iterate() cannot leave the props running on an old
+  // command.
+  actuator_frame_ttl_sec = 0.25
 
-  // Commanded pulse range (us). Default 800-2200 preserves the
-  // legacy thrust mapping. NOTE: the BlueBoat's Basic ESC 500
-  // documents an 1100-1900 us input range - with 800-2200, commands
-  // beyond ~57% already saturate the ESC's documented range, and
-  // pulses outside 1100-1900 are undefined for its proprietary
-  // firmware. Switching to 1100/1900 makes the full command range
-  // linear BUT changes the thrust curve - retune before flipping
-  // this on a boat with tuned PID gains.
-  // pwm_min_us = 1100
-  // pwm_max_us = 1900
+  //=========================================================
+  // ESC ENDPOINTS -- the only place inversion is allowed
+  //=========================================================
+  // BlueBoat120, from the ArduRover 4.7 parameter file.
+  // right = SERVO1 (not reversed), left = SERVO3 (reversed).
+  //
+  // NOTE trim is 1510, not 1500. The old code hardcoded 1500,
+  // which is a permanent 10 us idle bias.
+  //
+  // CHANGED FROM 800/2200: under the old mapping 8.0% of real
+  // commands (measured, via 5 Aug log) landed outside the ESC's
+  // documented 1100-1900 window, 2.0% at 2200 us. The thrust
+  // curve therefore CHANGES with this config -- retune expected.
+  left_esc_min_us    = 1100
+  left_esc_trim_us   = 1510
+  left_esc_max_us    = 1900
+  left_esc_reversed  = true
 
-  // Flip if a thruster spins the wrong direction
-  left_thruster_invert  = false
-  right_thruster_invert = true
+  right_esc_min_us   = 1100
+  right_esc_trim_us  = 1510
+  right_esc_max_us   = 1900
+  right_esc_reversed = false
 
-  thruster_enabled    = true
-  thruster_alpha      = 0.5     // LPF: alpha = dt/(tau+dt)
+  left_thruster_pin  = 14
+  right_thruster_pin = 16
+  thruster_enabled   = true
 
-  //---------------------------------------------------------
+  //=========================================================
   // ESC LIFECYCLE
-  //---------------------------------------------------------
-  // Arm the ESCs on startup: hold 1500us neutral for 2 s (the
-  // documented Basic ESC 500 procedure; zero throttle excursion).
-  // Runs on EVERY launch. Note (bench-verified 2026-08-14): pin
-  // state persists after app exit, so between missions the ESCs sit
-  // armed at the last-written neutral - the intended safe state
-  // (props stopped, signal present). Known gap: an unhandled app
-  // death (kill -9 / OOM) leaves the last commanded thrust running.
-  initialize_esc      = true
+  //=========================================================
+  // 2 s neutral hold, run IN the PWM thread so it holds a signal
+  // the ESC can actually see. NVGR_DISARM cycles this at runtime
+  // to serve the handset's disarm/arm request.
+  initialize_esc = true
 
-  // true: safe shutdown also raises OE (signal-cut: ESCs lose
-  //       signal and beep until the next launch re-arms them).
-  // Runtime signal-cut / re-arm any time: NVGR_DISARM = true/false.
-  disarm_on_exit      = false
-
-  // Zero thrust if no DESIRED_THRUST_L/R for this many seconds
-  // (autonomous mode only; RC mode is excluded).
-  thrust_command_timeout = 2.0
+  // false: pin state PERSISTS after exit, so the fleet safe state
+  // is neutral-on-the-wire (props stopped, signal present), NOT
+  // absence of signal.
+  disarm_on_exit = false
 
   //=========================================================
-  // RC DEADMAN WATCHDOG
+  // RC DEADMAN -- opt-in blanket, default OFF
   //=========================================================
-  // Vehicle-side deadman on the RC link. Active in BOTH RC and
-  // autonomous mode. The boat boots SAFED until the first RC mail
-  // arrives. Disable for over-the-horizon missions where running
-  // outside RC range is acceptable, either at config time
-  // (rc_deadman_enabled = false) or at runtime by publishing
-  // RC_DEADMAN_ENABLED = "false" to the MOOSDB, or from the handset
-  // DEADMAN switch (RC_CH8, SW2) - switch changes and backseat
-  // writes both move the same runtime flag, last writer wins.
-  rc_deadman_enabled = false
-  rc_deadman_timeout = 2.0
-
-  // CH11 THRUST_LIMIT (S1 pot): operator authority cap in percent
-  // (floored at 25 in iRCInterface), applied to the MANUAL thrust
-  // sources only - RC drive and laptop teleop. Autonomy is never
-  // limited. Enabled for the fleet: this is the shallow-water /
-  // new-operator / first-splash knob (docs/rc_controllers.md 7.2).
-  rc_thrust_limit_enable = true
-
-  //=========================================================
-  // LAPTOP TELEOP (commands published by iTeleop)
-  //=========================================================
-  // Priority: physical RC (CH6==2) > teleop > backseat autonomy.
-  // Teleop engages only while TELEOP_ACTIVE=true AND teleop mail
-  // is fresher than teleop_command_timeout seconds; stale mail
-  // (hung/dead iTeleop) zeroes thrust. While teleop is engaged
-  // the RC deadman is exempted - the GUI link (iTeleop's
-  // gui_deadman_timeout + this freshness check) is the deadman.
-  teleop_command_timeout = 1.0
-
-  //=========================================================
-  // RC THRUST MIXER (engaged when RC_CH6 == 2)
-  //=========================================================
-  // Stick sign convention. v2 = RC Contract v2 wire (CRSF/TX16S:
-  // + = ahead, + = starboard); the mixer then shares the exact
-  // -1 * value * invert output transform of the autonomy and
-  // teleop paths. v1 (default) = legacy RadioLink/SBUS wire -
-  // REQUIRED if this boat is reverted to iRCReader. Symptom of a
-  // mismatch: turns correct, throttle reversed (bench, 2026-08-14).
-  rc_stick_convention = v2
-
-  theta_b     = 90.0    // bank-angle limit (deg) for turn mix
-  turn_scale  = 100     // turn sensitivity (percent)
+  // If enabled, RC link loss safes the boat in ANY mode,
+  // including a healthy autonomous mission. It exists for running
+  // experimental code. Turn it ON for the first water trials of
+  // this refactor, OFF for over-the-horizon work.
+  //
+  // This is NOT the source lease -- that lives in the arbiter and
+  // is never disableable.
+  rc_deadman_enabled     = false
+  rc_deadman_timeout_sec = 2.0
 
   //=========================================================
   // POWER MONITORING
   //=========================================================
-  // Only nbats=4 has measured calibration; others use placeholders
-  // and will trigger a config warning at startup.
-  nbats = 4
-
-  voltage_scale  = 11.132
-  voltage_offset = 0.0
-
+  // Only nbats=4 has measured calibration.
+  nbats                 = 4
+  voltage_scale         = 11.132
+  voltage_offset        = 0.0
   rolling_window_period = 2.0
 
   //=========================================================
   // AHRS / IMU
   //=========================================================
-  // Estimator: Allgeuer/NimbRo passive complementary filter
-  // (vendored in navigator-cpp). Numerically robust, provably
-  // stable, online gyro-bias learning. Replaces Madgwick.
-  sample_rate = 150       // Hz, IMU + estimator rate
+  // Allgeuer passive complementary filter, in navigator-cpp.
+  //
+  // NVGR_SENSOR_RATE_HZ reports the rate ACHIEVED. Believe that
+  // number, not this one: the pre-rewrite loop slept on the wrong
+  // interval and ran nearer 200-250 Hz with nothing showing it.
+  sample_rate = 150
 
-  // Estimator PI gains (Ki = Kp/Ti). Commented = library defaults.
-  // ahrs_kp       = 2.20
-  // ahrs_ti       = 2.65
-  // ahrs_kp_quick = 10.0
-  // ahrs_ti_quick = 1.25
-
-  // Magnetometer fusion (AK09915). Default off pending on-water
-  // characterization; when off, yaw is gyro-integrated (relative)
-  // and the mag never influences roll/pitch by filter design.
+  // Magnetometer fusion off pending on-water characterisation.
+  // navigator-cpp now dispatches V1 -> AK09915, V2 -> MMC5983;
+  // the old code hardcoded the AK and would have read the wrong
+  // part on a V2 board.
   use_mag = false
 
-  // Per-vehicle magnetometer calibration. File expected at:
-  //   b = bx,by,bz
-  //   A = a11,a12,a13,a21,a22,a23,a31,a32,a33
   mag_ak_cal_file = /home/pi/mag_cal/$(VNAME)/mag/mag_cal_nav.dat
-
-  // Optional IMU bias file. Both formats accepted:
-  //   gyro_bias  = gx,gy,gz  /  accel_bias = ax,ay,az
-  //   bias_x = gx / bias_y = gy / bias_z = gz  (gyro cal script)
   // imu_cal_file = /home/pi/mag_cal/$(VNAME)/imu/imu_cal.txt
 
-  // GYRO_Z_LVL plausibility clamp (rad/s). The published rate is the
-  // world-frame z angular rate (bounded, no cos(pitch) singularity);
-  // this clamp is a final physical envelope for the EKF. Sized from
-  // the 7/27 zoe RC range tests (observed max 1.03 rad/s -> ~3x margin).
   yaw_rate_clamp = 3.0
 
-  // Sensor mounting offsets (rotate sensor frame to body frame)
   roll_offset  = 0.0
   pitch_offset = 0.0
   yaw_offset   = 0.0
 
-  declination_deg          = -14.058   // local magnetic declination
-  operating_heading_offset = 0.0       // mission-specific heading bias
+  declination_deg          = -14.058
+  operating_heading_offset = 0.0
 
-  //=========================================================
-  // PUBLICATION SUFFIXES
-  //=========================================================
-  // AHRS suffix -> NAV_ROLL_AHRS, NAV_PITCH_AHRS, NAV_YAW_AHRS,
-  //                NAV_HEADING_AHRS
-  // IMU  suffix -> GYRO_X_IMU, GYRO_Y_IMU, GYRO_Z_IMU,
-  //                GYRO_Z_LVL_IMU
   ahrs_pub_suffix = AHRS
   imu_pub_suffix  = IMU
 
-  //=========================================================
-  // DEBUG
-  //=========================================================
   debug = $(LOG)
 }
