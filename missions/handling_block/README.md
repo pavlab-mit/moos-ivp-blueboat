@@ -10,10 +10,21 @@ numbers comparable against the ArduRover baseline (plan §2.1).
 
 ## How it stays safe and stays in the box
 
-- The script's `condition` holds it to `BB_CMD_AUTHORITY = AUTONOMY`
-  (bridged from the front seat). **Flip CH6 to RC and the block
-  pauses** — script clock frozen; reposition the boat; flip back and
-  it resumes mid-sequence. Kill and (if enabled) deadman are untouched.
+- The script advances while autonomy **has the boat or is being
+  offered it**: `(BB_CMD_AUTHORITY = AUTONOMY) or
+  (BB_CMD_STOP_REASON = AUTONOMY_INVALID)`, both bridged from the
+  front seat. The second clause is load-bearing — it breaks the
+  bootstrap deadlock (pBBPID is not valid until this script posts,
+  and the arbiter will not select AUTONOMY until pBBPID is valid;
+  "CH6 in AUTO, nothing commanding" reads as `AUTONOMY_INVALID`,
+  which is the go). **Flip CH6 to RC and the block pauses** — script
+  clock frozen; reposition; flip back and it resumes mid-sequence.
+- **Reposition with CH6, not the kill switch.** Kill neutralizes the
+  props but leaves authority with AUTONOMY, so the script clock keeps
+  running and that phase's data is garbage (rerun it by restarting
+  the mission if it mattered). Kill remains the emergency stop.
+- The DEPLOY button does nothing here — no helm, no
+  uFldMessageHandler. CH6 is the only go-switch.
 - Setpoints re-post every second, so `pBBPID`'s 1.5 s staleness gate,
   the arbiter's lease, and every fail-closed path work exactly as in
   alpha_pavlab. When the script pauses, commanding stops, autonomy
