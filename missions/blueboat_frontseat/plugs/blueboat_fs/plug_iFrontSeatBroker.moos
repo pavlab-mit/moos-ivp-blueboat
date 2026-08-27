@@ -28,17 +28,26 @@ ProcessConfig = iFrontSeatBroker
    tx_vars = NAV_ROLL_AHRS, NAV_PITCH_AHRS, NAV_HEADING_AHRS
    tx_vars = GYRO_Z_LVL_IMU
 
-   // Navigator-board health and RC mode status
-   tx_vars = NVGR_RC_MODE, NVGR_RC_CONNECTED
+   // Navigator-board health
    tx_vars = NVGR_ROLLING_CURRENT, NVGR_ROLLING_VOLTAGE, NVGTR_IT_C, NVGTR_IP_KPA, RPI_TEMP
 
-   // RC variables (no suffix - iRCReader leaves these bare)
+   // Command pipeline state (arbiter + Navigator). BB_CMD_AUTHORITY
+   // replaces the retired NVGR_RC_MODE / NVGR_TELEOP_ENGAGED: the
+   // arbiter is the only process that knows who is driving.
+   tx_vars = BB_CMD_AUTHORITY, NVGR_STOP_REASON
+
+   // Applied effort, returned to the back seat as TELEMETRY
+   // (design doc 14): pBB_DGPS_EKF keys its drift estimator off
+   // these now that DESIRED_THRUST_L/R has no producer.
+   tx_vars = NVGR_APPLIED_LEFT, NVGR_APPLIED_RIGHT
+
+   // RC variables (no suffix - iRCInterface leaves these bare)
    tx_vars = RC_CONNECTED, RC_CH6, RC_CH7, RC_CH8, RC_CH9
 
-   // Laptop teleop status (from iTeleop / iBBNavigatorInterface) so
-   // the backseat helm and its logs can see a teleop takeover.
-   tx_vars = TELEOP_ACTIVE, NVGR_TELEOP_ENGAGED
-   
+   // Laptop teleop status (from iTeleop) so the backseat helm and
+   // its logs can see a teleop takeover.
+   tx_vars = TELEOP_ACTIVE
+
 
    // Optional inbound remap: WIRE_VAR:MOOS_VAR
    // in_map = DESIRED_THRUST_L:DESIRED_THRUST_L,DESIRED_THRUST_R:DESIRED_THRUST_R

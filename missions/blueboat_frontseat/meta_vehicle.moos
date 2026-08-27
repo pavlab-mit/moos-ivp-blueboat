@@ -24,7 +24,15 @@ ProcessConfig = ANTLER
   Run = iFrontSeatBroker       @ NewConsole = false
   Run = iTeleop                @ NewConsole = false
   Run = pBB_Status             @ NewConsole = false
+  // Always on: lightweight, no disk footprint, and it is what
+  // backs the 50 Hz claim with a measurement (plan section 7.4).
+  Run = uLoadWatch             @ NewConsole = false
 
+  // Logging stays DEBUG-gated by decision: shakeout runs launch
+  // in debug anyway, and routine ops should not fill the Pi with
+  // log files. NOTE the dock test and any run you may want to
+  // replay offline MUST therefore launch with the debug flag --
+  // no .alog, no traceability.
   #ifdef DEBUG true
   Run = uFldNodeBroker     @ NewConsole = false
   Run = pRealm             @ NewConsole = false
@@ -43,6 +51,7 @@ ProcessConfig = ANTLER
 #include plugs/blueboat_fs/plug_iTeleop.moos
 #include plugs/blueboat_fs/plug_uProcessWatch.moos
 #include plugs/blueboat_fs/plug_pBB_Status.moos
+#include plugs/blueboat_fs/plug_uLoadWatch.moos
 
 #ifdef DEBUG true
 #include plugs/blueboat_fs/plug_pShare.moos

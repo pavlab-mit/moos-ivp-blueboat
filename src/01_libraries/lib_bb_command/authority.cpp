@@ -1,4 +1,5 @@
 #include "authority.h"
+#include "wire_format.h"
 
 #include <cmath>
 #include <cstdio>
@@ -238,23 +239,21 @@ AuthorityDecision AuthorityArbiter::decide(double now,
 
 std::string serialize_decision(const AuthorityDecision& d)
 {
-  char buf[512];
-  std::snprintf(buf, sizeof(buf),
-                "v=1,decision_epoch=%s,decision_seq=%llu,decision_time=%.3f,"
-                "selected=%s,hard_stop=%d,stop=%s,"
-                "source_producer=%s,source_epoch=%s,source_seq=%llu,"
-                "surge=%.3f,yaw=%.3f",
-                d.decision_epoch.empty() ? "-" : d.decision_epoch.c_str(),
-                (unsigned long long)d.decision_seq,
-                d.decision_time,
-                to_string(d.selected_source),
-                d.hard_stop ? 1 : 0,
-                to_string(d.stop_reason),
-                d.source_producer.empty() ? "-" : d.source_producer.c_str(),
-                d.source_epoch.empty() ? "-" : d.source_epoch.c_str(),
-                (unsigned long long)d.source_seq,
-                d.surge, d.yaw);
-  return std::string(buf);
+  return wire::formatf(
+      "v=1,decision_epoch=%s,decision_seq=%llu,decision_time=%.3f,"
+      "selected=%s,hard_stop=%d,stop=%s,"
+      "source_producer=%s,source_epoch=%s,source_seq=%llu,"
+      "surge=%.3f,yaw=%.3f",
+      d.decision_epoch.empty() ? "-" : d.decision_epoch.c_str(),
+      (unsigned long long)d.decision_seq,
+      d.decision_time,
+      to_string(d.selected_source),
+      d.hard_stop ? 1 : 0,
+      to_string(d.stop_reason),
+      d.source_producer.empty() ? "-" : d.source_producer.c_str(),
+      d.source_epoch.empty() ? "-" : d.source_epoch.c_str(),
+      (unsigned long long)d.source_seq,
+      d.surge, d.yaw);
 }
 
 
@@ -267,47 +266,11 @@ namespace {
 
 const double kDecisionNeverAge = 1.0e9;
 
-bool kv_split(const std::string& text,
-              std::map<std::string, std::string>& out,
-              std::string& bad_key)
-{
-  size_t pos = 0;
-  while (pos <= text.size()) {
-    const size_t comma = text.find(',', pos);
-    const std::string tok = (comma == std::string::npos)
-                                ? text.substr(pos)
-                                : text.substr(pos, comma - pos);
-    if (tok.empty()) { bad_key = "empty token"; return false; }
-    const size_t eq = tok.find('=');
-    if (eq == std::string::npos || eq == 0) { bad_key = tok; return false; }
-    const std::string key = tok.substr(0, eq);
-    if (out.count(key)) { bad_key = key; return false; }
-    out[key] = tok.substr(eq + 1);
-    if (comma == std::string::npos) break;
-    pos = comma + 1;
-  }
-  return true;
-}
-
-bool dec_double(const std::string& s, double& out)
-{
-  if (s.empty()) return false;
-  const char* b = s.c_str();
-  char* e = nullptr;
-  const double v = std::strtod(b, &e);
-  if (e == b || *e != '\0' || !std::isfinite(v)) return false;
-  out = v;
-  return true;
-}
-
-bool dec_u64(const std::string& s, uint64_t& out)
-{
-  if (s.empty()) return false;
-  for (size_t i = 0; i < s.size(); ++i)
-    if (s[i] < '0' || s[i] > '9') return false;
-  out = std::strtoull(s.c_str(), nullptr, 10);
-  return true;
-}
+// The shared wire dialect (wire_format.h). The private copies this
+// replaced had already drifted from the envelope parser's
+// semantics -- see the header there.
+using wire::parse_double;
+using wire::parse_u64;
 
 } // namespace
 
@@ -368,19 +331,20 @@ DecisionParseResult parse_decision(const std::string& text)
   if (text.empty()) return dfail(reject::kMalformed, "empty");
 
   std::map<std::string, std::string> kv;
-  std::string bad;
-  if (!kv_split(text, kv, bad)) {
-    // A duplicate key and a malformed token are different faults
-    // and get different tokens, because they point at different
-    // bugs upstream.
-    return kv.count(bad) ? dfail(reject::kDuplicateKey, bad)
-                         : dfail(reject::kMalformed, bad);
-  }
+  const wire::SplitResult sr = wire::kv_split(text, kv);
+  // A duplicate key and a malformed token are different faults and
+  // get different tokens, because they point at different bugs
+  // upstream. (The old inference from kv.count(bad) mislabelled a
+  // malformed token whose text matched an existing key.)
+  if (sr.fault == wire::SplitFault::DUPLICATE_KEY)
+    return dfail(reject::kDuplicateKey, sr.detail);
+  if (sr.fault != wire::SplitFault::NONE)
+    return dfail(reject::kMalformed, sr.detail);
 
   std::map<std::string, std::string>::iterator it = kv.find("v");
   if (it == kv.end()) return dfail(reject::kMissingField, "v");
   uint64_t ver = 0;
-  if (!dec_u64(it->second, ver)) return dfail(reject::kMalformed, "v");
+  if (!parse_u64(it->second, ver)) return dfail(reject::kMalformed, "v");
   if (ver != kCommandContractVersion)
     return dfail(reject::kUnsupportedVersion, it->second);
 
@@ -394,9 +358,9 @@ DecisionParseResult parse_decision(const std::string& text)
   d.decision_epoch = kv["decision_epoch"];
   if (d.decision_epoch.empty()) return dfail(reject::kMissingField, "decision_epoch");
 
-  if (!dec_u64(kv["decision_seq"], d.decision_seq))
+  if (!parse_u64(kv["decision_seq"], d.decision_seq))
     return dfail(reject::kMalformed, "decision_seq");
-  if (!dec_double(kv["decision_time"], d.decision_time))
+  if (!parse_double(kv["decision_time"], d.decision_time))
     return dfail(reject::kNonFinite, "decision_time");
 
   bool ok = false;
@@ -409,8 +373,8 @@ DecisionParseResult parse_decision(const std::string& text)
   else if (kv["hard_stop"] == "0") d.hard_stop = false;
   else return dfail(reject::kInvalidFlag, "hard_stop");
 
-  if (!dec_double(kv["surge"], d.surge)) return dfail(reject::kNonFinite, "surge");
-  if (!dec_double(kv["yaw"],   d.yaw))   return dfail(reject::kNonFinite, "yaw");
+  if (!parse_double(kv["surge"], d.surge)) return dfail(reject::kNonFinite, "surge");
+  if (!parse_double(kv["yaw"],   d.yaw))   return dfail(reject::kNonFinite, "yaw");
   if (d.surge < -100.0 || d.surge > 100.0) return dfail(reject::kOutOfRange, "surge");
   if (d.yaw   < -100.0 || d.yaw   > 100.0) return dfail(reject::kOutOfRange, "yaw");
 
@@ -424,7 +388,7 @@ DecisionParseResult parse_decision(const std::string& text)
   // none, but if present it must parse.
   if (kv.count("source_producer")) d.source_producer = kv["source_producer"];
   if (kv.count("source_epoch"))    d.source_epoch    = kv["source_epoch"];
-  if (kv.count("source_seq") && !dec_u64(kv["source_seq"], d.source_seq))
+  if (kv.count("source_seq") && !parse_u64(kv["source_seq"], d.source_seq))
     return dfail(reject::kMalformed, "source_seq");
 
   DecisionParseResult r;

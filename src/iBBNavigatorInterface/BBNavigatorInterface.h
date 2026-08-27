@@ -78,6 +78,12 @@ public:
   // control refactor moves it to 50 to match.
   static constexpr double PWM_FREQ_HZ = 50.0;
 
+  // Poll period for the slow telemetry (ADC / baro / leak): I2C
+  // transactions on the MOOS thread, decimated below AppTick.
+  // The rolling power window is sized from this, so they cannot
+  // drift apart.
+  static constexpr double SLOW_POLL_PERIOD_SEC = 0.2;
+
 protected: // MOOSApp
   bool OnNewMail(MOOSMSG_LIST &NewMail);
   bool Iterate();
@@ -106,12 +112,21 @@ protected:
   // before 2026-08-14 (the PCA9685 RESTART trap) and bench-passed
   // after; the orderly all-off below is what keeps it passing.
   void   pwmWriterThread();
-  void   beginArmSequence();
+  bool   beginArmSequence();   // false: hardware refused; caller must back off
   void   performDisarm(const std::string &reason);
   void   commitFrame(const bb::ActuatorFrame &f);
   bool   latestFrame(bb::ActuatorFrame &out) const;
   void   writePulsePair(double left_us, double right_us);
   void   writeNeutralPair();
+
+  // AppCasting is NOT thread-safe, and the PWM thread has things
+  // to say (arm started, disarm performed, hardware refused). It
+  // queues them here; Iterate() drains the queue into
+  // reportEvent/reportRunWarning on the MOOS thread. Calling
+  // those directly from the PWM thread raced buildReport() -- the
+  // same class of bug as the iRCInterface appcast deadlock.
+  void   queueNote(bool warning, const std::string &text);
+  void   drainNotes();
 
   bb::NavigatorSafetyState snapshotSafety() const;
 
@@ -153,6 +168,13 @@ private: // ---- configuration -----------------------------
   bb::ArmSequencer  *m_arm;             // PWM thread only; built in OnStartUp
   bb::ArmSequencerConfig m_arm_cfg;
   std::atomic<int>   m_arm_state_pub;   // ArmState, for the appcast
+  std::atomic<uint64_t> m_arm_cycles_pub; // mirror; m_arm is PWM-thread-only
+  double m_arm_retry_after;             // PWM thread only: backoff after a
+                                        // failed beginArmSequence()
+
+  // PWM thread -> MOOS thread notes (see queueNote above).
+  mutable std::mutex m_note_mutex;
+  std::vector<std::pair<bool, std::string> > m_pending_notes;
 
   // ---- safety sidebands ---------------------------------
   // Plain booleans on purpose: they must work when the command
@@ -177,11 +199,21 @@ private: // ---- configuration -----------------------------
   std::thread m_sensor_thread;
 
   // ---- power / environment ------------------------------
+  // (current_scale/current_offset were retired: current always
+  // came from the per-battery-count table, so the two config
+  // knobs silently did nothing.)
   int    m_num_batteries;
-  double m_voltage_offset, m_current_offset;
-  double m_voltage_scale,  m_current_scale;
+  double m_voltage_offset;
+  double m_voltage_scale;
   double m_adc_1, m_adc_2, m_adc_3, m_adc_4;
   double m_latest_voltage, m_latest_current;
+
+  // The ADC/baro/leak reads are I2C transactions; at AppTick=50
+  // doing them every Iterate would put 150 bus hits/s on the MOOS
+  // thread while the PWM and sensor threads share the same bus.
+  // Decimated to the rates the data changes at.
+  double m_last_slow_poll;   // ADC + baro + leak, 5 Hz
+  double m_last_rpi_poll;    // Pi CPU temp via sysfs, 1 Hz
 
   double   m_rolling_window_seconds;
   uint64_t m_rolling_window_size;

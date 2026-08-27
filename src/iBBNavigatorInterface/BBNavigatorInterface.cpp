@@ -11,6 +11,8 @@
 #include "BBNavigatorInterface.h"
 #include "BBNavigatorInterface_Info.h"
 
+#include "wire_format.h"
+
 #include "ACTable.h"
 #include "MBUtils.h"
 
@@ -46,6 +48,8 @@ BBNavigatorInterface::BBNavigatorInterface()
     m_arm_requested(false),
     m_arm(nullptr),
     m_arm_state_pub(0),
+    m_arm_cycles_pub(0),
+    m_arm_retry_after(0.0),
     m_rc_kill_asserted(false),
     m_rc_link_alive(false),
     m_last_rc_good_time(0.0),
@@ -55,10 +59,11 @@ BBNavigatorInterface::BBNavigatorInterface()
     m_pwm_writes(0),
     m_running(true),
     m_num_batteries(4),
-    m_voltage_offset(0), m_current_offset(0),
-    m_voltage_scale(11.132), m_current_scale(37.8788),
+    m_voltage_offset(0),
+    m_voltage_scale(11.132),
     m_adc_1(0), m_adc_2(0), m_adc_3(0), m_adc_4(0),
     m_latest_voltage(0), m_latest_current(0),
+    m_last_slow_poll(0), m_last_rpi_poll(0),
     m_rolling_window_seconds(2.0), m_rolling_window_size(0), m_apptick_idx(0),
     m_rolling_voltage(0), m_rolling_current(0), m_rolling_power(0),
     m_nav_temp(0), m_nav_pressure(0), m_rpi_temp(0), m_leak_detected(false),
@@ -137,14 +142,27 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
     // --- hardware sidebands -----------------------------
     // Plain booleans, straight from iRCInterface. They bypass the
     // command path so they still work when it has failed.
+    //
+    // Parsed with the SAME relaxed-bool the arbiter uses
+    // (bb::parse_bool_token). Before the audit this app accepted
+    // only the string "true" while the arbiter also accepted "1"
+    // -- i.e. the ENFORCING consumer of the kill sideband was the
+    // stricter parser, and a poked "1" asserted kill in the trace
+    // but not at the hardware.
     else if (key == "RC_KILL_ASSERTED") {
-      const bool k = (tolower(msg.GetString()) == "true") || (msg.IsDouble() && msg.GetDouble() != 0);
+      const bool k = msg.IsDouble()
+                         ? (msg.GetDouble() != 0)
+                         : bb::parse_bool_token(msg.GetString(),
+                                                m_rc_kill_asserted.load());
       if (k != m_rc_kill_asserted.load())
         reportEvent(k ? "RC KILL asserted" : "RC KILL released");
       m_rc_kill_asserted.store(k);
     }
     else if (key == "RC_LINK_ALIVE") {
-      const bool alive = (tolower(msg.GetString()) == "true") || (msg.IsDouble() && msg.GetDouble() != 0);
+      const bool alive = msg.IsDouble()
+                             ? (msg.GetDouble() != 0)
+                             : bb::parse_bool_token(msg.GetString(),
+                                                    m_rc_link_alive.load());
       m_rc_link_alive.store(alive);
       if (alive) m_last_rc_good_time.store(MOOSTime());
     }
@@ -164,7 +182,10 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
       // ESCs left ARMED, so recovery is instant. This is the
       // signal cut -- the ESCs lose their input and re-arming
       // costs the hold.
-      const bool disarm = (tolower(msg.GetString()) == "true");
+      const bool disarm = msg.IsDouble()
+                              ? (msg.GetDouble() != 0)
+                              : bb::parse_bool_token(msg.GetString(),
+                                                     !m_arm_requested.load());
       const bool was    = m_arm_requested.load();
       m_arm_requested.store(!disarm);
       if (was == disarm)   // i.e. the request actually changed
@@ -172,7 +193,8 @@ bool BBNavigatorInterface::OnNewMail(MOOSMSG_LIST &NewMail)
                            : "NVGR_DISARM=false: re-arm requested");
     }
     else if (key == "MISSION_COMPLETE") {
-      if (tolower(msg.GetString()) == "true") {
+      if (msg.IsDouble() ? (msg.GetDouble() != 0)
+                         : bb::parse_bool_token(msg.GetString(), false)) {
         reportEvent("MISSION_COMPLETE: shutting down");
         m_shutdown_requested.store(true);
       }
@@ -195,10 +217,33 @@ bool BBNavigatorInterface::OnConnectToServer()
 // stop cycles. A gap in the trace is indistinguishable from a
 // dead app, and the PWM thread's TTL depends on a steady commit.
 
+// PWM thread -> MOOS thread notes. AppCasting state is not
+// thread-safe, so the PWM thread queues and Iterate() drains.
+
+void BBNavigatorInterface::queueNote(bool warning, const std::string &text)
+{
+  std::lock_guard<std::mutex> lock(m_note_mutex);
+  m_pending_notes.push_back(std::make_pair(warning, text));
+}
+
+void BBNavigatorInterface::drainNotes()
+{
+  std::vector<std::pair<bool, std::string> > notes;
+  {
+    std::lock_guard<std::mutex> lock(m_note_mutex);
+    notes.swap(m_pending_notes);
+  }
+  for (size_t i = 0; i < notes.size(); ++i) {
+    if (notes[i].first) reportRunWarning(notes[i].second);
+    else                reportEvent(notes[i].second);
+  }
+}
+
 bool BBNavigatorInterface::Iterate()
 {
   AppCastingMOOSApp::Iterate();
   ++m_iterations;
+  drainNotes();
 
   const double now = MOOSTime();
   const bb::NavigatorSafetyState safety = snapshotSafety();
@@ -346,8 +391,6 @@ bool BBNavigatorInterface::OnStartUp()
     else if (param == "nbats")                 { m_num_batteries = atoi(value.c_str()); handled = true; }
     else if (param == "voltage_scale")         handled = setDoubleOnString(m_voltage_scale, value);
     else if (param == "voltage_offset")        handled = setDoubleOnString(m_voltage_offset, value);
-    else if (param == "current_scale")         handled = setDoubleOnString(m_current_scale, value);
-    else if (param == "current_offset")        handled = setDoubleOnString(m_current_offset, value);
     else if (param == "rolling_window_period") handled = setDoubleOnString(m_rolling_window_seconds, value);
 
     // --- AHRS ---
@@ -392,7 +435,11 @@ bool BBNavigatorInterface::OnStartUp()
              param == "thrust_command_timeout" || param == "rc_deadman_timeout" ||
              param == "rc_thrust_limit_enable" || param == "teleop_command_timeout" ||
              param == "rc_stick_convention" || param == "theta_b" ||
-             param == "turn_scale") {
+             param == "turn_scale" ||
+             // Retired in the pre-hardware audit: current always came
+             // from the per-battery-count calibration table, so these
+             // two knobs silently did nothing.
+             param == "current_scale" || param == "current_offset") {
       reportConfigWarning("RETIRED parameter '" + param +
                           "' is ignored -- see docs/control_refactor_plan.md 16.5");
       handled = true;
@@ -452,8 +499,10 @@ bool BBNavigatorInterface::OnStartUp()
     g_nav.ahrs_set_mag_calib(m_mag_bias[0], m_mag_bias[1], m_mag_bias[2]);
   g_nav.ahrs_reset();
 
+  // Samples arrive at the slow-poll rate, not at AppTick -- the
+  // ADC read is decimated in publishSensorTelemetry().
   m_rolling_window_size =
-      (uint64_t)(m_rolling_window_seconds * (GetAppFreq() > 0 ? GetAppFreq() : 10.0));
+      (uint64_t)(m_rolling_window_seconds / SLOW_POLL_PERIOD_SEC);
   if (m_rolling_window_size < 1) m_rolling_window_size = 1;
 
   m_ahrs_running.store(true);
@@ -509,7 +558,8 @@ bool BBNavigatorInterface::buildReport()
   m_msgs << "SAFETY:  RC kill " << (m_rc_kill_asserted.load() ? "ASSERTED" : "clear")
          << "   RC link " << (m_rc_link_alive.load() ? "alive" : "LOST")
          << "   deadman " << (m_act_cfg.rc_deadman_enabled ? "ENABLED" : "off") << endl;
-  m_msgs << "ESC:     arm cycles " << (m_arm ? m_arm->arm_cycles() : 0)
+  // m_arm is PWM-thread-only; read the atomic mirror instead.
+  m_msgs << "ESC:     arm cycles " << m_arm_cycles_pub.load()
          << "   request " << (m_arm_requested.load() ? "armed" : "disarmed") << endl;
   m_msgs << "PWM:     writes " << m_pwm_writes.load()
          << "   watchdog neutralisations " << m_pwm_watchdog_count.load() << endl;

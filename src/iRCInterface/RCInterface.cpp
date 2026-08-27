@@ -171,10 +171,10 @@ bool RCInterface::OnNewMail(MOOSMSG_LIST &NewMail)
       m_telem_in.nav_y = msg.GetDouble();
       m_telem_in.have_xy = true;
     }
-    else if (key == "NVGR_RC_MODE" && msg.IsString())
-      m_telem_in.rc_mode = (tolower(msg.GetString()) == "true");
-    else if (key == "NVGR_RC_DEADMAN_ACTIVE" && msg.IsString())
-      m_telem_in.deadman = (tolower(msg.GetString()) == "true");
+    else if (key == "BB_CMD_AUTHORITY" && msg.IsString())
+      m_telem_in.authority = msg.GetString();
+    else if (key == "NVGR_STOP_REASON" && msg.IsString())
+      m_telem_in.deadman = (msg.GetString() == "RC_DEADMAN");
     else if (key != "APPCAST_REQ")
       reportRunWarning("Unhandled Mail: " + key);
   }
@@ -432,8 +432,15 @@ void RCInterface::sendTelemetry(uint64_t now_us)
 
     // Vehicle-side liveness: EdgeTX shows this string natively as
     // the FM sensor. Confirmed-mode loop: the handset banner shows
-    // the COMMANDED mode, FM shows what the vehicle is ACTUALLY in.
-    const char *mode = in.deadman ? "DEADMAN" : (in.rc_mode ? "RC" : "AUTO");
+    // the COMMANDED mode, FM shows what the vehicle is ACTUALLY
+    // in -- now sourced from the arbiter's authority decision
+    // rather than the retired Navigator RC-mode flag.
+    const char *mode = "AUTO";
+    if      (in.deadman)                 mode = "DEADMAN";
+    else if (in.authority == "RC")       mode = "RC";
+    else if (in.authority == "TELEOP")   mode = "TELEOP";
+    else if (in.authority == "NONE")     mode = "STOP";
+    else if (in.authority == "AUTONOMY") mode = "AUTO";
     crsfEncodeFlightMode(mode, f);
     writeFrameNonBlocking(f);
   }
@@ -1021,8 +1028,8 @@ void RCInterface::registerVariables()
   Register("NAV_HEADING", 0);
   Register("NAV_X", 0);
   Register("NAV_Y", 0);
-  Register("NVGR_RC_MODE", 0);
-  Register("NVGR_RC_DEADMAN_ACTIVE", 0);
+  Register("BB_CMD_AUTHORITY", 0);
+  Register("NVGR_STOP_REASON", 0);
 }
 
 //------------------------------------------------------------

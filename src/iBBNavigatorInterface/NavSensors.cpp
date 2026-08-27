@@ -417,7 +417,19 @@ void BBNavigatorInterface::publishSensorTelemetry()
   Notify("NVGR_IMU_READ_ERRORS",  (double)read_errors);
   Notify("NVGR_IMU_GLITCHES",     (double)glitches);
 
-  // --- power ---
+  // --- power / environment, decimated ---
+  //
+  // Everything below is an I2C transaction (or a sysfs read) on
+  // the MOOS thread, and the bus is shared with the PWM writer
+  // and the sensor thread. At AppTick=50, reading every Iterate
+  // would be 150 bus hits/s for data that changes on the scale of
+  // seconds. 5 Hz preserves the old 10 Hz app's information rate;
+  // the actuator path above is untouched and stays at 50.
+  const double telem_now = MOOSTime();
+  if (telem_now - m_last_slow_poll < SLOW_POLL_PERIOD_SEC)
+    return;
+  m_last_slow_poll = telem_now;
+
   NavADCData adc;
   if (g_nav.read_adc_all(adc).empty()) {
     m_adc_1 = adc.channel[0];
@@ -470,6 +482,21 @@ void BBNavigatorInterface::publishSensorTelemetry()
       reportRunWarning(leak ? "LEAK DETECTED" : "Leak cleared");
     m_leak_detected = leak;
     Notify("NVGR_LEAK", leak ? "true" : "false");
+  }
+
+  // Pi CPU temperature, restored from the pre-rewrite app -- the
+  // rewrite dropped it and pBB_Health / pBB_Status (and the
+  // broker to the back seat) still consume it. On a non-Pi host
+  // the file is absent and nothing is published.
+  if (telem_now - m_last_rpi_poll >= 1.0) {
+    m_last_rpi_poll = telem_now;
+    std::ifstream temp_file("/sys/class/thermal/thermal_zone0/temp");
+    if (temp_file.is_open()) {
+      int milli_c = 0;
+      temp_file >> milli_c;
+      m_rpi_temp = milli_c / 1000.0;
+      Notify("RPI_TEMP", m_rpi_temp);
+    }
   }
 
   Notify("NVGR_ESC_ARMED", m_pwm_output_enabled.load() ? "true" : "false");

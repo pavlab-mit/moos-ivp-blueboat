@@ -1,4 +1,5 @@
 #include "mixer_stage.h"
+#include "wire_format.h"
 
 #include <cmath>
 #include <cstdio>
@@ -114,8 +115,7 @@ MixedCommand MixerStage::update(double now, double dt,
 
 std::string serialize_mixed(const MixedCommand& m)
 {
-  char buf[768];
-  std::snprintf(buf, sizeof(buf),
+  return wire::formatf(
                 "v=1,mixer_model=%s,mix_epoch=%s,mix_seq=%llu,mix_time=%.3f,"
                 "decision_epoch=%s,decision_seq=%llu,"
                 "selected=%s,hard_stop=%d,stop=%s,"
@@ -144,7 +144,6 @@ std::string serialize_mixed(const MixedCommand& m)
                 m.alloc.limit_steer_right ? 1 : 0,
                 m.alloc.limit_throttle_lower ? 1 : 0,
                 m.alloc.limit_throttle_upper ? 1 : 0);
-  return std::string(buf);
 }
 
 
@@ -157,46 +156,9 @@ namespace {
 
 const double kMixedNeverAge = 1.0e9;
 
-bool mx_split(const std::string& text,
-              std::map<std::string, std::string>& out, std::string& bad)
-{
-  size_t pos = 0;
-  while (pos <= text.size()) {
-    const size_t comma = text.find(',', pos);
-    const std::string tok = (comma == std::string::npos)
-                                ? text.substr(pos)
-                                : text.substr(pos, comma - pos);
-    if (tok.empty()) { bad = "empty token"; return false; }
-    const size_t eq = tok.find('=');
-    if (eq == std::string::npos || eq == 0) { bad = tok; return false; }
-    const std::string key = tok.substr(0, eq);
-    if (out.count(key)) { bad = key; return false; }
-    out[key] = tok.substr(eq + 1);
-    if (comma == std::string::npos) break;
-    pos = comma + 1;
-  }
-  return true;
-}
-
-bool mx_double(const std::string& s, double& out)
-{
-  if (s.empty()) return false;
-  const char* b = s.c_str();
-  char* e = nullptr;
-  const double v = std::strtod(b, &e);
-  if (e == b || *e != '\0' || !std::isfinite(v)) return false;
-  out = v;
-  return true;
-}
-
-bool mx_u64(const std::string& s, uint64_t& out)
-{
-  if (s.empty()) return false;
-  for (size_t i = 0; i < s.size(); ++i)
-    if (s[i] < '0' || s[i] > '9') return false;
-  out = std::strtoull(s.c_str(), nullptr, 10);
-  return true;
-}
+// The shared wire dialect (wire_format.h).
+using wire::parse_double;
+using wire::parse_u64;
 
 MixedParseResult mxfail(const char* reason, const std::string& detail)
 {
@@ -214,15 +176,16 @@ MixedParseResult parse_mixed(const std::string& text)
   if (text.empty()) return mxfail(reject::kMalformed, "empty");
 
   std::map<std::string, std::string> kv;
-  std::string bad;
-  if (!mx_split(text, kv, bad))
-    return kv.count(bad) ? mxfail(reject::kDuplicateKey, bad)
-                         : mxfail(reject::kMalformed, bad);
+  const wire::SplitResult sr = wire::kv_split(text, kv);
+  if (sr.fault == wire::SplitFault::DUPLICATE_KEY)
+    return mxfail(reject::kDuplicateKey, sr.detail);
+  if (sr.fault != wire::SplitFault::NONE)
+    return mxfail(reject::kMalformed, sr.detail);
 
   std::map<std::string, std::string>::iterator it = kv.find("v");
   if (it == kv.end()) return mxfail(reject::kMissingField, "v");
   uint64_t ver = 0;
-  if (!mx_u64(it->second, ver)) return mxfail(reject::kMalformed, "v");
+  if (!parse_u64(it->second, ver)) return mxfail(reject::kMalformed, "v");
   if (ver != kCommandContractVersion)
     return mxfail(reject::kUnsupportedVersion, it->second);
 
@@ -237,9 +200,9 @@ MixedParseResult parse_mixed(const std::string& text)
   m.mix_epoch   = kv["mix_epoch"];
   if (m.mix_epoch.empty()) return mxfail(reject::kMissingField, "mix_epoch");
 
-  if (!mx_u64(kv["mix_seq"], m.mix_seq))
+  if (!parse_u64(kv["mix_seq"], m.mix_seq))
     return mxfail(reject::kMalformed, "mix_seq");
-  if (!mx_double(kv["mix_time"], m.mix_time))
+  if (!parse_double(kv["mix_time"], m.mix_time))
     return mxfail(reject::kNonFinite, "mix_time");
 
   bool ok = false;
@@ -252,9 +215,9 @@ MixedParseResult parse_mixed(const std::string& text)
   else if (kv["hard_stop"] == "0") m.hard_stop = false;
   else return mxfail(reject::kInvalidFlag, "hard_stop");
 
-  if (!mx_double(kv["left_effort"],  m.left_effort))
+  if (!parse_double(kv["left_effort"],  m.left_effort))
     return mxfail(reject::kNonFinite, "left_effort");
-  if (!mx_double(kv["right_effort"], m.right_effort))
+  if (!parse_double(kv["right_effort"], m.right_effort))
     return mxfail(reject::kNonFinite, "right_effort");
   if (m.left_effort  < -100.0 || m.left_effort  > 100.0)
     return mxfail(reject::kOutOfRange, "left_effort");
@@ -268,11 +231,11 @@ MixedParseResult parse_mixed(const std::string& text)
     return mxfail(reject::kOutOfRange, "hard_stop with nonzero effort");
 
   if (kv.count("decision_epoch")) m.decision_epoch = kv["decision_epoch"];
-  if (kv.count("decision_seq") && !mx_u64(kv["decision_seq"], m.decision_seq))
+  if (kv.count("decision_seq") && !parse_u64(kv["decision_seq"], m.decision_seq))
     return mxfail(reject::kMalformed, "decision_seq");
   if (kv.count("source_producer")) m.source_producer = kv["source_producer"];
   if (kv.count("source_epoch"))    m.source_epoch    = kv["source_epoch"];
-  if (kv.count("source_seq") && !mx_u64(kv["source_seq"], m.source_seq))
+  if (kv.count("source_seq") && !parse_u64(kv["source_seq"], m.source_seq))
     return mxfail(reject::kMalformed, "source_seq");
 
   MixedParseResult r;

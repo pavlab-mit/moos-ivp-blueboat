@@ -1,9 +1,10 @@
 #include "command_envelope.h"
+#include "wire_format.h"
 
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <set>
 #include <unistd.h>
 #include <ctime>
 
@@ -21,13 +22,17 @@ const char* kMissingField        = "missing_field";
 
 std::string make_epoch(const std::string& prefix)
 {
+  // The counter is what makes two epochs minted by ONE process in
+  // ONE second distinct -- pid ^ time alone reseeded to the same
+  // value and collided. No caller does that today; this is the
+  // guard for the first one that does.
+  static std::atomic<unsigned> s_mint_count{0};
   unsigned seed = (unsigned)::getpid();
   seed ^= (unsigned)::time(NULL) * 2654435761u;
+  seed ^= (s_mint_count.fetch_add(1) + 1u) * 0x9E3779B9u;
   ::srandom(seed);
-  char buf[48];
-  std::snprintf(buf, sizeof(buf), "%s-%06lx",
-                prefix.c_str(), (long)(::random() & 0xFFFFFF));
-  return std::string(buf);
+  return wire::formatf("%s-%06lx", prefix.c_str(),
+                       (long)(::random() & 0xFFFFFF));
 }
 
 const char* to_string(CommandSource s)
@@ -69,34 +74,10 @@ ParseResult fail(const char* reason, const std::string& detail)
   return r;
 }
 
-// Strict numeric parse. Rejects trailing garbage, empty strings,
-// and anything non-finite. strtod alone would happily accept
-// "42abc" and "nan".
-bool parse_double(const std::string& s, double& out)
-{
-  if (s.empty()) return false;
-  const char* begin = s.c_str();
-  char* end = nullptr;
-  const double v = std::strtod(begin, &end);
-  if (end == begin) return false;
-  while (*end == ' ') ++end;
-  if (*end != '\0') return false;
-  if (!std::isfinite(v)) return false;
-  out = v;
-  return true;
-}
-
-bool parse_u64(const std::string& s, uint64_t& out)
-{
-  if (s.empty()) return false;
-  for (size_t i = 0; i < s.size(); ++i)
-    if (s[i] < '0' || s[i] > '9') return false;
-  errno = 0;
-  const unsigned long long v = std::strtoull(s.c_str(), nullptr, 10);
-  if (errno == ERANGE) return false;
-  out = (uint64_t)v;
-  return true;
-}
+// Numeric parses come from wire_format -- the ONE dialect all
+// three contract parsers share.
+using wire::parse_double;
+using wire::parse_u64;
 
 // Flags are strictly "0" or "1". Accepting "true"/"yes"/"" is how
 // a typo silently becomes a permissive default.
@@ -115,44 +96,11 @@ ParseResult parse_command(const std::string& text, CommandSource source)
     return fail(reject::kMalformed, "empty");
 
   std::map<std::string, std::string> kv;
-  std::set<std::string> seen;
-
-  size_t pos = 0;
-  while (pos <= text.size()) {
-    const size_t comma = text.find(',', pos);
-    const std::string tok = (comma == std::string::npos)
-                                ? text.substr(pos)
-                                : text.substr(pos, comma - pos);
-
-    // An empty token means a doubled comma or a trailing one.
-    // Skipping it would be the permissive reading; this parser
-    // does not do permissive readings.
-    // pos can only reach text.size() here by following a comma,
-    // so an empty token at the end is a TRAILING comma, not a
-    // normal loop exit -- the loop leaves via the npos break
-    // below. Both are malformed.
-    if (tok.empty())
-      return fail(reject::kMalformed, "empty token");
-
-    {
-      const size_t eq = tok.find('=');
-      if (eq == std::string::npos || eq == 0)
-        return fail(reject::kMalformed, tok);
-      const std::string key = tok.substr(0, eq);
-      const std::string val = tok.substr(eq + 1);
-
-      // Duplicate keys are rejected outright. Last-writer-wins on
-      // a duplicated surge is exactly the ambiguity this contract
-      // exists to remove.
-      if (!seen.insert(key).second)
-        return fail(reject::kDuplicateKey, key);
-
-      kv[key] = val;
-    }
-
-    if (comma == std::string::npos) break;
-    pos = comma + 1;
-  }
+  const wire::SplitResult sr = wire::kv_split(text, kv);
+  if (sr.fault == wire::SplitFault::DUPLICATE_KEY)
+    return fail(reject::kDuplicateKey, sr.detail);
+  if (sr.fault != wire::SplitFault::NONE)
+    return fail(reject::kMalformed, sr.detail);
 
   // --- version first: reject an unsupported contract before
   //     interpreting any field under v1 assumptions.
@@ -245,21 +193,18 @@ ParseResult parse_command(const std::string& text, CommandSource source)
 
 std::string serialize_command(const SemanticCommand& cmd)
 {
-  char buf[512];
-  std::snprintf(buf, sizeof(buf),
-                "v=%u,producer=%s,epoch=%s,seq=%llu,source_time=%.3f,"
-                "valid=%d,surge=%.3f,yaw=%.3f,authority_limit=%.3f",
-                (unsigned)cmd.version,
-                cmd.producer.c_str(),
-                cmd.epoch.c_str(),
-                (unsigned long long)cmd.seq,
-                cmd.source_time,
-                cmd.valid ? 1 : 0,
-                cmd.surge,
-                cmd.yaw,
-                cmd.authority_limit);
-
-  std::string out(buf);
+  std::string out = wire::formatf(
+      "v=%u,producer=%s,epoch=%s,seq=%llu,source_time=%.3f,"
+      "valid=%d,surge=%.3f,yaw=%.3f,authority_limit=%.3f",
+      (unsigned)cmd.version,
+      cmd.producer.c_str(),
+      cmd.epoch.c_str(),
+      (unsigned long long)cmd.seq,
+      cmd.source_time,
+      cmd.valid ? 1 : 0,
+      cmd.surge,
+      cmd.yaw,
+      cmd.authority_limit);
   for (std::map<std::string, std::string>::const_iterator k = cmd.extra.begin();
        k != cmd.extra.end(); ++k) {
     out += ",";

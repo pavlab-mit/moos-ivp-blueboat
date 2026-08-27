@@ -21,8 +21,12 @@ ProcessConfig = pBB_DGPS_EKF
   // Input variable names
   input_gps_state = GNSS_STATE  // Time-bundled fix state from iUnicore
   input_gyro_z    = GYRO_Z_LVL_IMU   // Level-frame gyro Z (rad/s)
-  input_thrust_l  = DESIRED_THRUST_L // Left thruster command (0-100)
-  input_thrust_r  = DESIRED_THRUST_R // Right thruster command (0-100)
+  // APPLIED effort returned from the front-seat Navigator via the
+  // brokers (design doc 14). DESIRED_THRUST_L/R died with the
+  // back-seat pThrustMix: left pointing there, this app saw thrust
+  // 0 forever and ran the drift estimator under full power.
+  input_thrust_l  = NVGR_APPLIED_LEFT  // Left applied effort (-100..100)
+  input_thrust_r  = NVGR_APPLIED_RIGHT // Right applied effort (-100..100)
 
   // Output suffix - empty publishes helm-facing bare names
   // (NAV_X, NAV_Y, NAV_HEADING, etc.). Set non-empty to namespace

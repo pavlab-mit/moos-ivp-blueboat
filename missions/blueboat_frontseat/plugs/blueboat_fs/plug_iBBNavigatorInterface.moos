@@ -11,7 +11,9 @@
 //   - ADC power monitoring (battery V / I)
 //   - Internal pressure / temperature, leak detector
 //   - Navigator-board RGBW LEDs
-//   - RC-mode thrust mixing (when CH6 == 2)
+//
+// It no longer arbitrates or mixes: one command input
+// (BB_MIXED_CMD), plus the RC kill / deadman sidebands.
 //----------------------------------------------------------
 
 ProcessConfig = iBBNavigatorInterface
