@@ -13,9 +13,20 @@ ProcessConfig = uTimerScript
   shuffle     = false
   reset_max   = 0
 
-  // Advance only while autonomy is actually driving; an RC
-  // takeover freezes the script clock, a return resumes it.
-  condition   = BB_CMD_AUTHORITY = AUTONOMY
+  // Advance while autonomy HAS the boat, or is being OFFERED it.
+  // The second clause breaks the bootstrap deadlock: pBBPID is
+  // not valid until this script posts DESIRED_*, and the arbiter
+  // does not select AUTONOMY until pBBPID is valid -- but while
+  // CH6 is in AUTO with nothing commanding, the arbiter says
+  // exactly stop=AUTONOMY_INVALID, which is the offer. An RC
+  // takeover (authority=RC, stop=NONE) freezes the clock;
+  // ALL_STOP and a quiet pBBPID pause the block too.
+  //
+  // EXACTLY TWO parenthesized clauses: lib_logic rejects a flat
+  // three-way 'or' (the right side of the first 'or' must itself
+  // be globally parenthesized) -- and uTimerScript then runs
+  // UNCONDITIONED on the bad line. Seen 2026-08-27.
+  condition   = (BB_CMD_AUTHORITY = AUTONOMY) or (BB_CMD_STOP_REASON = AUTONOMY_INVALID)
 
   // Settle time after autonomy first gets the boat.
   delay_start = 5
