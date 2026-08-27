@@ -35,6 +35,7 @@
  *************************************************************/
 
 #include "alog_reader.h"
+#include "scenarios.h"
 
 #include "esc_mapper.h"
 #include "skid_mixer.h"
@@ -388,6 +389,7 @@ static void usage()
   printf("  --mode=mixer  new SkidMixer vs the logged pThrustMix output\n");
   printf("  --mode=esc    old vs new ESC pulse mapping over logged commands\n");
   printf("  --mode=scan   list variables and rates\n");
+  printf("  --mode=fail   synthetic fail-closed scenarios (no log needed)\n");
 }
 
 int main(int argc, char** argv)
@@ -396,12 +398,31 @@ int main(int argc, char** argv)
 
   std::string path;
   std::string mode = "mixer";
+  bool verbose = false;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "-h" || a == "--help") { usage(); return 0; }
     else if (a.compare(0, 7, "--mode=") == 0) mode = a.substr(7);
+    else if (a == "-v" || a == "--verbose") verbose = true;
     else path = a;
   }
+  // The fail-closed scenarios need no log: their whole point is
+  // driving the cases no recording contains.
+  if (mode == "fail") {
+    print_hdr("Synthetic fail-closed scenarios");
+    printf("  Every transition below is driven through the REAL\n");
+    printf("  AuthorityArbiter, MixerStage and ActuatorStage, over the\n");
+    printf("  wire at each boundary. Nothing is mocked but the clock.\n\n");
+    const std::vector<bb::scenarios::Result> rs = bb::scenarios::run_all(verbose);
+    int failed = 0;
+    for (size_t i = 0; i < rs.size(); ++i) {
+      printf("  [%s] %s\n", rs[i].passed ? "PASS" : "FAIL", rs[i].name.c_str());
+      if (!rs[i].passed) { printf("         %s\n", rs[i].detail.c_str()); ++failed; }
+    }
+    printf("\n  %zu scenarios, %d failed\n", rs.size(), failed);
+    return failed ? 1 : 0;
+  }
+
   if (path.empty()) { usage(); return 1; }
 
   std::set<std::string> wanted;

@@ -44,9 +44,8 @@ BBNavigatorInterface::BBNavigatorInterface()
     m_esc_armed(false),
     m_pwm_output_enabled(false),
     m_arm_requested(false),
-    m_arm_state(ArmState::DISARMED),
-    m_arm_hold_start(0.0),
-    m_arm_cycles(0),
+    m_arm(nullptr),
+    m_arm_state_pub(0),
     m_rc_kill_asserted(false),
     m_rc_link_alive(false),
     m_last_rc_good_time(0.0),
@@ -109,6 +108,7 @@ BBNavigatorInterface::~BBNavigatorInterface()
 
   safePwmShutdown();
   delete m_stage;
+  delete m_arm;
   if (m_debug_stream) fclose(m_debug_stream);
 }
 
@@ -227,6 +227,7 @@ bool BBNavigatorInterface::Iterate()
   Notify("NVGR_RC_KILL",        safety.rc_kill_asserted ? "true" : "false");
   Notify("NVGR_PWM_ARMED",      safety.pwm_armed ? "true" : "false");
   Notify("NVGR_PWM_WATCHDOG_COUNT", (double)m_pwm_watchdog_count.load());
+  Notify("NVGR_ARM_STATE", bb::to_string((bb::ArmState)m_arm_state_pub.load()));
 
   publishSensorTelemetry();
 
@@ -422,6 +423,13 @@ bool BBNavigatorInterface::OnStartUp()
   }
   m_stage = new bb::ActuatorStage(m_act_cfg);
 
+  // initialize_esc = false skips the neutral hold but still
+  // transits ARMING, so there is exactly one path to ARMED.
+  m_arm_cfg.skip_hold = !m_initialize_esc;
+  const string arm_err = m_arm_cfg.validate();
+  if (!arm_err.empty()) { reportConfigWarning("FATAL: " + arm_err); return false; }
+  m_arm = new bb::ArmSequencer(m_arm_cfg);
+
   g_disarm_on_exit_set(m_disarm_on_exit);
   atexit(safePwmShutdown);
   signal(SIGINT,  signalHandler);
@@ -466,8 +474,7 @@ bool BBNavigatorInterface::buildReport()
   m_msgs << "Board:   " << (nv == NAV_V1 ? "V1" : nv == NAV_V2 ? "V2" : "UNKNOWN")
          << "   init " << (m_nav_init_ok ? "OK" : ("FAILED: " + m_nav_init_error))
          << "   pwm_ready " << (g_nav.is_pwm_ready() ? "yes" : "NO") << endl;
-  m_msgs << "ESC:     " << (m_esc_armed.load() ? "ARMED"
-                            : (m_arm_requested.load() ? "ARMING" : "DISARMED"))
+  m_msgs << "ESC:     " << bb::to_string((bb::ArmState)m_arm_state_pub.load())
          << "   output " << (m_pwm_output_enabled.load() ? "enabled" : "CUT")
          << "   " << doubleToString(PWM_FREQ_HZ, 0) << " Hz" << endl;
   m_msgs << "         left  " << doubleToString(m_act_cfg.left.min_us, 0) << "/"
@@ -502,7 +509,7 @@ bool BBNavigatorInterface::buildReport()
   m_msgs << "SAFETY:  RC kill " << (m_rc_kill_asserted.load() ? "ASSERTED" : "clear")
          << "   RC link " << (m_rc_link_alive.load() ? "alive" : "LOST")
          << "   deadman " << (m_act_cfg.rc_deadman_enabled ? "ENABLED" : "off") << endl;
-  m_msgs << "ESC:     arm cycles " << m_arm_cycles.load()
+  m_msgs << "ESC:     arm cycles " << (m_arm ? m_arm->arm_cycles() : 0)
          << "   request " << (m_arm_requested.load() ? "armed" : "disarmed") << endl;
   m_msgs << "PWM:     writes " << m_pwm_writes.load()
          << "   watchdog neutralisations " << m_pwm_watchdog_count.load() << endl;

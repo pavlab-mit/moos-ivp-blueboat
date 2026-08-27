@@ -17,6 +17,7 @@ set(SRC command_envelope.cpp
         authority.cpp
         mixer_stage.cpp
         actuator_stage.cpp
+        arm_sequencer.cpp
         slew_limiter.cpp
         skid_mixer.cpp
         esc_mapper.cpp)
@@ -26,6 +27,7 @@ set(HEADERS command_envelope.h
             authority.h
             mixer_stage.h
             actuator_stage.h
+            arm_sequencer.h
             slew_limiter.h
             skid_mixer.h
             esc_mapper.h)

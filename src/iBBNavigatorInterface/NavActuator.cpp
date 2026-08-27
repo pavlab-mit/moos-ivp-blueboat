@@ -124,9 +124,6 @@ void BBNavigatorInterface::writeNeutralPair()
 // to replay the last command. That is the difference between a
 // hung app and a runaway boat.
 
-// Seconds of stable neutral the Basic ESC 500 needs to arm.
-static const double kArmHoldSec = 2.0;
-
 void BBNavigatorInterface::pwmWriterThread()
 {
   using clock = std::chrono::steady_clock;
@@ -134,61 +131,50 @@ void BBNavigatorInterface::pwmWriterThread()
   auto next = clock::now();
 
   while (m_running.load()) {
-    // Absolute deadline, not sleep_for(period). sleep_for gives a
-    // cycle of period + work, so the writer always ran slightly
-    // slow and drifted with load.
     next += std::chrono::duration_cast<clock::duration>(period);
 
-    const bool want_armed = m_arm_requested.load() && m_nav_init_ok;
     const double now = MOOSTime();
 
-    switch (m_arm_state) {
+    // The sequencer DECIDES; this thread PERFORMS. Keeping the
+    // decision in lib_bb_command is what makes the arm/disarm
+    // transition testable without a board -- it was the last part
+    // of the actuation path no test could reach, and its
+    // predecessor panicked the ESCs for months.
+    const bb::ArmAction action =
+        m_arm->update(now, m_arm_requested.load(), m_nav_init_ok);
+    m_arm_state_pub.store((int)m_arm->state());
+    m_esc_armed.store(m_arm->armed());
 
-    case ArmState::DISARMED:
-      // OE is high; the pins carry nothing and the ESCs are
-      // silent. Nothing to write until someone asks for arm.
-      if (want_armed) {
-        beginArmSequence();
-        m_arm_hold_start = now;
-        m_arm_state = ArmState::ARMING;
-      }
+    switch (action) {
+
+    case bb::ArmAction::IDLE:
+      // Output is cut and staying cut. Writing pulses into a
+      // tri-stated chip is pointless bus traffic.
       break;
 
-    case ArmState::ARMING:
-      // The hold. Every cycle writes neutral, which is what the
-      // ESC is actually listening for -- a blocking sleep in some
-      // other thread never held anything.
+    case bb::ArmAction::BEGIN_ARM:
+      beginArmSequence();
+      break;
+
+    case bb::ArmAction::HOLD_NEUTRAL:
       writeNeutralPair();
-      if (!want_armed) {
-        performDisarm("arm request withdrawn during hold");
-        m_arm_state = ArmState::DISARMED;
-      } else if ((now - m_arm_hold_start) >= kArmHoldSec) {
-        m_esc_armed.store(true);
-        m_arm_cycles.fetch_add(1);
-        m_arm_state = ArmState::ARMED;
-        reportEvent("ESC arm sequence complete (neutral hold)");
-      }
       break;
 
-    case ArmState::ARMED:
-      if (!want_armed) {
-        performDisarm("NVGR_DISARM");
-        m_arm_state = ArmState::DISARMED;
-        break;
-      }
-      if (!m_thruster_enabled) {
-        writeNeutralPair();
-        break;
-      }
+    case bb::ArmAction::DISARM:
+      performDisarm("sequencer");
+      break;
+
+    case bb::ArmAction::DRIVE:
+      if (!m_thruster_enabled) { writeNeutralPair(); break; }
       {
         bb::ActuatorFrame f;
         if (!latestFrame(f) || f.neutral) {
           writeNeutralPair();
         } else if (now > f.expires_at) {
           // The frame outlived its TTL: whoever produced it is no
-          // longer running. This thread's own watchdog is the last
-          // thing standing between a hung Iterate() and a boat
-          // still driving on a stale command.
+          // longer running. This thread's watchdog is the last
+          // thing between a hung Iterate() and a boat still
+          // driving on a stale command.
           writeNeutralPair();
           m_pwm_watchdog_count.fetch_add(1);
         } else {
@@ -201,8 +187,7 @@ void BBNavigatorInterface::pwmWriterThread()
     std::this_thread::sleep_until(next);
   }
 
-  if (m_arm_state != ArmState::DISARMED)
-    writeNeutralPair();
+  if (m_arm && m_arm->armed()) writeNeutralPair();
 }
 
 //---------------------------------------------------------
@@ -234,11 +219,6 @@ void BBNavigatorInterface::beginArmSequence()
   }
   m_pwm_output_enabled.store(true);
 
-  if (!m_initialize_esc) {
-    // Skip the hold, but still go through ARMING for one cycle so
-    // there is exactly one path to ARMED.
-    m_arm_hold_start = MOOSTime() - kArmHoldSec;
-  }
   reportEvent("ESC arm sequence started");
 }
 
