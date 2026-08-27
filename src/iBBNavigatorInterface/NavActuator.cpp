@@ -140,9 +140,18 @@ void BBNavigatorInterface::pwmWriterThread()
     // transition testable without a board -- it was the last part
     // of the actuation path no test could reach, and its
     // predecessor panicked the ESCs for months.
+    //
+    // A failed beginArmSequence() sets a backoff; until it
+    // expires the request is withheld from the sequencer so it
+    // stays honestly DISARMED instead of marching to ARMED over
+    // an output that never enabled -- and so a genuinely absent
+    // board is retried at 1 Hz, not hammered at 50.
+    const bool want_armed =
+        m_arm_requested.load() && (now >= m_arm_retry_after);
     const bb::ArmAction action =
-        m_arm->update(now, m_arm_requested.load(), m_nav_init_ok);
+        m_arm->update(now, want_armed, m_nav_init_ok);
     m_arm_state_pub.store((int)m_arm->state());
+    m_arm_cycles_pub.store(m_arm->arm_cycles());
     m_esc_armed.store(m_arm->armed());
 
     switch (action) {
@@ -153,7 +162,17 @@ void BBNavigatorInterface::pwmWriterThread()
       break;
 
     case bb::ArmAction::BEGIN_ARM:
-      beginArmSequence();
+      if (!beginArmSequence()) {
+        // The hardware refused (frequency set or enable failed).
+        // Leave the chip through the same orderly path as any
+        // other disarm -- channels latched off, so the retry's
+        // set_frequency cannot spring the RESTART trap -- and put
+        // the sequencer back to DISARMED so the state never lies.
+        performDisarm("arm sequence failed");
+        m_arm->force_disarmed();
+        m_arm_state_pub.store((int)m_arm->state());
+        m_arm_retry_after = now + 1.0;
+      }
       break;
 
     case bb::ArmAction::HOLD_NEUTRAL:
@@ -193,7 +212,7 @@ void BBNavigatorInterface::pwmWriterThread()
 //---------------------------------------------------------
 // Arm and disarm, called ONLY from the PWM thread.
 
-void BBNavigatorInterface::beginArmSequence()
+bool BBNavigatorInterface::beginArmSequence()
 {
   // Frequency first, while the channels are still stopped. This
   // ordering is load-bearing: pca9685_set_frequency sleeps the
@@ -204,8 +223,8 @@ void BBNavigatorInterface::beginArmSequence()
   // cannot spring that trap.
   std::string err = g_nav.pwm_set_frequency(static_cast<float>(PWM_FREQ_HZ));
   if (!err.empty()) {
-    reportRunWarning("PWM frequency set failed: " + err);
-    return;
+    queueNote(true, "PWM frequency set failed: " + err);
+    return false;
   }
 
   // Neutral BEFORE enabling output, so the first pulse the ESCs
@@ -214,12 +233,13 @@ void BBNavigatorInterface::beginArmSequence()
 
   err = g_nav.pwm_enable(true);
   if (!err.empty()) {
-    reportRunWarning("PWM enable failed: " + err);
-    return;
+    queueNote(true, "PWM enable failed: " + err);
+    return false;
   }
   m_pwm_output_enabled.store(true);
 
-  reportEvent("ESC arm sequence started");
+  queueNote(false, "ESC arm sequence started");
+  return true;
 }
 
 void BBNavigatorInterface::performDisarm(const std::string &reason)
@@ -242,12 +262,12 @@ void BBNavigatorInterface::performDisarm(const std::string &reason)
   std::string detail;
   const std::string err = navigator_force_pwm_off(&detail);
   if (!err.empty())
-    reportRunWarning("orderly PWM stop failed: " + err);
+    queueNote(true, "orderly PWM stop failed: " + err);
 
   g_nav.pwm_enable(false);
   m_pwm_output_enabled.store(false);
   m_esc_armed.store(false);
-  reportEvent("ESCs DISARMED (" + reason + ")");
+  queueNote(false, "ESCs DISARMED (" + reason + ")");
 }
 
 //---------------------------------------------------------

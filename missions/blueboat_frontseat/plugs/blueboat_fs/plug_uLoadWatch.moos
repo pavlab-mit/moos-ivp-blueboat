@@ -1,0 +1,21 @@
+//--------------------------------------------------
+// uLoadWatch -- is the Pi actually holding 50 Hz?
+//
+// Plan section 7.4 / dock test section 1.7: G2 (~50 Hz control)
+// is a claim backed by a measurement, not an assumption. A
+// gapthresh of 2.0 means an app whose Iterate interval doubles
+// (50 Hz app running at 25) is flagged.
+//--------------------------------------------------
+
+ProcessConfig = uLoadWatch
+{
+  AppTick   = 1
+  CommsTick = 1
+
+  thresh = app=pBBCommandArbiter,     gapthresh=2.0
+  thresh = app=pThrustMix,            gapthresh=2.0
+  thresh = app=iBBNavigatorInterface, gapthresh=2.0
+  thresh = app=any,                   gapthresh=3.0
+
+  breach_trigger = 5
+}

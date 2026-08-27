@@ -139,7 +139,14 @@ struct RcTelemInputs {
   bool     have_xy = false;
   uint64_t xy_us = 0;
 
-  bool rc_mode = false;
+  // Who is actually driving, from the arbiter's BB_CMD_AUTHORITY
+  // ("RC" / "TELEOP" / "AUTONOMY" / "NONE"), and whether the
+  // Navigator is holding a deadman stop (NVGR_STOP_REASON ==
+  // "RC_DEADMAN"). The pre-refactor sources (NVGR_RC_MODE /
+  // NVGR_RC_DEADMAN_ACTIVE) were retired with the Navigator's
+  // arbitration; the handset FM sensor now reflects the arbiter,
+  // which is the only process that KNOWS who is driving.
+  std::string authority;   // empty until first BB_CMD_AUTHORITY
   bool deadman = false;
 };
 

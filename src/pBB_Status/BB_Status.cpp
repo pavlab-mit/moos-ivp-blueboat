@@ -186,19 +186,32 @@ bool BB_Status::OnNewMail(MOOSMSG_LIST &NewMail)
     // ---- RC / override (native front seat) ----
     else if(key == "RC_CONNECTED")            { m_rc_connected = msgBool(msg); m_rc_time = mtime; }
     else if(key == "RC_FAILSAFE")             { m_rc_failsafe = msgBool(msg);  m_rc_time = mtime; }
-    else if(key == "NVGR_RC_DEADMAN_ACTIVE")  { m_rc_deadman = msgBool(msg);   m_rc_time = mtime; }
+    // Deadman and thrust-timeout are now read off the Navigator's
+    // stop reason; teleop engagement off the arbiter's authority.
+    // The pre-refactor variables (NVGR_RC_DEADMAN_ACTIVE,
+    // NVGR_TELEOP_ENGAGED, NVGR_THRUST_*, DESIRED_THRUST_L/R,
+    // NVGR_THRUST_TIMEOUT) were retired with the Navigator's
+    // arbitration and no longer have producers.
+    else if(key == "NVGR_STOP_REASON") {
+      m_rc_deadman  = (sval == "RC_DEADMAN");
+      m_thr_timeout = (sval == "NAV_INPUT_STALE" ||
+                       sval == "MIXER_INPUT_STALE");
+      m_rc_time = mtime;
+    }
     else if(key == "NVGR_RC_KILL")            { m_rc_kill = msgBool(msg);      m_rc_time = mtime; }
     else if(key == "RC_CH6")                  { m_rc_ch6 = dval;               m_rc_time = mtime; }
 
-    // ---- Laptop teleop (native front seat) ----
-    else if(key == "NVGR_TELEOP_ENGAGED")     { m_teleop_engaged = msgBool(msg); m_teleop_time = mtime; }
+    // ---- Authority / teleop (native front seat) ----
+    else if(key == "BB_CMD_AUTHORITY") {
+      m_teleop_engaged = (sval == "TELEOP");
+      m_teleop_time = mtime;
+    }
 
-    // ---- Propulsion ----
-    else if(key == "NVGR_THRUST_LEFT")   { m_thr_l = dval; m_thr_time = mtime; }
-    else if(key == "NVGR_THRUST_RIGHT")  { m_thr_r = dval; m_thr_time = mtime; }
-    else if(key == "DESIRED_THRUST_L")   { m_des_l = dval; m_des_time = mtime; }
-    else if(key == "DESIRED_THRUST_R")   { m_des_r = dval; m_des_time = mtime; }
-    else if(key == "NVGR_THRUST_TIMEOUT"){ m_thr_timeout = msgBool(msg); }
+    // ---- Propulsion: commanded (mixer) vs applied (Navigator) ----
+    else if(key == "NVGR_APPLIED_LEFT")  { m_thr_l = dval; m_thr_time = mtime; }
+    else if(key == "NVGR_APPLIED_RIGHT") { m_thr_r = dval; m_thr_time = mtime; }
+    else if(key == "BB_MIX_LEFT")        { m_des_l = dval; m_des_time = mtime; }
+    else if(key == "BB_MIX_RIGHT")       { m_des_r = dval; m_des_time = mtime; }
 
     // ---- Navigation / GPS (native front seat) ----
     else if(key == "NAV_LAT_DGNSS")   { m_nav_lat = dval; m_nav_time = mtime; }
@@ -490,19 +503,18 @@ void BB_Status::registerVariables()
   // RC / override (native front seat)
   Register("RC_CONNECTED", 0);
   Register("RC_FAILSAFE", 0);
-  Register("NVGR_RC_DEADMAN_ACTIVE", 0);
+  Register("NVGR_STOP_REASON", 0);   // deadman + input-stale states
   Register("NVGR_RC_KILL", 0);
   Register("RC_CH6", 0);
 
-  // Laptop teleop (native front seat)
-  Register("NVGR_TELEOP_ENGAGED", 0);
+  // Authority / teleop (native front seat)
+  Register("BB_CMD_AUTHORITY", 0);
 
-  // Propulsion (applied native; commanded brokered)
-  Register("NVGR_THRUST_LEFT", 0);
-  Register("NVGR_THRUST_RIGHT", 0);
-  Register("DESIRED_THRUST_L", 0);
-  Register("DESIRED_THRUST_R", 0);
-  Register("NVGR_THRUST_TIMEOUT", 0);
+  // Propulsion (all native now: mixer and Navigator are front seat)
+  Register("NVGR_APPLIED_LEFT", 0);
+  Register("NVGR_APPLIED_RIGHT", 0);
+  Register("BB_MIX_LEFT", 0);
+  Register("BB_MIX_RIGHT", 0);
 
   // Navigation / GPS (native front seat)
   Register("NAV_LAT_DGNSS", 0);

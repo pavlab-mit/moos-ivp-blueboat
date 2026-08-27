@@ -8,6 +8,8 @@
 #include "BBCommandArbiter.h"
 #include "BBCommandArbiter_Info.h"
 
+#include "wire_format.h"
+
 #include "MBUtils.h"
 #include "ACTable.h"
 #include "ColorParse.h"
@@ -79,20 +81,21 @@ bool BBCommandArbiter::OnNewMail(MOOSMSG_LIST &NewMail)
     else if (key == m_autonomy_var)
       handleSourceMail(key, msg.GetString(), m_autonomy, "AUTONOMY");
     else if (key == "ALL_STOP") {
-      // Accept either convention; missions have used both.
-      if (msg.IsDouble()) m_safety.autonomy_all_stop = (msg.GetDouble() != 0.0);
-      else {
-        const string v = tolower(msg.GetString());
-        m_safety.autonomy_all_stop = (v == "true" || v == "1");
-      }
+      // Accept either convention; missions have used both. Same
+      // relaxed-bool as every other sideband consumer
+      // (bb::parse_bool_token), so no two readers of one variable
+      // can disagree about what a value means.
+      m_safety.autonomy_all_stop =
+          msg.IsDouble() ? (msg.GetDouble() != 0.0)
+                         : bb::parse_bool_token(msg.GetString(),
+                                                m_safety.autonomy_all_stop);
     }
     else if (key == "RC_KILL_ASSERTED") {
       // Trace only. The Navigator enforces this (plan 12(b)).
-      if (msg.IsDouble()) m_safety.rc_kill_asserted = (msg.GetDouble() != 0.0);
-      else {
-        const string v = tolower(msg.GetString());
-        m_safety.rc_kill_asserted = (v == "true" || v == "1");
-      }
+      m_safety.rc_kill_asserted =
+          msg.IsDouble() ? (msg.GetDouble() != 0.0)
+                         : bb::parse_bool_token(msg.GetString(),
+                                                m_safety.rc_kill_asserted);
     }
     else if (key != "APPCAST_REQ")
       reportRunWarning("Unhandled mail: " + key);

@@ -1,4 +1,5 @@
 #include "actuator_stage.h"
+#include "wire_format.h"
 
 #include <cmath>
 #include <cstdio>
@@ -133,8 +134,7 @@ ActuatorFrame ActuatorStage::update(double now,
 
 std::string serialize_actuator_trace(const ActuatorFrame& f)
 {
-  char buf[640];
-  std::snprintf(buf, sizeof(buf),
+  return wire::formatf(
                 "v=1,t=%.3f,selected=%s,stop=%s,neutral=%d,local_stop=%d,"
                 "source_producer=%s,source_epoch=%s,source_seq=%llu,"
                 "decision_epoch=%s,decision_seq=%llu,"
@@ -157,7 +157,6 @@ std::string serialize_actuator_trace(const ActuatorFrame& f)
                 f.left_effort, f.right_effort,
                 f.left_pwm_us, f.right_pwm_us,
                 f.expires_at);
-  return std::string(buf);
 }
 
 } // namespace bb

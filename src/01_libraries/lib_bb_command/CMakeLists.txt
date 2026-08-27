@@ -12,7 +12,8 @@
 # file descriptor, it belongs in the app, not the library.
 # --------------------------------------------------------
 
-set(SRC command_envelope.cpp
+set(SRC wire_format.cpp
+        command_envelope.cpp
         command_mailbox.cpp
         authority.cpp
         mixer_stage.cpp

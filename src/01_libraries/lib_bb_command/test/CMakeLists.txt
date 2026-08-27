@@ -12,6 +12,7 @@
 # --------------------------------------------------------
 
 set(TESTS
+    test_wire_format
     test_command_envelope
     test_command_mailbox
     test_authority
