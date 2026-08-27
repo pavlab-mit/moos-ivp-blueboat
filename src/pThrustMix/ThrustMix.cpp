@@ -2,378 +2,129 @@
 /*    NAME: J. Wenger                                       */
 /*    ORGN: MIT, Cambridge MA                               */
 /*    FILE: ThrustMix.cpp                                   */
-/*    DATE: Oct 19, 2025                                    */
-/*    Brief: Differential thrust mixer for BlueBoat        */
+/*    DATE: 2026-08-27 (rewrite)                            */
 /************************************************************/
 
-#include <iterator>
-#include <cmath>
-#include <algorithm>
+#include "ThrustMix.h"
+#include "ThrustMix_Info.h"
+
 #include "MBUtils.h"
 #include "ACTable.h"
-#include "ThrustMix.h"
+#include "ColorParse.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <unistd.h>
 
 using namespace std;
 
 //---------------------------------------------------------
-// Constructor()
+// A per-launch epoch. Deliberately NOT wall-clock: two boats
+// booting in the same second must not be able to collide, and a
+// clock that steps must not be able to make a new session look
+// like an old one. Random plus pid is enough for a log join key.
+
+static string make_epoch(const char* prefix)
+{
+  unsigned seed = (unsigned)::getpid();
+  seed ^= (unsigned)::time(NULL) * 2654435761u;
+  ::srandom(seed);
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%s-%06lx", prefix, (long)(::random() & 0xFFFFFF));
+  return string(buf);
+}
+
+//---------------------------------------------------------
 
 ThrustMix::ThrustMix()
-{
-  // Default configuration values
-  m_k_inner_base = 2.0;
-  m_k_outer_base = 1.0;
-
-  m_yaw_priority  = true;   // allocate yaw first, speed takes the remainder
-  m_max_diff      = 0.0;    // 0 = no cap on the differential
-  m_thrust_derate = 1.0;
-
-  // Speed-dependent scaling (disabled by default)
-  m_enable_speed_scaling = false;
-
-  // Yaw rate feedback (disabled by default)
-  m_enable_yaw_feedback = false;
-  m_k_yaw_correction = 0.0;
-  m_max_yaw_rate = 25.0;
-  m_k_heading_to_rate = 1.0;
-
-  // Default variable names
-  m_desired_thrust_var = "DESIRED_THRUST";
-  m_desired_rudder_var = "DESIRED_RUDDER";
-  m_feedback_speed_var = "NAV_SPEED";
-  m_feedback_yaw_var = "GYRO_Z_LVL_IMU";
-  m_feedback_heading_var = "NAV_HEADING";
-  m_desired_heading_var = "DESIRED_HEADING";
-  m_desired_thrust_l_var = "DESIRED_THRUST_L";
-  m_desired_thrust_r_var = "DESIRED_THRUST_R";
-
-  // Initialize state variables
-  m_desired_thrust = 0.0;
-  m_desired_rudder = 0.0;
-  m_nav_speed = 0.0;
-  m_nav_yaw_rate = 0.0;
-  m_nav_heading = 0.0;
-  m_desired_heading = 0.0;
-
-  m_mixer = 0.0;
-  m_k_inner = m_k_inner_base;
-  m_k_outer = m_k_outer_base;
-  m_speed_gain_factor = 1.0;
-  m_thrust_l = 0.0;
-  m_thrust_r = 0.0;
-
-  // Flags
-  m_have_thrust = false;
-  m_have_rudder = false;
-  m_have_speed = false;
-  m_have_yaw_rate = false;
-  m_have_heading = false;
-  m_have_desired_heading = false;
-}
-
-//---------------------------------------------------------
-// Destructor
-
-ThrustMix::~ThrustMix()
+  : m_stage(0),
+    m_selected_var("BB_SELECTED_CMD"),
+    m_mixed_var("BB_MIXED_CMD"),
+    m_last_iterate_time(0.0),
+    m_have_last(false),
+    m_iterations(0),
+    m_stop_cycles(0)
 {
 }
 
 //---------------------------------------------------------
-// Procedure: OnNewMail()
+// OnNewMail: validate and cache only. Never publish from here --
+// a callback that writes actuator state makes the output depend
+// on mail arrival order rather than on a coherent cycle.
 
 bool ThrustMix::OnNewMail(MOOSMSG_LIST &NewMail)
 {
   AppCastingMOOSApp::OnNewMail(NewMail);
 
   MOOSMSG_LIST::iterator p;
-  for (p = NewMail.begin(); p != NewMail.end(); p++)
-  {
+  for (p = NewMail.begin(); p != NewMail.end(); p++) {
     CMOOSMsg &msg = *p;
-    string key = msg.GetKey();
-
-    if (key == m_desired_thrust_var)
-    {
-      if (msg.IsDouble())
-      {
-        m_desired_thrust = msg.GetDouble();
-        m_have_thrust = true;
-      }
-      else
-      {
-        reportRunWarning(m_desired_thrust_var + " is not a double!");
+    if (msg.GetKey() == m_selected_var) {
+      // Local arrival time, not the sender's stamp (invariant 8).
+      const bb::AcceptResult r = m_selected.accept(msg.GetString(), MOOSTime());
+      if (r == bb::AcceptResult::REJECTED) {
+        reportRunWarning("rejected " + m_selected_var + ": " +
+                         m_selected.last_reject_reason());
+        Notify("BB_MIX_INPUT_REJECT_REASON", m_selected.last_reject_reason());
       }
     }
-    else if (key == m_desired_rudder_var)
-    {
-      if (msg.IsDouble())
-      {
-        m_desired_rudder = msg.GetDouble();
-        m_have_rudder = true;
-      }
-      else
-      {
-        reportRunWarning(m_desired_rudder_var + " is not a double!");
-      }
-    }
-    else if (key == m_feedback_speed_var)
-    {
-      if (msg.IsDouble())
-      {
-        m_nav_speed = msg.GetDouble();
-        m_have_speed = true;
-      }
-      else
-      {
-        reportRunWarning(m_feedback_speed_var + " is not a double!");
-      }
-    }
-    else if (key == m_feedback_yaw_var)
-    {
-      if (msg.IsDouble())
-      {
-        m_nav_yaw_rate = msg.GetDouble();
-        // Convert from rad/s to deg/s
-        m_nav_yaw_rate = m_nav_yaw_rate * (180.0 / M_PI);
-        m_have_yaw_rate = true;
-      }
-      else
-      {
-        reportRunWarning(m_feedback_yaw_var + " is not a double!");
-      }
-    }
-    else if (key == m_feedback_heading_var)
-    {
-      if (msg.IsDouble())
-      {
-        m_nav_heading = msg.GetDouble();
-        m_have_heading = true;
-      }
-      else
-      {
-        reportRunWarning(m_feedback_heading_var + " is not a double!");
-      }
-    }
-    else if (key == m_desired_heading_var)
-    {
-      if (msg.IsDouble())
-      {
-        m_desired_heading = msg.GetDouble();
-        m_have_desired_heading = true;
-      }
-      else
-      {
-        reportRunWarning(m_desired_heading_var + " is not a double!");
-      }
-    }
-    else if (key != "APPCAST_REQ") // handled by AppCastingMOOSApp
-    {
-      reportRunWarning("Unhandled Mail: " + key);
+    else if (msg.GetKey() != "APPCAST_REQ") {
+      reportRunWarning("Unhandled mail: " + msg.GetKey());
     }
   }
-
-  return (true);
+  return true;
 }
-
-//---------------------------------------------------------
-// Procedure: OnConnectToServer()
 
 bool ThrustMix::OnConnectToServer()
 {
   registerVariables();
-  return (true);
+  return true;
 }
 
 //---------------------------------------------------------
-// Procedure: Iterate()
-//            happens AppTick times per second
+// Iterate: one coherent result per cycle, always. Including
+// stop cycles -- a gap in the trace is indistinguishable from a
+// dead app.
 
 bool ThrustMix::Iterate()
 {
   AppCastingMOOSApp::Iterate();
 
-  // Only compute if we have the required inputs
-  if (!m_have_thrust || !m_have_rudder)
-  {
-    AppCastingMOOSApp::PostReport();
-    return (true);
-  }
+  const double now = MOOSTime();
 
-  // Step 1: Normalize rudder command to [-1, 1]
-  m_mixer = m_desired_rudder / 100.0;
+  // Measured dt. The first cycle has no previous timestamp, so
+  // give the limiter nothing rather than a fabricated interval.
+  double dt = 0.0;
+  if (m_last_iterate_time > 0.0) dt = now - m_last_iterate_time;
+  m_last_iterate_time = now;
 
-  // Step 2: Optional yaw rate feedback correction
-  if (m_enable_yaw_feedback && m_have_yaw_rate && m_have_heading && m_have_desired_heading)
-  {
-    // Compute heading error [-180, 180]
-    double heading_error = m_desired_heading - m_nav_heading;
-    heading_error = fmod(heading_error + 180.0, 360.0);
-    if (heading_error < 0)
-      heading_error += 360.0;
-    heading_error -= 180.0;
+  const bb::MixedCommand out = m_stage->update(now, dt, m_selected);
 
-    // Compute desired yaw rate
-    double desired_yaw_rate = m_k_heading_to_rate * heading_error;
+  m_last = out;
+  m_have_last = true;
+  ++m_iterations;
+  if (out.hard_stop) ++m_stop_cycles;
 
-    // Compute rate error
-    double rate_error = desired_yaw_rate - m_nav_yaw_rate;
+  // Primary contract.
+  Notify(m_mixed_var, bb::serialize_mixed(out));
 
-    // Add correction to mixer
-    if (m_max_yaw_rate > 0.0)
-    {
-      m_mixer += (rate_error / m_max_yaw_rate) * m_k_yaw_correction;
-    }
-  }
-
-  // Clamp mixer to [-1, 1]
-  m_mixer = max(-1.0, min(1.0, m_mixer));
-
-  // Step 3: Speed-dependent gain scaling
-  if (m_enable_speed_scaling && m_have_speed)
-  {
-    m_speed_gain_factor = getSpeedGainFactor(m_nav_speed);
-    m_k_inner = m_k_inner_base * m_speed_gain_factor;
-    m_k_outer = m_k_outer_base * m_speed_gain_factor;
-  }
-  else
-  {
-    m_speed_gain_factor = 1.0;
-    m_k_inner = m_k_inner_base;
-    m_k_outer = m_k_outer_base;
-  }
-
-  // Step 4: Asymmetric differential mixing
-
-  /*
-  if (m_mixer > 0.0)
-  {
-    // Right turn: left thruster increases, right thruster decreases more
-    m_thrust_l = m_desired_thrust * (1.0 + m_k_outer * m_mixer);
-    m_thrust_r = m_desired_thrust * (1.0 - m_k_inner * m_mixer);
-  }
-  else if (m_mixer < 0.0)
-  {
-    // Left turn: left thruster decreases more, right thruster increases
-    m_thrust_l = m_desired_thrust * (1.0 + m_k_inner * m_mixer);
-    m_thrust_r = m_desired_thrust * (1.0 - m_k_outer * m_mixer);
-  }
-  else
-  {
-    // Straight
-    m_thrust_l = m_desired_thrust;
-    m_thrust_r = m_desired_thrust;
-  }
-
-  */
-
-  // BUGFIX: these were uninitialized when m_mixer == 0.0 exactly (the if /
-  // else-if chain below has no else), so a zero rudder command produced
-  // garbage on both thrusters.
-  double turn_left  = 0.0;
-  double turn_right = 0.0;
-
-  if (m_mixer > 0.0)
-  {
-    // left outer, right inner
-    turn_left = m_k_outer * abs(m_mixer);
-    turn_right = -m_k_inner * abs(m_mixer);
-  }
-  else if (m_mixer < 0.0)
-  {
-    // left inner, right outer
-    turn_left = -m_k_inner * abs(m_mixer);
-    turn_right = m_k_outer * abs(m_mixer);
-  }
-
-  double diff_l = turn_left  * 100.0;
-  double diff_r = turn_right * 100.0;
-
-  if (m_yaw_priority)
-  {
-    // ---- Yaw-priority allocation ----
-    // Allocate the differential (yaw) component FIRST, then give the common
-    // (speed) component whatever headroom is left. The legacy path below
-    // summed the two and shifted the overage off BOTH thrusters, which held
-    // the differential but collapsed common thrust abruptly at the rail.
-    // Here speed degrades smoothly and nothing ever needs clipping.
-    double diff_mag = max(fabs(diff_l), fabs(diff_r));
-
-    // Optional cap on the differential. Past a hull-dependent point extra
-    // differential buys no additional yaw rate (it only drives the inner
-    // thruster deeper into inefficient reverse), so spending headroom on it
-    // is strictly worse than keeping the speed.
-    if ((m_max_diff > 0.0) && (diff_mag > m_max_diff))
-    {
-      double scale = m_max_diff / diff_mag;
-      diff_l *= scale;
-      diff_r *= scale;
-      diff_mag = m_max_diff;
-    }
-
-    double headroom = 100.0 - diff_mag;
-    if (headroom < 0.0)
-      headroom = 0.0;
-
-    double common = m_desired_thrust;
-    if (common >  headroom) common =  headroom;
-    if (common < -headroom) common = -headroom;
-
-    m_thrust_derate = (fabs(m_desired_thrust) > 1e-6)
-                    ? (common / m_desired_thrust) : 1.0;
-
-    m_thrust_l = common + diff_l;
-    m_thrust_r = common + diff_r;
-  }
-  else
-  {
-    // ---- Legacy additive mixing + shift ----
-    m_thrust_derate = 1.0;
-    m_thrust_l = m_desired_thrust + diff_l;
-    m_thrust_r = m_desired_thrust + diff_r;
-
-    // shift back within bounds maintaining difference
-    if (m_thrust_l > 100)
-    {
-      double over_left = m_thrust_l - 100;
-      m_thrust_l -= over_left;
-      m_thrust_r -= over_left;
-    }
-    else if (m_thrust_r > 100)
-    {
-      double over_right = m_thrust_r - 100;
-      m_thrust_l -= over_right;
-      m_thrust_r -= over_right;
-    }
-    else if (m_thrust_l < -100)
-    {
-      double under_left = m_thrust_l + 100;
-      m_thrust_l -= under_left;
-      m_thrust_r -= under_left;
-    }
-    else if (m_thrust_r < -100)
-    {
-      double under_right = m_thrust_r + 100;
-      m_thrust_l -= under_right;
-      m_thrust_r -= under_right;
-    }
-  }
-
-  // Step 5: Clamp outputs to motor limits [-100, 100]
-  m_thrust_l = max(-100.0, min(100.0, m_thrust_l));
-  m_thrust_r = max(-100.0, min(100.0, m_thrust_r));
-
-  // Step 6: Publish outputs
-  Notify(m_desired_thrust_l_var, m_thrust_l);
-  Notify(m_desired_thrust_r_var, m_thrust_r);
-  if (m_yaw_priority)
-    Notify("THRUSTMIX_DERATE", m_thrust_derate);
+  // Plot-friendly scalar mirrors (design doc 11). These are
+  // TELEMETRY: nothing downstream may consume them as a command.
+  Notify("BB_MIX_LEFT",          out.left_effort);
+  Notify("BB_MIX_RIGHT",         out.right_effort);
+  Notify("BB_MIX_SURGE_SHAPED",  out.surge_shaped);
+  Notify("BB_MIX_YAW_SHAPED",    out.yaw_shaped);
+  Notify("BB_MIX_INPUT_AGE",     out.input_age);
+  Notify("BB_MIX_HARD_STOP",     out.hard_stop ? "true" : "false");
+  Notify("BB_MIX_STOP_REASON",   bb::to_string(out.stop_reason));
+  Notify("BB_MIX_SATURATION",    out.alloc.saturation_value);
 
   AppCastingMOOSApp::PostReport();
-  return (true);
+  return true;
 }
 
 //---------------------------------------------------------
-// Procedure: OnStartUp()
-//            happens before connection is open
 
 bool ThrustMix::OnStartUp()
 {
@@ -385,258 +136,142 @@ bool ThrustMix::OnStartUp()
     reportConfigWarning("No config block found for " + GetAppName());
 
   STRING_LIST::iterator p;
-  for (p = sParams.begin(); p != sParams.end(); p++)
-  {
-    string orig = *p;
-    string line = *p;
+  for (p = sParams.begin(); p != sParams.end(); p++) {
+    string orig  = *p;
+    string line  = *p;
     string param = tolower(biteStringX(line, '='));
     string value = line;
 
     bool handled = false;
-
-    // Basic mixing gains
-    if (param == "k_inner_base")
-    {
-      m_k_inner_base = atof(value.c_str());
-      handled = true;
+    if (param == "mixer_model") {
+      m_cfg.mixer_model = value; handled = true;
     }
-    else if (param == "k_outer_base")
-    {
-      m_k_outer_base = atof(value.c_str());
-      handled = true;
+    else if (param == "selected_cmd_timeout_sec") {
+      handled = setDoubleOnString(m_cfg.selected_cmd_timeout_sec, value);
     }
-    // Yaw-priority allocation
-    else if (param == "yaw_priority")
-    {
-      handled = setBooleanOnString(m_yaw_priority, value);
+    else if (param == "slew_rate_pct_sec") {
+      handled = setDoubleOnString(m_cfg.slew_rate_pct_sec, value);
     }
-    else if (param == "max_diff")
-    {
-      m_max_diff = atof(value.c_str());
-      handled = true;
+    else if (param == "slew_max_dt_sec") {
+      handled = setDoubleOnString(m_cfg.slew_max_dt_sec, value);
     }
-    // Speed-dependent scaling
-    else if (param == "enable_speed_scaling")
-    {
-      m_enable_speed_scaling = (tolower(value) == "true");
-      handled = true;
+    else if (param == "slew_reset_on_handoff") {
+      handled = setBooleanOnString(m_cfg.slew_reset_on_handoff, value);
     }
-    else if (param == "speed_gain_points")
-    {
-      handled = parseSpeedGainPoints(value);
-      if (!handled)
-        reportConfigWarning("Failed to parse speed_gain_points: " + value);
+    else if (param == "thrust_asymmetry") {
+      handled = setDoubleOnString(m_cfg.skid.thrust_asymmetry, value);
     }
-    // Yaw rate feedback
-    else if (param == "enable_yaw_feedback")
-    {
-      m_enable_yaw_feedback = (tolower(value) == "true");
-      handled = true;
+    else if (param == "steering_throttle_mix") {
+      handled = setDoubleOnString(m_cfg.skid.steering_throttle_mix, value);
     }
-    else if (param == "k_yaw_correction")
-    {
-      m_k_yaw_correction = atof(value.c_str());
-      handled = true;
+    else if (param == "selected_cmd_var") {
+      m_selected_var = value; handled = true;
     }
-    else if (param == "max_yaw_rate")
-    {
-      m_max_yaw_rate = atof(value.c_str());
-      handled = true;
-    }
-    else if (param == "k_heading_to_rate")
-    {
-      m_k_heading_to_rate = atof(value.c_str());
-      handled = true;
-    }
-    // Variable name customization
-    else if (param == "desired_thrust_var")
-    {
-      m_desired_thrust_var = value;
-      handled = true;
-    }
-    else if (param == "desired_rudder_var")
-    {
-      m_desired_rudder_var = value;
-      handled = true;
-    }
-    else if (param == "feedback_speed_var")
-    {
-      m_feedback_speed_var = value;
-      handled = true;
-    }
-    else if (param == "feedback_yaw_var")
-    {
-      m_feedback_yaw_var = value;
-      handled = true;
-    }
-    else if (param == "feedback_heading_var")
-    {
-      m_feedback_heading_var = value;
-      handled = true;
-    }
-    else if (param == "desired_heading_var")
-    {
-      m_desired_heading_var = value;
-      handled = true;
-    }
-    else if (param == "desired_thrust_l_var")
-    {
-      m_desired_thrust_l_var = value;
-      handled = true;
-    }
-    else if (param == "desired_thrust_r_var")
-    {
-      m_desired_thrust_r_var = value;
-      handled = true;
+    else if (param == "mixed_cmd_var") {
+      m_mixed_var = value; handled = true;
     }
 
     if (!handled)
       reportUnhandledConfigWarning(orig);
   }
 
-  registerVariables();
-  return (true);
-}
+  // Configuration validation FAILS STARTUP. A mixer with a
+  // nonsensical asymmetry or an unnamed model should refuse to
+  // run, not discover the problem with props in the water.
+  const string err = m_cfg.validate();
+  if (!err.empty()) {
+    reportConfigWarning("FATAL: " + err);
+    cout << termColor("red")
+         << "pThrustMix: invalid configuration: " << err << endl
+         << termColor();
+    return false;
+  }
 
-//---------------------------------------------------------
-// Procedure: registerVariables()
+  m_stage = new bb::MixerStage(m_cfg, make_epoch("mix"));
+
+  registerVariables();
+  return true;
+}
 
 void ThrustMix::registerVariables()
 {
   AppCastingMOOSApp::RegisterVariables();
-
-  Register(m_desired_thrust_var, 0);
-  Register(m_desired_rudder_var, 0);
-  Register(m_feedback_speed_var, 0);
-
-  if (m_enable_yaw_feedback)
-  {
-    Register(m_feedback_yaw_var, 0);
-    Register(m_feedback_heading_var, 0);
-    Register(m_desired_heading_var, 0);
-  }
+  // ONE input. If this list ever grows, re-read the header.
+  Register(m_selected_var, 0);
 }
 
-//------------------------------------------------------------
-// Procedure: buildReport()
+//---------------------------------------------------------
 
 bool ThrustMix::buildReport()
 {
-  m_msgs << "============================================" << endl;
-  m_msgs << "pThrustMix Status Report" << endl;
-  m_msgs << "============================================" << endl;
-
-  // Configuration section
-  m_msgs << endl << "Configuration:" << endl;
-  m_msgs << "  k_inner_base:         " << doubleToString(m_k_inner_base, 2) << endl;
-  m_msgs << "  k_outer_base:         " << doubleToString(m_k_outer_base, 2) << endl;
-  m_msgs << "  Speed scaling:        " << boolToString(m_enable_speed_scaling) << endl;
-  m_msgs << "  Yaw feedback:         " << boolToString(m_enable_yaw_feedback) << endl;
-
-  // Inputs section
-  ACTable intab(2);
-  intab << "Input" << "Value";
-  intab.addHeaderLines();
-  intab << "DESIRED_THRUST" << doubleToString(m_desired_thrust, 2);
-  intab << "DESIRED_RUDDER" << doubleToString(m_desired_rudder, 2);
-  intab << "NAV_SPEED" << doubleToString(m_nav_speed, 2);
-  if (m_enable_yaw_feedback)
-  {
-    intab << m_feedback_yaw_var << doubleToString(m_nav_yaw_rate, 2);
-    intab << "NAV_HEADING" << doubleToString(m_nav_heading, 2);
-    intab << "DESIRED_HEADING" << doubleToString(m_desired_heading, 2);
+  if (!m_stage) {
+    m_msgs << "NOT CONFIGURED" << endl;
+    return true;
   }
 
-  m_msgs << endl << intab.getFormattedString();
+  m_msgs << "Model:      " << m_cfg.mixer_model << endl;
+  m_msgs << "Mix epoch:  " << m_stage->epoch()
+         << "   seq: " << m_stage->seq() << endl;
+  m_msgs << "Slew:       " << doubleToString(m_cfg.slew_rate_pct_sec, 1)
+         << " %/s   state " << doubleToString(m_stage->slew_state(), 2)
+         << "   reset_on_handoff: "
+         << (m_cfg.slew_reset_on_handoff ? "true" : "false") << endl;
+  m_msgs << "Skid:       A=" << doubleToString(m_cfg.skid.thrust_asymmetry, 2)
+         << "  m=" << doubleToString(m_cfg.skid.steering_throttle_mix, 2) << endl;
+  m_msgs << endl;
 
-  // Computed values section
-  ACTable comptab(2);
-  comptab << "Computed" << "Value";
-  comptab.addHeaderLines();
-  comptab << "Mixer (normalized)" << doubleToString(m_mixer, 3);
-  comptab << "Speed gain factor" << doubleToString(m_speed_gain_factor, 2);
-  comptab << "k_inner (active)" << doubleToString(m_k_inner, 2);
-  comptab << "k_outer (active)" << doubleToString(m_k_outer, 2);
+  m_msgs << "Input (" << m_selected_var << ")" << endl;
+  m_msgs << "  accepted " << m_selected.accepted_count()
+         << "  dup " << m_selected.duplicate_count()
+         << "  out-of-order " << m_selected.out_of_order_count()
+         << "  rejected " << m_selected.reject_count() << endl;
+  if (!m_selected.last_reject_reason().empty())
+    m_msgs << "  last reject: " << m_selected.last_reject_reason() << endl;
+  m_msgs << endl;
 
-  m_msgs << endl << comptab.getFormattedString();
-
-  // Outputs section
-  ACTable outtab(2);
-  outtab << "Output" << "Value";
-  outtab.addHeaderLines();
-  outtab << "DESIRED_THRUST_L" << doubleToString(m_thrust_l, 2);
-  outtab << "DESIRED_THRUST_R" << doubleToString(m_thrust_r, 2);
-
-  m_msgs << endl << outtab.getFormattedString();
-
-  // Status flags
-  m_msgs << endl << "Input Status:" << endl;
-  m_msgs << "  Have thrust:   " << boolToString(m_have_thrust) << endl;
-  m_msgs << "  Have rudder:   " << boolToString(m_have_rudder) << endl;
-  m_msgs << "  Have speed:    " << boolToString(m_have_speed) << endl;
-  if (m_enable_yaw_feedback)
-  {
-    m_msgs << "  Have yaw rate: " << boolToString(m_have_yaw_rate) << endl;
+  if (!m_have_last) {
+    m_msgs << "No cycle completed yet." << endl;
+    return true;
   }
 
-  return (true);
-}
+  ACTable actab(4);
+  actab << "Field | In | Shaped | Out";
+  actab.addHeaderLines();
+  actab << "surge" << doubleToString(m_last.surge_in, 2)
+        << doubleToString(m_last.surge_shaped, 2) << "";
+  actab << "yaw"   << doubleToString(m_last.yaw_in, 2)
+        << doubleToString(m_last.yaw_shaped, 2) << "";
+  actab << "left"  << "" << "" << doubleToString(m_last.left_effort, 2);
+  actab << "right" << "" << "" << doubleToString(m_last.right_effort, 2);
+  m_msgs << actab.getFormattedString() << endl << endl;
 
-//---------------------------------------------------------
-// Procedure: getSpeedGainFactor()
-//   Purpose: Piecewise constant lookup of gain factor based on speed
+  m_msgs << "Selected:   " << bb::to_string(m_last.selected)
+         << (m_last.hard_stop ? "   HARD STOP: " : "   running (")
+         << bb::to_string(m_last.stop_reason)
+         << (m_last.hard_stop ? "" : ")") << endl;
+  m_msgs << "Input age:  " << doubleToString(m_last.input_age, 3) << " s" << endl;
+  m_msgs << "Saturation: q=" << doubleToString(m_last.alloc.saturation_value, 3)
+         << "  f=" << doubleToString(m_last.alloc.fair_scaler, 3)
+         << (m_last.alloc.saturated ? "  SATURATED" : "") << endl;
+  m_msgs << "Limits:     "
+         << (m_last.alloc.limit_steer_left     ? "steer_left "  : "")
+         << (m_last.alloc.limit_steer_right    ? "steer_right " : "")
+         << (m_last.alloc.limit_throttle_lower ? "thr_lower "   : "")
+         << (m_last.alloc.limit_throttle_upper ? "thr_upper "   : "")
+         << ((!m_last.alloc.limit_steer_left && !m_last.alloc.limit_steer_right &&
+              !m_last.alloc.limit_throttle_lower && !m_last.alloc.limit_throttle_upper)
+                 ? "none" : "") << endl;
+  m_msgs << endl;
 
-double ThrustMix::getSpeedGainFactor(double speed)
-{
-  if (m_speed_gain_table.empty())
-    return 1.0;
-
-  // Find the highest speed point that is <= current speed
-  double gain = m_speed_gain_table[0].second; // default to first entry
-
-  for (size_t i = 0; i < m_speed_gain_table.size(); i++)
-  {
-    if (speed >= m_speed_gain_table[i].first)
-    {
-      gain = m_speed_gain_table[i].second;
-    }
-    else
-    {
-      break; // Table should be sorted, so we can stop here
-    }
-  }
-
-  return gain;
-}
-
-//---------------------------------------------------------
-// Procedure: parseSpeedGainPoints()
-//   Purpose: Parse speed,gain pairs from config string
-//   Example: "0.0,1.0, 1.0,1.0, 2.0,1.5"
-
-bool ThrustMix::parseSpeedGainPoints(const std::string& config_str)
-{
-  m_speed_gain_table.clear();
-
-  // Split by commas
-  vector<string> tokens = parseString(config_str, ',');
-
-  // Should have even number of tokens (speed, gain pairs)
-  if (tokens.size() % 2 != 0)
-  {
-    reportConfigWarning("speed_gain_points must have even number of values (speed,gain pairs)");
-    return false;
-  }
-
-  for (size_t i = 0; i < tokens.size(); i += 2)
-  {
-    double speed = atof(tokens[i].c_str());
-    double gain = atof(tokens[i + 1].c_str());
-    m_speed_gain_table.push_back(make_pair(speed, gain));
-  }
-
-  // Sort by speed (should already be sorted, but ensure it)
-  sort(m_speed_gain_table.begin(), m_speed_gain_table.end());
-
+  m_msgs << "Lineage:    src " << (m_last.source_producer.empty() ? "-" : m_last.source_producer)
+         << " " << (m_last.source_epoch.empty() ? "-" : m_last.source_epoch)
+         << "/" << m_last.source_seq
+         << "  ->  arb " << (m_last.decision_epoch.empty() ? "-" : m_last.decision_epoch)
+         << "/" << m_last.decision_seq
+         << "  ->  mix " << m_last.mix_epoch << "/" << m_last.mix_seq << endl;
+  m_msgs << "Cycles:     " << m_iterations
+         << "   stopped " << m_stop_cycles
+         << " (" << doubleToString(m_iterations ? 100.0 * m_stop_cycles / m_iterations : 0.0, 1)
+         << "%)" << endl;
   return true;
 }

@@ -12,6 +12,7 @@ SET(SRC
 ADD_EXECUTABLE(pThrustMix ${SRC})
 
 TARGET_LINK_LIBRARIES(pThrustMix
+   bb_command
    ${MOOS_LIBRARIES}
    apputil
    mbutil
