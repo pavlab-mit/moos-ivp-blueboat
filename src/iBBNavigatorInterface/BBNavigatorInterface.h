@@ -52,6 +52,7 @@
 #include "MOOS/libMOOS/Thirdparty/AppCasting/AppCastingMOOSApp.h"
 
 #include "actuator_stage.h"
+#include "arm_sequencer.h"
 
 #include "nav_bindings.h"
 
@@ -104,8 +105,6 @@ protected:
   // NVGR_DISARM and must work mid-mission. This path was broken
   // before 2026-08-14 (the PCA9685 RESTART trap) and bench-passed
   // after; the orderly all-off below is what keeps it passing.
-  enum class ArmState { DISARMED, ARMING, ARMED };
-
   void   pwmWriterThread();
   void   beginArmSequence();
   void   performDisarm(const std::string &reason);
@@ -150,10 +149,10 @@ private: // ---- configuration -----------------------------
 
   // Requested by mail (NVGR_DISARM) and at startup; the PWM
   // thread owns the transition and the resulting state.
-  std::atomic<bool> m_arm_requested;
-  ArmState          m_arm_state;        // PWM thread only
-  double            m_arm_hold_start;   // PWM thread only
-  std::atomic<uint64_t> m_arm_cycles;   // completed arm sequences
+  std::atomic<bool>  m_arm_requested;
+  bb::ArmSequencer  *m_arm;             // PWM thread only; built in OnStartUp
+  bb::ArmSequencerConfig m_arm_cfg;
+  std::atomic<int>   m_arm_state_pub;   // ArmState, for the appcast
 
   // ---- safety sidebands ---------------------------------
   // Plain booleans on purpose: they must work when the command
