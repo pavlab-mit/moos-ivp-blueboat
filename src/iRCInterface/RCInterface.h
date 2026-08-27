@@ -69,6 +69,7 @@
 #include <ctime>
 
 #include "crsf_parser.h"
+#include "command_envelope.h"
 #include "crsf_frames.h"
 #include "rc_link_state.h"
 
@@ -141,6 +142,13 @@ struct RcTelemInputs {
   bool rc_mode = false;
   bool deadman = false;
 };
+
+// Uplink LQ below this reports link=DEGRADED while frames are
+// still valid. 80 comes from the measured 1.1 s linear decay
+// 100 -> 0 on TX loss (docs/archive/rc/rc_characterization.md):
+// it buys roughly a second of warning without firing on the
+// ordinary 90s seen at range.
+static const int RC_LINK_LQ_DEGRADED = 80;
 
 class RCInterface : public AppCastingMOOSApp
 {
@@ -219,6 +227,35 @@ class RCInterface : public AppCastingMOOSApp
    // (rc_model_build_yip.md), so an invalid KILL value holds the
    // last valid state instead of defaulting.
    int        m_kill_state;
+
+   // Latched guarded-switch state for the COMMAND CONTRACT.
+   //
+   // These differ from the RC_CH* scalars on purpose. On link
+   // loss the scalars fall to their operator-absent defaults
+   // (CH6 -> 1 = AUTO), which is right for that contract. The
+   // command contract must NOT do that: publishing
+   // mode=NON_MANUAL because the link died would tell the arbiter
+   // the operator chose autonomy, and the boat would hand itself
+   // to the back seat at the exact moment the operator lost it.
+   // Design doc 5.1 forbids it; invariant 6 is what it protects.
+   //
+   // So these RETAIN their last valid decode across a dropout,
+   // and RC_INPUT_STATE carries valid=0 instead. The arbiter then
+   // sees "the operator still holds MANUAL and cannot command" and
+   // hard-stops with RC_INVALID -- fail-closed, no handover.
+   //
+   // 0 = never decoded (before the first valid frame).
+   int        m_mode_state;
+   int        m_deadman_state;
+   double     m_authority_pct;
+
+   // RC_INPUT_STATE contract identity and config.
+   std::string m_rc_input_var;
+   std::string m_rc_input_epoch;
+   uint64_t    m_rc_input_seq;
+   bool        m_thrust_limit_enable;
+
+   void publishRcInputState(bool frame_valid, bool rc_connected, bool failsafe);
 
    // CH12 MARK edge detector: a rising edge (1->2, SH pressed)
    // publishes an incrementing RC_MARK count - one countable event

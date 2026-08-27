@@ -25,6 +25,9 @@ BBPID::BBPID()
   m_nav_yawrate_var     = "GYRO_Z_LVL_IMU";
   m_thrust_var          = "DESIRED_THRUST";
   m_rudder_var          = "DESIRED_RUDDER";
+  m_autonomy_cmd_var    = "AUTONOMY_CMD";
+  m_autonomy_seq        = 0;
+  m_publish_autonomy_cmd = true;
 
   m_desired_speed   = 0.0;
   m_desired_heading = 0.0;
@@ -170,6 +173,70 @@ bool BBPID::OnConnectToServer()
 }
 
 //---------------------------------------------------------
+// Publish AUTONOMY_CMD.
+//
+// ON valid: this flag is about whether THIS CONTROLLER's output
+// can be trusted right now, not about whether the boat should
+// move. Three states map to it:
+//
+//   holding off  no complete nav/cmd picture yet  -> valid=0
+//   stale        helm stopped commanding          -> valid=0
+//   active       computing                        -> valid=1
+//
+// The two invalid cases already command zero, so the boat stops
+// either way. The difference is what the LOG says and what the
+// mixer does. valid=1 with zeros makes the arbiter SELECT
+// autonomy and pass a controlled zero through the slew limiter;
+// valid=0 makes it hard-stop with AUTONOMY_INVALID, which names
+// the actual fault and resets the limiter so resuming ramps from
+// rest rather than from wherever it happened to be.
+//
+// ON yaw SIGN: the contract requires yaw > 0 = starboard
+// (invariant, docs/ibb_navigator_command_pipeline.md section 3).
+// `rudder` inherits whatever `rudder_polarity` is configured to,
+// so a mis-set polarity now publishes a CONTRACT VIOLATION
+// rather than merely an internally inconsistent sign. That is
+// precisely why rudder_polarity should go away once the whole
+// pipeline shares one convention -- see BBPID_Info and
+// docs/control_refactor_plan.md section 15.11. Until then it is
+// the one place a wrong config turns the boat the wrong way
+// under autonomy while RC still behaves.
+void BBPID::publishAutonomyCmd(double surge, double yaw, bool valid)
+{
+  if(!m_publish_autonomy_cmd)
+    return;
+
+  bb::SemanticCommand cmd;
+  cmd.version     = bb::kCommandContractVersion;
+  cmd.producer    = "pBBPID";
+  cmd.epoch       = m_autonomy_epoch;
+  cmd.seq         = ++m_autonomy_seq;
+  cmd.source_time = MOOSTime();
+  cmd.valid       = valid;
+
+  // Clamp rather than reject: the contract's range is [-100,100]
+  // and a controller that briefly exceeds it should be limited,
+  // not silenced.
+  if(surge >  100.0) surge =  100.0;
+  if(surge < -100.0) surge = -100.0;
+  if(yaw   >  100.0) yaw   =  100.0;
+  if(yaw   < -100.0) yaw   = -100.0;
+
+  cmd.surge = valid ? surge : 0.0;
+  cmd.yaw   = valid ? yaw   : 0.0;
+
+  // Autonomy carries no authority cap; a mission is either
+  // permitted to run or it is not. The arbiter ignores this field
+  // for autonomy in any case.
+  cmd.authority_limit = 100.0;
+
+  cmd.extra["controller"]   = "pBBPID";
+  cmd.extra["control_mode"] = "HEADING_SPEED";
+
+  Notify(m_autonomy_cmd_var, bb::serialize_command(cmd));
+}
+
+//---------------------------------------------------------
 // Iterate: compute one control tick
 
 bool BBPID::Iterate()
@@ -190,8 +257,12 @@ bool BBPID::Iterate()
   bool have_nav = m_have_nav_speed && m_have_nav_heading && have_yawrate;
   bool have_cmd = m_have_des_speed && m_have_des_heading;
 
-  // Hold-off until we have a complete picture.
+  // Hold-off until we have a complete picture. Publish an
+  // INVALID contract rather than going silent: silence reads as
+  // staleness to the arbiter, which is a different fault from
+  // "alive but not ready", and only one of those is true here.
   if(!have_nav || !have_cmd) {
+    publishAutonomyCmd(0.0, 0.0, false);
     AppCastingMOOSApp::PostReport();
     return(true);
   }
@@ -206,6 +277,7 @@ bool BBPID::Iterate()
     m_last_rudder = 0.0;
     Notify(m_thrust_var, 0.0);
     Notify(m_rudder_var, 0.0);
+    publishAutonomyCmd(0.0, 0.0, false);
     m_engine.computeMeasYawRate(MOOSTime(), m_nav_heading, m_nav_yawrate);
     Notify("BBPID_MEAS_YAWRATE",    m_engine.getMeasYawRate());
     Notify("BBPID_DESIRED_YAWRATE", 0.0);
@@ -227,6 +299,11 @@ bool BBPID::Iterate()
 
   Notify(m_thrust_var, thrust);
   Notify(m_rudder_var, rudder);
+
+  // surge = thrust, yaw = rudder. They are the same quantities;
+  // the contract simply carries them together with the identity
+  // and sequence the arbiter's lease needs.
+  publishAutonomyCmd(thrust, rudder, true);
 
   // Debug postings for tuning / plotting
   Notify("BBPID_SPEED_ERROR",    m_engine.getSpeedError());
@@ -253,6 +330,13 @@ bool BBPID::Iterate()
 bool BBPID::OnStartUp()
 {
   AppCastingMOOSApp::OnStartUp();
+
+  // A fresh epoch per launch. The arbiter rebases its sequence
+  // comparison on an epoch change, so a restarted back seat is
+  // not mistaken for one whose sequences regressed -- and it must
+  // then wait for a valid command in the NEW epoch before
+  // autonomy is eligible again.
+  m_autonomy_epoch = bb::make_epoch("bbp");
 
   STRING_LIST sParams;
   m_MissionReader.EnableVerbatimQuoting(false);
@@ -471,6 +555,8 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
   else if(param == "nav_heading_var")     { m_nav_heading_var = value;     return(true); }
   else if(param == "nav_yawrate_var")     { m_nav_yawrate_var = value;     return(true); }
   else if(param == "thrust_var")          { m_thrust_var = value;          return(true); }
+  else if(param == "autonomy_cmd_var")    { m_autonomy_cmd_var = value;    return(true); }
+  else if(param == "publish_autonomy_cmd"){ return(setBooleanOnString(m_publish_autonomy_cmd, value)); }
   else if(param == "rudder_var")          { m_rudder_var = value;          return(true); }
 
   return(false);

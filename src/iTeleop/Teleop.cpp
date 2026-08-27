@@ -40,6 +40,11 @@ Teleop::Teleop()
       m_last_owner_frame_time(0),
       m_last_ack_time(0),
       m_cmd_thrust_left(0),
+      m_cmd_surge(0),
+      m_cmd_yaw(0),
+      m_cmd_is_semantic(false),
+      m_cmd_seq(0),
+      m_teleop_cmd_var("TELEOP_CMD"),
       m_cmd_thrust_right(0),
       m_estop(false),
       m_applied_thrust_left(0),
@@ -342,9 +347,46 @@ void Teleop::applyCommand(const broker_v2::FieldMap &fields) {
     m_estop = estop;
   }
 
+  // Preferred: a GUI that speaks the command contract directly.
+  bool got_semantic = false;
+  p = fields.find("SURGE");
+  if ((p != fields.end()) && p->second.is_double) {
+    m_cmd_surge = p->second.dval;
+    got_semantic = true;
+  }
+  p = fields.find("YAW");
+  if ((p != fields.end()) && p->second.is_double) {
+    m_cmd_yaw = p->second.dval;
+    got_semantic = true;
+  }
+  m_cmd_is_semantic = got_semantic;
+
   const double limit = (m_max_thrust < 100.0) ? m_max_thrust : 100.0;
   m_cmd_thrust_left = vclip(m_cmd_thrust_left, -limit, limit);
   m_cmd_thrust_right = vclip(m_cmd_thrust_right, -limit, limit);
+
+  if (!m_cmd_is_semantic) {
+    // Derive the semantic pair from the tank pair.
+    //
+    // THIS IS NOT A ROUND TRIP, and the operator will notice. The
+    // mixer's left/right are post-asymmetry-compensation in an
+    // asymmetric feasible region; this inverse is the plain linear
+    // one. A GUI asking for a symmetric pivot (L=+100, R=-100)
+    // becomes surge=0, yaw=100, which the ArduRover mixer renders
+    // as L=62.5, R=-100 -- deliberately unequal so the two
+    // PHYSICAL thrusts match, given reverse is the weaker
+    // direction.
+    //
+    // That is the intended behaviour, not a defect: teleop now
+    // goes through the same allocation as every other source
+    // instead of driving the motors directly. But it means a tank
+    // GUI's numbers are a request, not a promise, and the fix if
+    // that matters is to teach the GUI to send SURGE/YAW.
+    m_cmd_surge = 0.5 * (m_cmd_thrust_left + m_cmd_thrust_right);
+    m_cmd_yaw   = 0.5 * (m_cmd_thrust_left - m_cmd_thrust_right);
+  }
+  m_cmd_surge = vclip(m_cmd_surge, -100.0, 100.0);
+  m_cmd_yaw   = vclip(m_cmd_yaw,   -100.0, 100.0);
 
   m_frames_applied++;
 }
@@ -364,6 +406,11 @@ void Teleop::deactivateSession(const string &reason, bool warn) {
   Notify("TELEOP_THRUST_L", 0.0);
   Notify("TELEOP_THRUST_R", 0.0);
   Notify("TELEOP_CLIENT", "none");
+
+  // Release the claim immediately rather than waiting for the
+  // next iterate, so autonomy can resume within one arbiter cycle
+  // instead of one teleop cycle plus one arbiter cycle.
+  publishTeleopCmd();
 
   if (warn) {
     reportRunWarning("Teleop session ended: " + reason);
@@ -434,12 +481,55 @@ void Teleop::sendAck(const sockaddr_in &dest, const string &ack_type, double seq
 //            second deadman layer, so a hung iTeleop fails safe.
 
 void Teleop::publishTeleopState() {
+  // The contract goes out on EVERY iterate, session or not.
+  //
+  // Publishing claim=0 is not noise: it is an explicit release,
+  // and the arbiter treats it differently from silence. Silence
+  // means a stale teleop, which fail-closes if a claim was held;
+  // claim=0 means "I am here and I do not want the boat", which
+  // lets autonomy resume immediately.
+  publishTeleopCmd();
+
   if (!m_session_active) {
     return;
   }
   Notify("TELEOP_ACTIVE", "true");
   Notify("TELEOP_THRUST_L", m_estop ? 0.0 : m_cmd_thrust_left);
   Notify("TELEOP_THRUST_R", m_estop ? 0.0 : m_cmd_thrust_right);
+}
+
+void Teleop::publishTeleopCmd() {
+  bb::SemanticCommand cmd;
+  cmd.version     = bb::kCommandContractVersion;
+  cmd.producer    = "iTeleop";
+  cmd.epoch       = m_cmd_epoch;
+  cmd.seq         = ++m_cmd_seq;
+  cmd.source_time = MOOSTime();
+
+  // valid=1 means "this snapshot is trustworthy", which is about
+  // the producer's own health, not about whether it wants the
+  // boat. An idle iTeleop with no session is perfectly valid and
+  // simply is not claiming.
+  cmd.valid = true;
+
+  const bool driving = m_session_active && !m_estop;
+  cmd.surge = driving ? m_cmd_surge : 0.0;
+  cmd.yaw   = driving ? m_cmd_yaw   : 0.0;
+  cmd.authority_limit = 100.0;
+
+  cmd.extra["session"] = m_owner_sid.empty() ? "-" : m_owner_sid;
+  cmd.extra["claim"]   = m_session_active ? "1" : "0";
+  cmd.extra["estop"]   = m_estop ? "1" : "0";
+  // Trace: did the operator's GUI speak the contract, or was this
+  // derived from a tank pair? Worth knowing when a teleop feel
+  // complaint arrives.
+  // "none" while idle: no frame has been applied, so neither
+  // form is in use. Reporting derived_from_tank here would read
+  // as a claim about a command that does not exist.
+  cmd.extra["cmd_form"] = !m_session_active ? "none"
+                          : (m_cmd_is_semantic ? "semantic" : "derived_from_tank");
+
+  Notify(m_teleop_cmd_var, bb::serialize_command(cmd));
 }
 
 //---------------------------------------------------------
@@ -583,6 +673,11 @@ bool Teleop::OnStartUp() {
       handled = true;
     }
 
+    if (!handled && (param == "teleop_cmd_var")) {
+      m_teleop_cmd_var = value;
+      handled = true;
+    }
+
     if (!handled) {
       reportUnhandledConfigWarning(orig);
     }
@@ -592,12 +687,18 @@ bool Teleop::OnStartUp() {
     return false;
   }
 
+  // A fresh epoch per launch. The arbiter rebases its sequence
+  // comparison on an epoch change, so a restarted iTeleop is not
+  // mistaken for one whose sequences have regressed.
+  m_cmd_epoch = bb::make_epoch("tlp");
+
   // Make the idle state explicit on startup so a rebooted vehicle
   // never comes up with a stale TELEOP_ACTIVE from a prior session.
   Notify("TELEOP_ACTIVE", "false");
   Notify("TELEOP_THRUST_L", 0.0);
   Notify("TELEOP_THRUST_R", 0.0);
   Notify("TELEOP_CLIENT", "none");
+  publishTeleopCmd();
 
   registerVariables();
   return true;

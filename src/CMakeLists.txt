@@ -26,6 +26,7 @@ ADD_SUBDIRECTORY(02_applets)
 
 # Processes - always build (developer simulation support)
 ADD_SUBDIRECTORY(pThrustMix)
+ADD_SUBDIRECTORY(pBBCommandArbiter)
 ADD_SUBDIRECTORY(pDiffThrustPID_v2)
 ADD_SUBDIRECTORY(pDiffThrustTuner)
 ADD_SUBDIRECTORY(pBBPID)

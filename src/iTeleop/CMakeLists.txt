@@ -14,6 +14,7 @@ include_directories(${CMAKE_SOURCE_DIR}/src/01_libraries/lib_broker_v2)
 ADD_EXECUTABLE(iTeleop ${SRC})
 
 TARGET_LINK_LIBRARIES(iTeleop
+   bb_command
    ${MOOS_LIBRARIES}
    apputil
    mbutil

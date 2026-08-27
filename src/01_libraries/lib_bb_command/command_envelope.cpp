@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <set>
+#include <unistd.h>
+#include <ctime>
 
 namespace bb {
 
@@ -15,6 +17,17 @@ const char* kNonFinite           = "nonfinite";
 const char* kOutOfRange          = "out_of_range";
 const char* kInvalidFlag         = "invalid_flag";
 const char* kMissingField        = "missing_field";
+}
+
+std::string make_epoch(const std::string& prefix)
+{
+  unsigned seed = (unsigned)::getpid();
+  seed ^= (unsigned)::time(NULL) * 2654435761u;
+  ::srandom(seed);
+  char buf[48];
+  std::snprintf(buf, sizeof(buf), "%s-%06lx",
+                prefix.c_str(), (long)(::random() & 0xFFFFFF));
+  return std::string(buf);
 }
 
 const char* to_string(CommandSource s)
