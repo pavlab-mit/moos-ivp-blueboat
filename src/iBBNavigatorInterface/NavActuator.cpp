@@ -148,8 +148,11 @@ void BBNavigatorInterface::pwmWriterThread()
     // board is retried at 1 Hz, not hammered at 50.
     const bool want_armed =
         m_arm_requested.load() && (now >= m_arm_retry_after);
+    // hardware_ok gates ARMING on the actuation predicate, not on
+    // full-sensor health -- a boat with a dead magnetometer still
+    // arms; a boat whose PCA9685 is absent never does.
     const bb::ArmAction action =
-        m_arm->update(now, want_armed, m_nav_init_ok);
+        m_arm->update(now, want_armed, g_nav.is_pwm_ready());
     m_arm_state_pub.store((int)m_arm->state());
     m_arm_cycles_pub.store(m_arm->arm_cycles());
     m_esc_armed.store(m_arm->armed());
@@ -280,11 +283,13 @@ bb::NavigatorSafetyState BBNavigatorInterface::snapshotSafety() const
   s.shutdown_requested = m_shutdown_requested.load();
 
   // is_pwm_ready() is navigator-cpp main's answer to "is the
-  // PCA9685 actually usable right now". The previous version of
-  // this app never asked -- it called init() in its constructor,
-  // stored the error string, and drove the motors regardless of
-  // what it said.
-  s.hardware_healthy   = m_nav_init_ok && g_nav.is_pwm_ready();
+  // PCA9685 actually usable right now" -- initialized AND the PWM
+  // chip up. The previous version of this app never asked; it
+  // called init() in its constructor and drove regardless. It is
+  // deliberately the ONLY health input here: a failed SENSOR is a
+  // sensing degradation (autonomy self-inhibits upstream without
+  // nav data), not a reason to refuse manual drive.
+  s.hardware_healthy   = g_nav.is_pwm_ready();
 
   s.rc_kill_asserted   = m_rc_kill_asserted.load();
   s.rc_link_lost       = !m_rc_link_alive.load();

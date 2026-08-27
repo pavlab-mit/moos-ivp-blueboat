@@ -272,8 +272,7 @@ private: // ---- configuration -----------------------------
   uint64_t m_iterations;
   uint64_t m_stop_cycles;
   bb::StopReason m_last_stop_reason;
-  bool m_nav_init_ok;
-  std::string m_nav_init_error;
+  std::string m_nav_init_error;   // init() warnings; empty = clean
 };
 
 #endif
