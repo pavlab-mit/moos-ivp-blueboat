@@ -20,7 +20,20 @@ ProcessConfig = iBackSeatBroker
    tx_port = 9444
 
    // MOOS vars sent every Iterate tick if available
-   tx_vars = DESIRED_THRUST_L,DESIRED_THRUST_R,ALL_STOP,MISSION_COMPLETE, IVPHELM_STATE, MODE, DEPLOY
+   // AUTONOMY_CMD is the command contract; the arbiter on the
+   // front seat consumes it. The broker re-sends its latest field
+   // map every tick, which is exactly why a repeated epoch+seq
+   // does NOT refresh the arbiter's lease -- mail arriving is not
+   // evidence pBBPID is alive.
+   //
+   // The string is full of commas and '='; lib_broker_v2
+   // percent-encodes anything outside [A-Za-z0-9_-.:] so it
+   // crosses intact as an opaque value.
+   tx_vars = AUTONOMY_CMD,ALL_STOP,MISSION_COMPLETE, IVPHELM_STATE, MODE, DEPLOY
+
+   // DESIRED_THRUST_L/R are RETIRED from the wire: mixing moved to
+   // the front seat, so only semantic surge/yaw crosses the seat
+   // boundary now.
 
    // Optional inbound remap: WIRE_VAR:MOOS_VAR
    // Backseat-side EKF / uBBBundler is the source of truth for

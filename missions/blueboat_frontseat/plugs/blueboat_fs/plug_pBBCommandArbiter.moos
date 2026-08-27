@@ -1,0 +1,37 @@
+//----------------------------------------------------------
+// pBBCommandArbiter -- the only process that decides who is
+// driving the boat.
+//
+//   RC_INPUT_STATE ]
+//   TELEOP_CMD     ]--> BB_SELECTED_CMD
+//   AUTONOMY_CMD   ]
+//
+// Priority is RC > TELEOP > AUTONOMY, but the two rules that
+// matter are: command is not authority (RC must hold the guarded
+// mode switch, teleop must claim), and no silent fallthrough (a
+// manual owner going stale STOPS the boat rather than handing it
+// to the back seat).
+//----------------------------------------------------------
+
+ProcessConfig = pBBCommandArbiter
+{
+  AppTick   = 50
+  CommsTick = 50
+
+  // SOURCE LEASES. A repeated sequence does NOT refresh these:
+  // the broker re-sends its last field map every tick, so mail
+  // arriving is not evidence the controller is alive.
+  //
+  // Deliberately LENIENT for first trials. Tighten only once the
+  // measured BB_ARB_LAST_VALID_*_AGE distributions justify it --
+  // they are published from day one for exactly that purpose.
+  rc_timeout_sec       = 1.0
+  teleop_timeout_sec   = 1.5
+  autonomy_timeout_sec = 2.0
+
+  // The window BEFORE the first valid RC frame ever arrives.
+  // true: a boat launched with the handset off can still run.
+  // Once ANY RC frame has been seen the mode switch is
+  // authoritative and this is irrelevant.
+  allow_autonomy_before_first_rc = true
+}

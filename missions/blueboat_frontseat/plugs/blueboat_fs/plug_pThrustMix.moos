@@ -1,0 +1,42 @@
+//----------------------------------------------------------
+// pThrustMix -- front-seat thrust mixer.
+//
+//   BB_SELECTED_CMD --> BB_MIXED_CMD
+//
+// ArduRover 4.7 skid-steer allocation. Slew-limits COMMON
+// THROTTLE ONLY: yaw passes through unshaped, which is what
+// keeps turn onset crisp. The old per-side LPF in the Navigator
+// filtered the DIFFERENCE between the sides -- i.e. the turn
+// command -- and is gone.
+//
+// Moved from the back seat: only semantic surge/yaw crosses the
+// seat boundary now, and the whole 50 Hz inner loop is here.
+//----------------------------------------------------------
+
+ProcessConfig = pThrustMix
+{
+  AppTick   = 50
+  CommsTick = 50
+
+  // REQUIRED, no default. A log must never be ambiguous about
+  // which equation produced a motor pair; startup FAILS without
+  // this.
+  mixer_model = ARDUROVER_4_7_SKID
+
+  selected_cmd_timeout_sec = 0.5
+
+  // MOT_SLEWRATE. 200 %/s = zero to full forward in 0.5 s.
+  slew_rate_pct_sec = 200
+  slew_max_dt_sec   = 0.5
+
+  // false: carry common-throttle state across a source handoff,
+  // so an operator taking manual control mid-transit does not get
+  // a drop to zero and a ramp back up.
+  slew_reset_on_handoff = false
+
+  // ArduRover BlueBoat120 values. thrust_asymmetry is COPIED, not
+  // validated on this hull -- tune only from tank or on-water
+  // evidence.
+  thrust_asymmetry      = 1.6   // MOT_THST_ASYM
+  steering_throttle_mix = 0.6   // MOT_STR_THR_MIX
+}
