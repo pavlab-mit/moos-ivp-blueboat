@@ -34,9 +34,14 @@ ProcessConfig = pThrustMix
   // a drop to zero and a ramp back up.
   slew_reset_on_handoff = false
 
-  // ArduRover BlueBoat120 values. thrust_asymmetry is COPIED, not
-  // validated on this hull -- tune only from tank or on-water
-  // evidence.
-  thrust_asymmetry      = 1.6   // MOT_THST_ASYM
+  // thrust_asymmetry MEASURED on yip (2026-08-31): continuous-null
+  // fit over 347 s of pivoting gave A=1.80 (CW 1.81 / CCW 1.78);
+  // the confirmation run and the operator's by-feel trim both hinted
+  // a touch lower -> set 1.77 (session 4). The old 1.6 was the
+  // ArduRover BlueBoat120 value, copied not measured.
+  // NOTE: front-seat config -- takes effect on the next fs-mission
+  // launch/reboot. NEVER restart the fs mission on the water (props
+  // spin).
+  thrust_asymmetry      = 1.77  // MOT_THST_ASYM (measured, was 1.8 briefly, 1.6 originally)
   steering_throttle_mix = 0.6   // MOT_STR_THR_MIX
 }
