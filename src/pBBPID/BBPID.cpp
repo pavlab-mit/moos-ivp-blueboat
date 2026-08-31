@@ -522,7 +522,8 @@ string BBPID::buildParamSnapshot()
   s += ";gate_stale_thresh=" + doubleToStringX(m_gate_stale_thresh,4);
   s += ";ff_speed=" + doubleToStringX(m_engine.ffC0(),4) + ","
                     + doubleToStringX(m_engine.ffCv(),4) + ","
-                    + doubleToStringX(m_engine.ffCrr(),5);
+                    + doubleToStringX(m_engine.ffCrr(),5) + ","
+                    + doubleToStringX(m_engine.ffCvv(),4);
   s += ";ff_yaw="   + doubleToStringX(m_engine.ffD0(),4) + ","
                     + doubleToStringX(m_engine.ffDr(),4) + ","
                     + doubleToStringX(m_engine.ffDvr(),4);
@@ -604,12 +605,16 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
     m_engine.setFeedforwardYawEnable(tolower(value) == "true");
     return(true);
   }
-  else if(param == "ff_speed") {           // c0, cv, crr
+  else if(param == "ff_speed") {           // c0, cv, crr [, cvv]
     string v = value;
     double c0  = atof(biteStringX(v, ',').c_str());
     double cv  = atof(biteStringX(v, ',').c_str());
     double crr = atof(biteStringX(v, ',').c_str());
-    m_engine.setFeedforwardSpeed(c0, cv, crr);
+    // Optional 4th value: quadratic drag term cvv (thrust per
+    // (m/s)^2, applied as cvv*v*|v*|). Absent = 0 = legacy linear.
+    string cvv_s = biteStringX(v, ',');
+    double cvv = cvv_s.empty() ? 0.0 : atof(cvv_s.c_str());
+    m_engine.setFeedforwardSpeed(c0, cv, crr, cvv);
     return(true);
   }
   else if(param == "ff_yaw") {             // d0, dr, dvr

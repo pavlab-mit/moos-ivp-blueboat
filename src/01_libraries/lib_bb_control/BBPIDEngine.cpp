@@ -51,7 +51,7 @@ BBPIDEngine::BBPIDEngine()
   m_ff_enable       = false;
   m_ff_speed_enable = true;
   m_ff_yaw_enable   = true;
-  m_ff_c0 = m_ff_cv = m_ff_crr = 0.0;
+  m_ff_c0 = m_ff_cv = m_ff_crr = m_ff_cvv = 0.0;
   m_ff_d0 = m_ff_dr = m_ff_dvr = 0.0;
   m_ff_rudder_scale = 1.0;
   m_ff_thrust = m_ff_rudder = 0.0;
@@ -469,6 +469,7 @@ void BBPIDEngine::update(double curr_time,
     // the thrust trim and for the speed-dependent yaw gain.
     if(m_ff_speed_enable)
       m_ff_thrust = m_ff_c0 + m_ff_cv * m_gov_speed_cmd
+                  + m_ff_cvv * m_gov_speed_cmd * fabs(m_gov_speed_cmd)
                   + m_ff_crr * des_rate * des_rate;
     if(m_ff_yaw_enable) {
       double ff_diff = m_ff_d0 + m_ff_dr * des_rate

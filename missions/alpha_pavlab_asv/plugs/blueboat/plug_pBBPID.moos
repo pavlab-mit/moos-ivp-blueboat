@@ -110,7 +110,19 @@ ProcessConfig = pBBPID
   // ff_yaw   = 4.145, 10.300, 0.0       // d0, dr, dvr  (bb_plant_id.py plant TF)
   // (rad/s units: crr x3282.8, dr x57.296; c0/cv/d0 unit-invariant)
   // ff_speed (deg/s) was 20, 15, -0.05 ;  ff_yaw was 2.5806, 4.1129, 0
-  ff_speed        = 0, 7.5, 30
+  // SESSION 3 (2026-08-31): ff_speed gains a 4th coefficient cvv
+  // (quadratic drag, applied as cvv*v*|v*|; engine default 0 =
+  // legacy). Steady speed-hold thrust from the session-2 log
+  // (n=462, |spdErr|<0.1 held 3s, low rotation) matches the rc_cal
+  // drag curve within ~1 unit at every staircase point:
+  //   measured (v, thrust): (0.48, 5.1) (0.96, 15.2) (1.44, 33.4)
+  //   9.2v + 10.1v|v|   ->        6.7        14.9        34.2
+  // A linear cv cannot fit both ends -- the speed I-term was
+  // carrying 8-17 at steady speed in BOTH runs. Coefficients come
+  // straight from the boat's own measured drag curve.
+  // Acceptance next run: steady speed |I| falls toward 0 at every
+  // staircase rung, ffShare -> ~100% at steady speed.
+  ff_speed        = 0, 9.2, 30, 10.1
   // SESSION 2 (2026-08-31): ff_yaw raised from 0,20,30 -- both terms
   // were ~2.5x low. Steady-segment regression on the session-1 log
   // (LOG_YIP_31_8_2026_____12_56_34, rudSat 0% so no railed-sample

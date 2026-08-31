@@ -80,8 +80,13 @@ class BBPIDEngine
   void setFeedforwardYawEnable(bool v)   { m_ff_yaw_enable = v;   }
   bool ffSpeedEnabled() const            { return m_ff_speed_enable; }
   bool ffYawEnabled() const              { return m_ff_yaw_enable;   }
-  void setFeedforwardSpeed(double c0, double cv, double crr)
-       { m_ff_c0 = c0; m_ff_cv = cv; m_ff_crr = crr; }
+  // cvv is the quadratic drag term (thrust per (m/s)^2, applied as
+  // cvv*v*|v*| so reverse commands get reverse FF). Default 0 keeps
+  // the legacy linear model bit-identical -- the hull's drag curve is
+  // quadratic (rc_cal: effort = 9.2v + 10.1v|v|), so a linear cv
+  // cannot fit both ends of the speed staircase.
+  void setFeedforwardSpeed(double c0, double cv, double crr, double cvv = 0.0)
+       { m_ff_c0 = c0; m_ff_cv = cv; m_ff_crr = crr; m_ff_cvv = cvv; }
   void setFeedforwardYaw(double d0, double dr, double dvr)
        { m_ff_d0 = d0; m_ff_dr = dr; m_ff_dvr = dvr; }
   void setFeedforwardRudderScale(double s) { m_ff_rudder_scale = s; }
@@ -91,6 +96,7 @@ class BBPIDEngine
   double ffC0()  const { return m_ff_c0;  }
   double ffCv()  const { return m_ff_cv;  }
   double ffCrr() const { return m_ff_crr; }
+  double ffCvv() const { return m_ff_cvv; }
   double ffD0()  const { return m_ff_d0;  }
   double ffDr()  const { return m_ff_dr;  }
   double ffDvr() const { return m_ff_dvr; }
@@ -258,6 +264,7 @@ class BBPIDEngine
   bool   m_ff_speed_enable;              // gate the common (speed) FF term
   bool   m_ff_yaw_enable;                // gate the differential (yaw) FF term
   double m_ff_c0, m_ff_cv, m_ff_crr;     // common-mode (speed) FF
+  double m_ff_cvv;                       // quadratic drag term (v*|v*|)
   double m_ff_d0, m_ff_dr, m_ff_dvr;     // differential (yaw) FF
   double m_ff_rudder_scale;              // differential-% -> rudder units
   double m_ff_thrust, m_ff_rudder;       // last FF terms (telemetry)
