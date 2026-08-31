@@ -54,6 +54,8 @@ BB_DGPS_EKF::BB_DGPS_EKF()
     m_gps_valid(false),
     m_nav_published(false),
     m_gps_update_count(0),
+    m_gps_fused_count(0),
+    m_gps_reapply_skips(0),
     m_iterate_count(0),
     m_geodesy_initialized(false)
 {
@@ -276,9 +278,28 @@ bool BB_DGPS_EKF::Iterate()
   }
   m_gps_valid = gps_currently_valid;
 
+  // Lever-arm-corrected copy of the latest measurement (hull frame).
+  // The heading used to rotate the body-frame offset is the EKF's own
+  // estimate once initialized; before that, the measurement's DGNSS
+  // heading (same acceptance rule as initialize()), else its COG.
+  BB_DGPS_EKF_Model::GPSMeasurement gps_hull = m_latest_gps;
+  if (gps_fresh && gps_hull.isValid()) {
+    double phi_cart;
+    if (m_ekf.isInitialized())
+      phi_cart = m_ekf.getHeading();
+    else if (gps_hull.heading_valid && gps_hull.heading_acc > 0 &&
+             gps_hull.heading_acc < 10.0)
+      phi_cart = BB_DGPS_EKF_Model::compassToCartesian(gps_hull.heading);
+    else
+      phi_cart = BB_DGPS_EKF_Model::compassToCartesian(gps_hull.cog);
+
+    BB_DGPS_EKF_Model::correctLeverArm(gps_hull, m_latest_gyro_z,
+                                       gyro_fresh, phi_cart, m_lever_arm);
+  }
+
   // Initialize filter on first valid GPS
-  if (!m_ekf.isInitialized() && gps_fresh && m_latest_gps.isValid()) {
-    m_ekf.initialize(m_latest_gps);
+  if (!m_ekf.isInitialized() && gps_fresh && gps_hull.isValid()) {
+    m_ekf.initialize(gps_hull);
     dbg_print("[%.3f] EKF initialized: x=%.2f y=%.2f phi=%.1f gamma=%.1f s=%.2f\n",
               current_time, m_ekf.getX(), m_ekf.getY(),
               m_ekf.getHeadingCompass(), m_ekf.getCOGCompass(), m_ekf.getSpeed());
@@ -295,9 +316,14 @@ bool BB_DGPS_EKF::Iterate()
   double gyro_z = gyro_fresh ? m_latest_gyro_z : 0.0;
   m_ekf.predict(dt, gyro_z);
 
-  // Measurement update with GPS (pass speed threshold for COG gating)
-  if (gps_fresh && m_latest_gps.isValid()) {
-    m_ekf.updateGPS(m_latest_gps, m_speed_threshold);
+  // Measurement update with GPS (pass speed threshold for COG gating).
+  // The model consumes each GNSS epoch once (TS-gated); skipped
+  // re-applications are counted for the appcast.
+  if (gps_fresh && gps_hull.isValid()) {
+    if (m_ekf.updateGPS(gps_hull, m_speed_threshold))
+      m_gps_fused_count++;
+    else
+      m_gps_reapply_skips++;
   }
 
   // Check filter health
@@ -319,6 +345,8 @@ bool BB_DGPS_EKF::Iterate()
     double nav_heading = m_ekf.getHeadingCompass();
     double nav_speed = m_ekf.getSpeed();
     double nav_cog = m_ekf.getCOGCompass();
+    double nav_surge = m_ekf.getSurge();
+    double nav_sway = m_ekf.getSway();
     double nav_lat = 0.0, nav_lon = 0.0;
 
     Notify(outName("NAV_X"), nav_x);
@@ -326,6 +354,11 @@ bool BB_DGPS_EKF::Iterate()
     Notify(outName("NAV_HEADING"), nav_heading);
     Notify(outName("NAV_SPEED"), nav_speed);
     Notify(outName("NAV_COG"), nav_cog);
+    // Signed hull-frame velocities: surge +ahead/-astern, sway +starboard.
+    // NAV_SPEED stays an unsigned magnitude for the helm/viewer; the
+    // speed loop should consume NAV_SURGE (pBBPID nav_speed_var).
+    Notify(outName("NAV_SURGE"), nav_surge);
+    Notify(outName("NAV_SWAY"), nav_sway);
 
     // Convert filtered x/y back to lat/lon via reverse geodesy
     if (m_geodesy_initialized) {
@@ -340,11 +373,12 @@ bool BB_DGPS_EKF::Iterate()
     snprintf(buf, sizeof(buf),
              "MOOSTime=%.6f,NAV_X=%.3f,NAV_Y=%.3f,NAV_LAT=%.9f,NAV_LONG=%.9f,"
              "NAV_HEADING=%.2f,NAV_SPEED=%.3f,NAV_COG=%.2f,"
+             "NAV_SURGE=%.3f,NAV_SWAY=%.3f,"
              "STD_X=%.3f,STD_Y=%.3f,STD_HEADING=%.2f,STD_SPEED=%.3f,"
              "GPS_LOCK=%s,FIX_TYPE=%d,H_ACC=%.3f,HDOP=%.2f,"
              "HEADING_VALID=%s,GPS_HEADING=%.2f,GPS_HEADING_ACC=%.2f",
              current_time, nav_x, nav_y, nav_lat, nav_lon,
-             nav_heading, nav_speed, nav_cog,
+             nav_heading, nav_speed, nav_cog, nav_surge, nav_sway,
              m_ekf.getStdX(), m_ekf.getStdY(),
              m_ekf.getStdPhi() * 180.0 / M_PI, m_ekf.getStdSpeed(),
              m_latest_gps.gps_lock ? "true" : "false",
@@ -530,6 +564,17 @@ bool BB_DGPS_EKF::OnStartUp()
       handled = true;
     }
 
+    // GPS antenna lever arm, body frame (m): x forward, y starboard
+    // of the hull reference point. Default 0,0 = no correction.
+    else if (param == "gps_lever_x") {
+      m_lever_arm.x = stod(value);
+      handled = true;
+    }
+    else if (param == "gps_lever_y") {
+      m_lever_arm.y = stod(value);
+      handled = true;
+    }
+
     // Thresholds
     else if (param == "speed_threshold") {
       m_speed_threshold = stod(value);
@@ -667,7 +712,9 @@ bool BB_DGPS_EKF::buildReport()
   m_msgs << "Status: " << status << endl;
   m_msgs << "GPS Valid: " << (m_gps_valid ? "YES" : "NO") << endl;
   m_msgs << "NAV Published: " << (m_nav_published ? "YES" : "NO") << endl;
-  m_msgs << "GPS Updates: " << m_gps_update_count << endl;
+  m_msgs << "GPS Updates: " << m_gps_update_count
+         << "  (fused: " << m_gps_fused_count
+         << ", re-apply skips: " << m_gps_reapply_skips << ")" << endl;
   m_msgs << "Iterate Count: " << m_iterate_count << endl;
   m_msgs << endl;
 
@@ -687,6 +734,10 @@ bool BB_DGPS_EKF::buildReport()
               << doubleToString(m_ekf.getStdGamma() * 180.0 / M_PI, 1) << "deg";
     state_tab << "Speed" << doubleToString(m_ekf.getSpeed(), 2)
               << doubleToString(m_ekf.getStdSpeed(), 2) << "m/s";
+    state_tab << "Surge (signed)" << doubleToString(m_ekf.getSurge(), 2)
+              << "-" << "m/s";
+    state_tab << "Sway (stbd+)" << doubleToString(m_ekf.getSway(), 2)
+              << "-" << "m/s";
   } else {
     state_tab << "X" << "N/A" << "N/A" << "m";
     state_tab << "Y" << "N/A" << "N/A" << "m";
@@ -727,6 +778,9 @@ bool BB_DGPS_EKF::buildReport()
   m_msgs << endl << "Configuration:" << endl;
   m_msgs << "  Input GPS: " << m_input_gps_state << endl;
   m_msgs << "  Input Gyro: " << m_input_gyro_z << endl;
+  m_msgs << "  GPS Lever Arm: (" << doubleToString(m_lever_arm.x, 3) << " fwd, "
+         << doubleToString(m_lever_arm.y, 3) << " stbd) m"
+         << (m_lever_arm.isZero() ? " [NO CORRECTION]" : "") << endl;
   m_msgs << "  Speed Threshold: " << m_speed_threshold << " m/s" << endl;
   m_msgs << "  Freshness Threshold: " << m_data_freshness_threshold << " s" << endl;
   m_msgs << "  GPS Stale Threshold: " << m_gps_stale_threshold << " s" << endl;

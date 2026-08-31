@@ -53,6 +53,18 @@ public:
     double sigma_gps_spd = 0.1;     // GPS speed noise (m/s)
   };
 
+  // GPS antenna lever arm, body frame (m). The GNSS antenna is
+  // rarely at the hull reference point; under rotation the antenna
+  // sees v_ant = v_hull + omega x r, so an uncorrected filter
+  // reports antenna-frame position and phantom speed during pivots
+  // (~0.25 m/s at 40 deg/s with a 0.356 m offset).
+  struct LeverArm
+  {
+    double x = 0.0;   // Forward of hull reference (m)
+    double y = 0.0;   // Starboard of hull reference (m)
+    bool isZero() const { return x == 0.0 && y == 0.0; }
+  };
+
   // GPS measurement bundle (parsed from GNSS_STATE)
   struct GPSMeasurement
   {
@@ -82,7 +94,8 @@ public:
       m_covariance(arma::eye<arma::mat>(DIM_STATE, DIM_STATE)),
       m_initialized(false),
       m_last_position(arma::zeros<arma::vec>(2)),
-      m_integrated_distance(0.0)
+      m_integrated_distance(0.0),
+      m_last_fused_ts(0.0)
   {
     // Initial covariance
     m_covariance(X_IDX, X_IDX) = 10.0;     // 3m position uncertainty
@@ -131,6 +144,7 @@ public:
     m_last_position(0) = gps.nav_x;
     m_last_position(1) = gps.nav_y;
     m_integrated_distance = 0.0;
+    m_last_fused_ts = gps.timestamp;
     m_initialized = true;
   }
 
@@ -173,6 +187,22 @@ public:
     return cartesianToCompass(getCOG());
   }
 
+  // Signed hull-frame velocities, projected from the polar velocity
+  // state (s, gamma) onto the heading state (phi). Surge is positive
+  // ahead, negative astern: when the boat backs down, COG flips to
+  // ~phi+180 and the projection goes negative -- unlike getSpeed(),
+  // which is a rectified magnitude. Sway is positive to starboard.
+  //
+  // Caveat: gamma is only measurement-updated above the COG speed
+  // threshold (~0.3 m/s), so within that band of a reversal the
+  // surge sign can briefly lag -- bounded by the threshold itself.
+  double getSurge() const {
+    return getSpeed() * std::cos(m_state(GAMMA_IDX) - m_state(PHI_IDX));
+  }
+  double getSway() const {
+    return getSpeed() * std::sin(m_state(PHI_IDX) - m_state(GAMMA_IDX));
+  }
+
   // Standard deviations from covariance
   double getStdX() const { return std::sqrt(m_covariance(X_IDX, X_IDX)); }
   double getStdY() const { return std::sqrt(m_covariance(Y_IDX, Y_IDX)); }
@@ -181,11 +211,87 @@ public:
   double getStdSpeed() const { return std::sqrt(m_covariance(S_IDX, S_IDX)); }
 
   //--------------------------------------------------------------
+  // Angle conventions (public: shared with the app and tests)
+  //--------------------------------------------------------------
+
+  // Angle wrapping to [-pi, pi]
+  static double wrapAngle(double angle)
+  {
+    return std::atan2(std::sin(angle), std::cos(angle));
+  }
+
+  // Convert compass heading (0=North, CW+, degrees) to Cartesian (0=East, CCW+, radians)
+  static double compassToCartesian(double compass_deg)
+  {
+    double compass_rad = compass_deg * M_PI / 180.0;
+    return wrapAngle(M_PI / 2.0 - compass_rad);
+  }
+
+  // Convert Cartesian heading (0=East, CCW+, radians) to compass (0=North, CW+, degrees)
+  static double cartesianToCompass(double cart_rad)
+  {
+    double compass_rad = M_PI / 2.0 - cart_rad;
+    if (compass_rad < 0) compass_rad += 2.0 * M_PI;
+    return compass_rad * 180.0 / M_PI;
+  }
+
+  //--------------------------------------------------------------
+  // Lever-arm correction (pure, applied before fusion)
+  //--------------------------------------------------------------
+  // Corrects an antenna-frame GPS measurement to the hull frame:
+  //
+  //   p_hull = p_ant - R(phi) r_body
+  //   v_hull = v_ant - omega x (R(phi) r_body)
+  //
+  // phi_cart: hull heading estimate (Cartesian rad; the EKF's own
+  //   phi once initialized, else the measurement's heading/COG).
+  // gyro_z_cart: level-frame yaw rate (rad/s, CCW+ about +z up --
+  //   GYRO_Z_LVL_IMU's convention). Pass gyro_valid=false to skip
+  //   the velocity term when the gyro is stale (position is still
+  //   corrected; a stale-gyro velocity correction would be worse
+  //   than none).
+  //
+  // Convention anchor (matches analysis/rc_cal.py): a pure pivot at
+  // compass yaw rate yr (deg/s, CW+) with lateral offset d
+  // (starboard+) contaminates antenna surge by -radians(yr)*d =
+  // gyro_z_cart*d; this function removes exactly that.
+  static void correctLeverArm(GPSMeasurement &gps, double gyro_z_cart,
+                              bool gyro_valid, double phi_cart,
+                              const LeverArm &lever)
+  {
+    if (lever.isZero())
+      return;
+
+    // Body->local rotation, z-up local frame:
+    // forward axis (cos phi, sin phi), starboard axis (sin phi, -cos phi)
+    double c = std::cos(phi_cart);
+    double s = std::sin(phi_cart);
+    double rx = lever.x * c + lever.y * s;   // r in local frame
+    double ry = lever.x * s - lever.y * c;
+
+    // Position: antenna -> hull reference
+    gps.nav_x -= rx;
+    gps.nav_y -= ry;
+
+    // Velocity: subtract omega x r  (z_hat x (rx, ry) = (-ry, rx))
+    if (gyro_valid) {
+      double gamma_cart = compassToCartesian(gps.cog);
+      double vx = gps.speed * std::cos(gamma_cart) - gyro_z_cart * (-ry);
+      double vy = gps.speed * std::sin(gamma_cart) - gyro_z_cart * ( rx);
+      gps.speed = std::sqrt(vx * vx + vy * vy);
+      if (gps.speed > 1e-9)
+        gps.cog = cartesianToCompass(std::atan2(vy, vx));
+      // Below that, COG is meaningless; leave the reported value --
+      // the COG speed gate keeps it out of the filter anyway.
+    }
+  }
+
+  //--------------------------------------------------------------
   // Core EKF operations
   //--------------------------------------------------------------
 
   // Prediction step using gyroscope angular velocity
-  // gyro_z: angular velocity in level frame (rad/s), NED convention (CW positive around down)
+  // gyro_z: level-frame yaw rate (rad/s), CCW-positive about +z up
   void predict(double dt, double gyro_z)
   {
     if (!m_initialized || dt <= 0.0)
@@ -206,7 +312,8 @@ public:
     x_pred(Y_IDX) += s * std::sin(gamma) * dt;
 
     // Heading propagates using gyro
-    // gyro_z convention: positive = rotating right (CW in body frame), matching pBB_EKF
+    // gyro_z convention: level-frame rad/s, CCW-positive about +z up
+    // (GYRO_Z_LVL_IMU) -- same sense as Cartesian phi, so phi += w*dt.
     x_pred(PHI_IDX) = wrapAngle(phi + gyro_z * dt);
 
     // COG and speed are random walk (updated by measurements)
@@ -240,10 +347,23 @@ public:
 
   // Update with full GPS measurement (adaptive noise)
   // speed_threshold: minimum speed for COG updates (m/s)
-  void updateGPS(const GPSMeasurement& gps, double speed_threshold = 0.3)
+  //
+  // Each GNSS epoch is consumed once: a measurement whose timestamp
+  // is not newer than the last-fused one is skipped (the app iterates
+  // faster than the receiver publishes, and re-applying an epoch
+  // ~2-3x artificially collapses covariance -- and re-ingests a bad
+  // epoch just as many times). timestamp == 0 means "no TS available"
+  // and always fuses, preserving old behavior for TS-less sources.
+  //
+  // Returns true if the measurement was fused, false if skipped.
+  bool updateGPS(const GPSMeasurement& gps, double speed_threshold = 0.3)
   {
     if (!m_initialized || !gps.isValid())
-      return;
+      return false;
+
+    if (gps.timestamp != 0.0 && gps.timestamp <= m_last_fused_ts)
+      return false;
+    m_last_fused_ts = gps.timestamp;
 
     // Position update
     updatePosition(gps.nav_x, gps.nav_y, gps.h_acc);
@@ -262,6 +382,8 @@ public:
       double phi_cart = compassToCartesian(gps.heading);
       updateHeading(phi_cart, gps.heading_acc * M_PI / 180.0);
     }
+
+    return true;
   }
 
   // Update with GPS position (x, y in local grid, h_acc is 1-sigma in meters)
@@ -444,27 +566,6 @@ private:
     }
   }
 
-  // Angle wrapping to [-pi, pi]
-  static double wrapAngle(double angle)
-  {
-    return std::atan2(std::sin(angle), std::cos(angle));
-  }
-
-  // Convert compass heading (0=North, CW+, degrees) to Cartesian (0=East, CCW+, radians)
-  static double compassToCartesian(double compass_deg)
-  {
-    double compass_rad = compass_deg * M_PI / 180.0;
-    return wrapAngle(M_PI / 2.0 - compass_rad);
-  }
-
-  // Convert Cartesian heading (0=East, CCW+, radians) to compass (0=North, CW+, degrees)
-  static double cartesianToCompass(double cart_rad)
-  {
-    double compass_rad = M_PI / 2.0 - cart_rad;
-    if (compass_rad < 0) compass_rad += 2.0 * M_PI;
-    return compass_rad * 180.0 / M_PI;
-  }
-
 private:
   arma::vec m_state;        // [x, y, phi, gamma, s]
   arma::mat m_covariance;   // 5x5
@@ -474,6 +575,7 @@ private:
 
   arma::vec m_last_position;  // Last XY for integrated distance
   double m_integrated_distance;
+  double m_last_fused_ts;     // GNSS epoch of the last fused measurement
 };
 
 //======================================================================

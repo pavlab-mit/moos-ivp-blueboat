@@ -148,6 +148,14 @@ ProcessConfig = pBBPID
   allow_reverse        = true
   command_stale_thresh = 1.5
 
+  // Speed-loop feedback: SIGNED hull-frame surge from the EKF, not
+  // the unsigned NAV_SPEED magnitude. With NAV_SPEED, spd=0 was an
+  // unstable equilibrium in reverse -- once pushed through zero the
+  // error stayed negative and the loop ran away to ~1.45 m/s astern
+  // (31 Aug run, checkpoint brief S5). NAV_SURGE goes negative when
+  // the boat backs down, so the error changes sign and recovers.
+  nav_speed_var = NAV_SURGE
+
   //=========================================================
   // AUTONOMY_CMD -- the command contract
   //=========================================================
