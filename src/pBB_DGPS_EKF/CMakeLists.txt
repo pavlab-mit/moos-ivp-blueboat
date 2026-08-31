@@ -30,6 +30,10 @@ if(ARMA_AVAIL)
     m
     pthread)
 
+  if(BUILD_UNIT_TESTS)
+    add_subdirectory(test)
+  endif()
+
 else()
   message(WARNING "Armadillo dependencies not found - Not Building <pBB_DGPS_EKF>")
 endif()

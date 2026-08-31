@@ -85,38 +85,72 @@ Before you start: **CH11 THRUST_LIMIT at 100%** and leave it there. It
 scales applied effort, and while the scorer reads post-limit applied
 values (so the math survives), moving it mid-run fragments the segments.
 
-### The card (~7 min of water time)
+### The card (~10 min of water time)
 
-| # | What | Sticks | Hold |
-|---|---|---|---|
-| 1 | straight, slow | left stick ahead ~⅓, right stick centred | 20 s |
-| 2 | straight, medium | left ~⅔ | 20 s |
-| 3 | straight, fast | left ~full | 20 s |
-| 4 | pivot CW | **left stick centred**, right stick full right | 20 s (≥1 full turn) |
-| 5 | pivot CCW | left centred, right full left | 20 s |
-| 6 | pivot CW, softer | left centred, right ~⅔ right | 20 s |
-| 7 | pivot CCW, softer | left centred, right ~⅔ left | 20 s |
+**Straights** (drag curve, backup + speed-loop data). Right stick centred.
 
-Neutral both sticks for ~6 s between every item — that gap is what
-segments the run. Tap **MARK (SH)** at the start of each item if you like;
-`RC_MARK` is bridged to the back seat now, and it makes the log readable
-by eye, but the scorer segments from applied effort and does not need it.
+| # | left stick | hold |
+|---|---|---|
+| 1 | crawl, just off centre (~10%) | 20 s |
+| 2 | ~20% | 20 s |
+| 3 | ~35% | 20 s |
 
-Three things that decide whether the run is usable:
+**Null ladders** — the primary measurement. Hold the right stick at a
+steady **28%**, then step the left stick through the ladder, 20 s per rung.
+At zero drift the two sides' delivered thrust cancels exactly:
 
-- **Hold each item steady.** The exact stick position does not matter at
-  all — the scorer reads the effort that actually came out. Steadiness
-  does: it splits a segment when applied effort moves more than ~6%.
-- **Left stick truly centred on the pivots.** It is spring-centred, so
-  this is easy, but a leaning throttle turns a pivot into an arc and
-  biases the answer. The scorer catches it: it re-derives `A_set` from
-  the applied ratio and flags a >5% mismatch against `--asym`.
-- **At least one full 360° per pivot.** Wind and current are world-fixed
-  and average out of body-frame surge over a whole turn; below one turn
-  they do not, and the scorer says so per pivot.
+```
+L + R/A_true = 0        ->        A_true = |applied_R| / |applied_L|
+```
 
-Three distinct straight speeds and both pivot directions are the minimum.
-Repeat a pivot pair if the day is gusty.
+No drag curve, and no spin-drag term (zero velocity is zero drag whatever
+the drag law) — which is what went wrong on 31 Aug.
+
+At `thrust_asymmetry = 2.8` the ladder straddles the expected null, so it
+runs **both ahead and astern** of centre:
+
+| throttle | L% | R% | ratio | expect |
+|---|---|---|---|---|
+| +8% | 36.0 | −56.0 | 1.56 | drifts aft |
+| +5% | 33.0 | −64.4 | 1.95 | drifts aft |
+| +3% | 31.0 | −70.0 | 2.26 | drifts aft |
+| 0 | 28.0 | −78.4 | 2.80 | near null |
+| −3% | 25.0 | −86.8 | 3.47 | drifts fwd |
+| −5% | 23.0 | −92.4 | 4.02 | drifts fwd |
+
+Stop at −5%: −8% saturates the mixer and the ratio stops being clean.
+Fly the ladder **CW, then CCW** — the GPS lever arm is `+omega*d` one way
+and `-omega*d` the other, so the two directions cancel it and agreeing on
+the null is a free cross-check.
+
+Regenerate the ladder for a different `A_set` or steering with the mixer
+port in `analysis/test_rc_cal.py` (`mixer()`), which is bb::allocate.
+
+Neutral both sticks ~6 s between every item — that gap is what segments the
+run. Tap **MARK (SH)** at the start of each item if you like; `RC_MARK` is
+bridged now and makes the log readable by eye, though the scorer segments
+from applied effort and does not need it.
+
+**The one thing that decides whether the run is usable: you must see the
+drift change sign across the ladder.** The method interpolates a zero
+crossing between the two rungs that straddle it. If every rung still creeps
+forward, keep trimming astern; if every rung creeps back, trim ahead. An
+unbracketed ladder is extrapolation, which is the failure this run exists
+to escape — the scorer flags it as `NOT BRACKETED` rather than quietly
+reporting a number.
+
+Exact stick values do not matter; the scorer reads what actually came out.
+Steadiness does — it splits a segment when applied effort moves ~6%.
+
+Before you start: **CH11 THRUST_LIMIT at 100%** and leave it there.
+
+> **Expect slower pivots, and do not read that as a fault.** Raising `A`
+> shrinks the mixer's feasible region (max steering at zero throttle is
+> `1/A_set`), so a full-stick pivot goes from (62.5, −100) at 1.6 to
+> (35.7, −100) at 2.8 — about 27% less yaw authority. The 31 Aug run
+> pivoted at ~44 deg/s; expect ~32 deg/s at 2.8, still clear of the
+> 25 deg/s bar. Correcting `A` buys drift-free pivots and costs peak turn
+> rate.
 
 ### Scoring
 

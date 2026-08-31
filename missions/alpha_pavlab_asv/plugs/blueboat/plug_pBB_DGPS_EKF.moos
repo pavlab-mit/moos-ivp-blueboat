@@ -48,6 +48,22 @@ ProcessConfig = pBB_DGPS_EKF
   sigma_gps_cog = 6.0     // GPS COG base noise (deg) - scaled by HDOP
   sigma_gps_spd = 0.1     // GPS speed noise (m/s)
 
+  //----------------------------------------------------------
+  // GPS Antenna Lever Arm (body frame, m)
+  //----------------------------------------------------------
+  // Both antennas sit on YIP's PORT pontoon, 14 in (0.356 m) off
+  // centreline (the 31 Aug calibration solved the lateral offset
+  // back out of NAV_X/Y at 0.346 m). Without this correction the
+  // filter reports antenna-frame position and, under rotation,
+  // phantom speed of omega x r (~0.25 m/s at 40 deg/s) -- the
+  // trigger for the spd=0 reverse runaway (checkpoint brief S5).
+  //
+  // WARNING: these values are YIP's. VIA's antenna geometry is
+  // NOT recorded -- on via set both to 0 (no correction) until
+  // it is measured.
+  gps_lever_x = 0.0     // Antenna forward of hull reference (m) - not yet measured
+  gps_lever_y = -0.356  // Antenna starboard of hull reference (m) - port pontoon
+
   // Operational thresholds
   speed_threshold          = 0.3   // Min speed for COG updates (m/s)
   data_freshness_threshold = 5.0   // Max age for measurements (s)

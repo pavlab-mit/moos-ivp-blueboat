@@ -19,8 +19,10 @@
 
         Subscribes to GNSS_STATE (platform-agnostic GNSS fix),
         GYRO_Z_LVL_IMU, and DESIRED_THRUST_L/R for drift
-        detection. Publishes NAV_X, NAV_Y, NAV_HEADING, NAV_SPEED,
-        NAV_COG, and drift estimates (DRIFT_VX, DRIFT_VY, etc.).
+        detection. Measurements are lever-arm corrected to the
+        hull frame (gps_lever_x/y config). Publishes NAV_X, NAV_Y,
+        NAV_HEADING, NAV_SPEED, NAV_COG, signed hull-frame
+        NAV_SURGE/NAV_SWAY, and drift estimates (DRIFT_VX, etc.).
         All output names take an optional pub_suffix appended as
         "_<suffix>"; default empty publishes helm-facing bare names.
 *************************************************************/
@@ -73,6 +75,10 @@ class BB_DGPS_EKF : public AppCastingMOOSApp
    // multiple state sources side-by-side.
    std::string m_pub_suffix;
 
+   // GPS antenna lever arm, body frame (m): x forward, y starboard.
+   // Zero (default) = no correction (antenna-frame nav, old behavior).
+   BB_DGPS_EKF_Model::LeverArm m_lever_arm;
+
    // Speed threshold for COG updates
    double m_speed_threshold;
 
@@ -121,6 +127,8 @@ class BB_DGPS_EKF : public AppCastingMOOSApp
 
    // Statistics
    unsigned int m_gps_update_count;
+   unsigned int m_gps_fused_count;    // Measurements fused (TS-gated: one per epoch)
+   unsigned int m_gps_reapply_skips;  // Same-epoch re-applications skipped
    unsigned int m_iterate_count;
 
    // Geodesy for local coordinate conversion
