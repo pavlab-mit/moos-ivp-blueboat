@@ -28,6 +28,7 @@ BBPID::BBPID()
   m_autonomy_cmd_var    = "AUTONOMY_CMD";
   m_autonomy_seq        = 0;
   m_publish_autonomy_cmd = true;
+  m_config_parsed       = false;
 
   m_desired_speed   = 0.0;
   m_desired_heading = 0.0;
@@ -198,7 +199,15 @@ void BBPID::handleLiveGainMail(const string& key, double dval)
 
 bool BBPID::OnConnectToServer()
 {
-  registerVariables();
+  // The connect callback can fire before OnStartUp has parsed the
+  // config. Registering then subscribes the DEFAULT variable names,
+  // and any *_var override (e.g. nav_speed_var = NAV_SURGE) leaves
+  // the default subscription orphaned -- its mail spams the
+  // unhandled-mail warning every arrival. Register only once the
+  // names are final; OnStartUp does the first registration itself,
+  // and this path covers genuine reconnects after that.
+  if(m_config_parsed)
+    registerVariables();
   return(true);
 }
 
@@ -475,6 +484,7 @@ bool BBPID::OnStartUp()
   }
 
   applyEngineLimits();
+  m_config_parsed = true;   // variable names are final; see OnConnectToServer
   registerVariables();
   m_params_default = buildParamSnapshot();   // plug values, for tuner reset
   Notify("BBPID_PARAMS_ACTIVE", m_params_default);  // startup provenance

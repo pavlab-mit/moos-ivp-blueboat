@@ -53,6 +53,7 @@ BB_DGPS_EKF::BB_DGPS_EKF()
     m_gyro_ready(false),
     m_gps_valid(false),
     m_nav_published(false),
+    m_config_parsed(false),
     m_gps_update_count(0),
     m_gps_fused_count(0),
     m_gps_reapply_skips(0),
@@ -227,7 +228,13 @@ bool BB_DGPS_EKF::dbg_print(const char *format, ...)
 
 bool BB_DGPS_EKF::OnConnectToServer()
 {
-  registerVariables();
+  // Register only after OnStartUp has parsed the input_* name
+  // overrides -- an early connect would subscribe the DEFAULT names
+  // (e.g. DESIRED_THRUST_L vs the plug's NVGR_APPLIED_LEFT) and leave
+  // orphaned subscriptions spamming the unhandled-mail warning.
+  // OnStartUp does the first registration; this covers reconnects.
+  if (m_config_parsed)
+    registerVariables();
   return true;
 }
 
@@ -675,6 +682,7 @@ bool BB_DGPS_EKF::OnStartUp()
     reportConfigWarning("LatOrigin/LongOrigin not found - local coordinates unavailable");
   }
 
+  m_config_parsed = true;   // input names are final; see OnConnectToServer
   registerVariables();
   return true;
 }

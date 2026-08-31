@@ -125,6 +125,9 @@ class BB_DGPS_EKF : public AppCastingMOOSApp
    bool m_gps_valid;                  // Is GPS currently valid (fresh and locked)?
    bool m_nav_published;              // Have we started publishing NAV_* states?
 
+   // Gate registration until input_* name overrides are final
+   bool m_config_parsed;
+
    // Statistics
    unsigned int m_gps_update_count;
    unsigned int m_gps_fused_count;    // Measurements fused (TS-gated: one per epoch)
