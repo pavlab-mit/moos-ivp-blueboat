@@ -99,6 +99,33 @@ void showExampleConfigAndExit()
   blk("  ff_yaw           = -3.420, -6.0653, 8.4952 // d0, dr, dvr     ");
   blk("  ff_rudder_scale  = 1.0    // diff-%% -> rudder units (calibrate)");
   blk("                                                                ");
+  blk("  // Reference-FF lifecycle (27 Aug step-and-hold fixes).       ");
+  blk("  // The held desired-heading derivative is right for a helm    ");
+  blk("  // staircase, wrong once the command settles (standing error  ");
+  blk("  // of ff/kp) and wrong for a repositioning step (a 180 deg    ");
+  blk("  // step's implied-rate sign is numeric noise). 0 = legacy.    ");
+  blk("  ff_hold_time     = 2.0    // s; zero held FF this long after  ");
+  blk("                            // the last command change (~2x helm");
+  blk("                            // cadence)                          ");
+  blk("  ff_step_limit    = 150    // deg; larger steps publish no FF  ");
+  blk("                                                                ");
+  blk("  // Integration lifecycle (brief 3.2: actuation-aware).        ");
+  blk("  max_dt           = 0.5    // s; dt credit cap per tick (0=off);");
+  blk("                            // a 43 s gap earns ONE tick, not 43s");
+  blk("  antiwindup       = true   // tracking anti-windup at the rails ");
+  blk("                            // (own clamp, post-FF, mixer): I    ");
+  blk("                            // parks at the rail's worth, first- ");
+  blk("                            // tick recovery. false = ScalarPID- ");
+  blk("                            // verbatim rail behavior.           ");
+  blk("  integrate_gate   = true   // integrate only while             ");
+  blk("                            // BB_CMD_AUTHORITY==AUTONOMY and   ");
+  blk("                            // NVGR_STOP_REASON==NONE; mixer    ");
+  blk("                            // saturation (BB_MIX_SATURATION>1) ");
+  blk("                            // stops winding the excess. Inputs ");
+  blk("                            // stale -> integration FREEZES (P/D");
+  blk("                            // live) + run warning.             ");
+  blk("  gate_stale_thresh = 2.0   // s; staleness bound on gate inputs");
+  blk("                                                                ");
   blk("  // Conventions (verify on the bench!)                         ");
   blk("  yawrate_scale    = 57.2958  // raw yawrate -> deg/s; sign flip");
   blk("  // DEPRECATED. Since pBBPID now publishes AUTONOMY_CMD, the   ");
@@ -137,6 +164,9 @@ void showInterfaceAndExit()
   blk("  NAV_SPEED, NAV_HEADING           (nav feedback)              ");
   blk("  GYRO_Z_LVL_IMU                   (yaw-rate feedback)         ");
   blk("  BBPID_{SPEED,HEADING,YAWRATE}_{KP,KI,KD}  (live retuning)    ");
+  blk("  BB_CMD_AUTHORITY, NVGR_STOP_REASON, BB_MIX_SATURATION        ");
+  blk("                   (applied-output telemetry driving the       ");
+  blk("                    integrate gate; see integrate_gate)        ");
   blk("                                                                ");
   blk("PUBLICATIONS:                                                   ");
   blk("------------------------------------                            ");
@@ -160,6 +190,12 @@ void showInterfaceAndExit()
   blk("  DESIRED_THRUST, DESIRED_RUDDER   (-> pThrustMix)             ");
   blk("  BBPID_SPEED_ERROR, BBPID_HEADING_ERROR                       ");
   blk("  BBPID_DESIRED_YAWRATE, BBPID_YAWRATE_ERROR                   ");
+  blk("  BBPID_{SPEED,HEADING,YAWRATE}_ITERM  (integral terms, for    ");
+  blk("                   windup health + FF-bias evidence -- see     ");
+  blk("                   docs/tuning_playbook.md)                    ");
+  blk("  BBPID_GATE       OPEN/FROZEN/OFF, published on change        ");
+  blk("  BBPID_PARAMS_ACTIVE  full active param set, on startup and   ");
+  blk("                   every applied change (tuning provenance)    ");
   exit(0);
 }
 

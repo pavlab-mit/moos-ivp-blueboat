@@ -39,6 +39,42 @@ ProcessConfig = pBBPID
   // dr amplifies des-yaw-rate noise into the rudder FF, so smooth it.
   des_yawrate_filter = 0.3
 
+  //=========================================================
+  // Controller lifecycle fixes (brief section 3; bench-validated
+  // in lib_bb_control CTest, water validation pending). Each is
+  // 0/false = the legacy behavior the 27 Aug block measured.
+  //=========================================================
+  // Step-and-hold FF defects: zero the held desired-heading
+  // derivative 2 s (~2x helm cadence) after the command settles --
+  // removes the ff/kp standing error (6.4 deg measured). Steps
+  // beyond 150 deg are repositioning, not trajectory: publish no
+  // FF (at exact 180 the FF sign is numeric noise; it cancelled
+  // the railed feedback and pivots ran 2 deg/s instead of 25).
+  // Retires the +/-170 pivot band-aid in gen_maneuver.py.
+  ff_hold_time  = 2.0
+  ff_step_limit = 150
+
+  // Resume windup: one tick may credit at most 0.5 s of Ki*e*dt,
+  // so an RC-repositioning gap (43 s on the block) integrates one
+  // bounded step, not the whole gap.
+  max_dt = 0.5
+
+  // Tracking anti-windup at every rail the command can hit: each
+  // loop's own output clamp, the post-FF clamps, and (via the gate
+  // below) mixer saturation. The integral parks at the rail's worth
+  // of authority and recovers on the first reversed tick, instead
+  // of climbing to its own limit behind the wall and burning ~10 s
+  // coming back. Off = ScalarPID-verbatim rail behavior.
+  antiwindup = true
+
+  // Actuation-aware integration: integrate only while
+  // BB_CMD_AUTHORITY == AUTONOMY && NVGR_STOP_REASON == NONE
+  // (kills the latent kill-window windup), and stop winding the
+  // excess whenever the mixer reports saturation. Gate inputs
+  // stale -> integration freezes (P/D live) with a run warning.
+  integrate_gate    = true
+  gate_stale_thresh = 2.0
+
   // Limits
   max_thrust             = 100
   max_rudder             = 100

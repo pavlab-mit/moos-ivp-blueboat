@@ -1,7 +1,7 @@
 /************************************************************/
 /*    NAME: Karan Mahesh                                    */
 /*    ORGN: MIT / Project Greece                            */
-/*    FILE: BBPIDEngine.h                                   */
+/*    FILE: LegacyBBPIDEngine.h                                   */
 /*    DATE: 2026/06/19                                      */
 /*    Brief: Cascaded PID controller for the BlueBoat.      */
 /*                                                          */
@@ -25,18 +25,18 @@
 /*    on speed later (kept schedule-ready, flat for now).   */
 /************************************************************/
 
-#ifndef BBPID_ENGINE_HEADER
-#define BBPID_ENGINE_HEADER
+#ifndef LEGACY_BBPID_ENGINE_HEADER
+#define LEGACY_BBPID_ENGINE_HEADER
 
 #include <string>
 #include <vector>
 #include "ScalarPID.h"
 
-class BBPIDEngine
+class LegacyBBPIDEngine
 {
  public:
-  BBPIDEngine();
-  ~BBPIDEngine() {}
+  LegacyBBPIDEngine();
+  ~LegacyBBPIDEngine() {}
 
   // --- Gain / limit configuration (live-updatable) ---
   void setSpeedGains(double kp, double ki, double kd);

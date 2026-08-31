@@ -55,6 +55,19 @@ BBPID::BBPID()
   m_max_yawrate           = 25.0;  // deg/s
   m_speed_integral_limit  = 50.0;
   m_yawrate_integral_limit= 50.0;
+
+  // Actuation-aware integration: OFF by default so a parity replay
+  // against the pre-bb::Pid engine is clean. The mission plug enables.
+  m_integrate_gate    = false;
+  m_gate_stale_thresh = 2.0;   // s
+  m_authority         = "";
+  m_stop_reason       = "";
+  m_mix_saturation    = 0.0;
+  m_tstamp_authority   = 0.0;
+  m_tstamp_stop_reason = 0.0;
+  m_tstamp_mix_sat     = 0.0;
+  m_gate_open          = true;
+  m_gate_inputs_stale  = false;
 }
 
 //---------------------------------------------------------
@@ -87,6 +100,18 @@ bool BBPID::OnNewMail(MOOSMSG_LIST &NewMail)
     else if(key == m_nav_yawrate_var) {
       m_nav_yawrate = dval; m_have_nav_yawrate = true;
     }
+    // Applied-output telemetry for the integration gate (invariant 11:
+    // built for exactly this). Stored with arrival times; staleness is
+    // judged in updateIntegrationGate(), not here.
+    else if(key == "BB_CMD_AUTHORITY") {
+      m_authority = msg.GetAsString(); m_tstamp_authority = MOOSTime();
+    }
+    else if(key == "NVGR_STOP_REASON") {
+      m_stop_reason = msg.GetAsString(); m_tstamp_stop_reason = MOOSTime();
+    }
+    else if(key == "BB_MIX_SATURATION") {
+      m_mix_saturation = dval; m_tstamp_mix_sat = MOOSTime();
+    }
     // Runtime gain-schedule control (used by the pBBPID tuner GUI)
     else if(key == "BBPID_SCHEDULE_ENABLE") {
       bool on = msg.IsString() ? (tolower(msg.GetString()) == "true")
@@ -118,12 +143,17 @@ bool BBPID::OnNewMail(MOOSMSG_LIST &NewMail)
       if(handleConfigLine(param, value)) {
         applyEngineLimits();             // push any deferred limit changes
         reportEvent("set " + param + " = " + value);
+        // Provenance for the tuning ledger: the ACTIVE param set,
+        // republished on every applied change so a log always shows
+        // which parameters produced which behavior.
+        Notify("BBPID_PARAMS_ACTIVE", buildParamSnapshot());
       }
       else
         reportRunWarning("BBPID_SET unknown param: " + param);
     }
-    else if(strBegins(key, "BBPID_")) {
+    else if(strBegins(key, "BBPID_") && !strBegins(key, "BBPID_PARAMS")) {
       handleLiveGainMail(key, dval);
+      Notify("BBPID_PARAMS_ACTIVE", buildParamSnapshot());
     }
     else if(key != "APPCAST_REQ")
       reportRunWarning("Unhandled mail: " + key);
@@ -237,6 +267,61 @@ void BBPID::publishAutonomyCmd(double surge, double yaw, bool valid)
 }
 
 //---------------------------------------------------------
+// updateIntegrationGate: decide, once per tick, whether the loops may
+// integrate -- and against which downstream rails.
+//
+// The controller cannot tell "my command is reaching the water" from
+// "the Navigator is holding neutral under a kill" on its own; that is
+// the latent kill-window windup. BB_CMD_AUTHORITY and NVGR_STOP_REASON
+// carry the answer back across the seat boundary, so: integrate only
+// while authority == AUTONOMY && stop == NONE.
+//
+// FAIL FROZEN: if those inputs go stale (bridge down, frontseat dark)
+// integration FREEZES rather than resuming -- P and D stay live, so
+// control degrades gracefully instead of winding blind. A run warning
+// names the state, because a frozen integral with the bridge quietly
+// broken must not read as "tuned Ki does nothing".
+//
+// Mixer saturation (q > 1) is the second rail: the loop demanding more
+// than the mixer can allocate must not integrate the excess. Direction
+// is our own last command's sign in the contract frame.
+
+void BBPID::updateIntegrationGate()
+{
+  if(!m_integrate_gate) {
+    m_gate_open = true;
+    m_engine.setIntegrateEnable(true);
+    m_engine.setExternalSaturation(0, 0);
+    return;
+  }
+
+  double now = MOOSTime();
+  bool fresh = ((now - m_tstamp_authority)   < m_gate_stale_thresh) &&
+               ((now - m_tstamp_stop_reason) < m_gate_stale_thresh);
+
+  if(!fresh && !m_gate_inputs_stale) {
+    reportRunWarning("integrate gate inputs stale: integration frozen");
+    m_gate_inputs_stale = true;
+  }
+  else if(fresh && m_gate_inputs_stale) {
+    retractRunWarning("integrate gate inputs stale: integration frozen");
+    m_gate_inputs_stale = false;
+  }
+
+  m_gate_open = fresh && (m_authority == "AUTONOMY") &&
+                (m_stop_reason == "NONE");
+  m_engine.setIntegrateEnable(m_gate_open);
+
+  int surge_sat = 0, yaw_sat = 0;
+  if(((now - m_tstamp_mix_sat) < m_gate_stale_thresh) &&
+     (m_mix_saturation > 1.0)) {
+    surge_sat = (m_last_thrust > 0.0) ? 1 : (m_last_thrust < 0.0) ? -1 : 0;
+    yaw_sat   = (m_last_rudder > 0.0) ? 1 : (m_last_rudder < 0.0) ? -1 : 0;
+  }
+  m_engine.setExternalSaturation(surge_sat, yaw_sat);
+}
+
+//---------------------------------------------------------
 // Iterate: compute one control tick
 
 bool BBPID::Iterate()
@@ -262,6 +347,7 @@ bool BBPID::Iterate()
   // staleness to the arbiter, which is a different fault from
   // "alive but not ready", and only one of those is true here.
   if(!have_nav || !have_cmd) {
+    m_active = false;
     publishAutonomyCmd(0.0, 0.0, false);
     AppCastingMOOSApp::PostReport();
     return(true);
@@ -273,6 +359,7 @@ bool BBPID::Iterate()
   bool stale = (MOOSTime() - m_tstamp_last_cmd) > m_cmd_stale_thresh;
   Notify("BBPID_CMD_STALE", std::to_string(stale));
   if(stale) {
+    m_active = false;
     m_last_thrust = 0.0;
     m_last_rudder = 0.0;
     Notify(m_thrust_var, 0.0);
@@ -285,7 +372,26 @@ bool BBPID::Iterate()
     return(true);
   }
 
+  // Resuming command after a hold-off or stale gap: reset the PID
+  // loops. Two defects otherwise, both seen on the first
+  // handling_block run (2026-08-27, RC repositioning gaps of 43 s
+  // and 14.6 s):
+  //   1. ScalarPID::Run integrates Ki*e*dt with dt = time since its
+  //      LAST call -- the first tick after a gap integrates across
+  //      the entire gap in one step, slamming the integral to its
+  //      limit (surge resumed at -13.7 with 1.5 m/s commanded).
+  //   2. Integral state from before the gap survives into a
+  //      situation it says nothing about.
+  // resetIntegrators() rebuilds the loops AND zeroes the iteration
+  // count, so the post-gap tick is a clean first tick. This is a
+  // lifecycle fix, not a retune: gains untouched.
+  if(!m_active) {
+    m_engine.resetIntegrators();
+    reportEvent("command resumed: PID integrators reset");
+  }
   m_active = true;
+
+  updateIntegrationGate();
 
   double thrust = 0.0, rudder = 0.0;
   m_engine.update(MOOSTime(),
@@ -311,6 +417,22 @@ bool BBPID::Iterate()
   Notify("BBPID_DESIRED_YAWRATE", m_engine.getDesiredYawRate());
   Notify("BBPID_MEAS_YAWRATE",   m_engine.getMeasYawRate());
   Notify("BBPID_YAWRATE_ERROR",  m_engine.getYawRateError());
+
+  // Integral terms (output units): windup health for the scorer --
+  // an integral parked at its limit is the signature the 27 Aug
+  // fixes exist to prevent, and the steady yawrate I term is direct
+  // evidence of yaw-FF bias (what dr/d0 fail to provide, I supplies).
+  Notify("BBPID_SPEED_ITERM",   m_engine.speedITerm());
+  Notify("BBPID_HEADING_ITERM", m_engine.headingITerm());
+  Notify("BBPID_YAWRATE_ITERM", m_engine.yawrateITerm());
+
+  // Integration gate state, on change only (string, greppable).
+  string gate = !m_integrate_gate ? "OFF"
+              : (m_gate_open ? "OPEN" : "FROZEN");
+  if(gate != m_gate_last_pub) {
+    Notify("BBPID_GATE", gate);
+    m_gate_last_pub = gate;
+  }
   if(m_engine.getYawPriorityGain() > 0.0) {
     Notify("BBPID_SPEED_DERATE", m_engine.getSpeedDerate());
     Notify("BBPID_GOV_SPEED",    m_engine.getGovSpeedCmd());
@@ -355,6 +477,7 @@ bool BBPID::OnStartUp()
   applyEngineLimits();
   registerVariables();
   m_params_default = buildParamSnapshot();   // plug values, for tuner reset
+  Notify("BBPID_PARAMS_ACTIVE", m_params_default);  // startup provenance
   return(true);
 }
 
@@ -381,6 +504,12 @@ string BBPID::buildParamSnapshot()
   s += ";yawrate_integral_limit=" + doubleToStringX(m_yawrate_integral_limit,4);
   s += ";des_yawrate_filter=" + doubleToStringX(m_engine.getDesYawRateFilter(),4);
   s += ";yawrate_filter="     + doubleToStringX(m_engine.getYawRateFilter(),4);
+  s += ";ff_hold_time="   + doubleToStringX(m_engine.getFFHoldTime(),4);
+  s += ";ff_step_limit="  + doubleToStringX(m_engine.getFFStepLimitDeg(),4);
+  s += ";max_dt="         + doubleToStringX(m_engine.getMaxDt(),4);
+  s += ";antiwindup="     + string(m_engine.antiWindupEnabled() ? "true" : "false");
+  s += ";integrate_gate=" + string(m_integrate_gate ? "true" : "false");
+  s += ";gate_stale_thresh=" + doubleToStringX(m_gate_stale_thresh,4);
   s += ";ff_speed=" + doubleToStringX(m_engine.ffC0(),4) + ","
                     + doubleToStringX(m_engine.ffCv(),4) + ","
                     + doubleToStringX(m_engine.ffCrr(),5);
@@ -491,6 +620,40 @@ bool BBPID::handleConfigLine(const string& param, const string& value)
   }
   else if(param == "reset_integrators") {    // runtime command (value ignored)
     m_engine.resetIntegrators();
+    return(true);
+  }
+
+  // ---- reference-FF lifecycle (27 Aug step-and-hold fixes) ----
+  else if(param == "ff_hold_time") {         // s; 0 = legacy hold-forever
+    m_engine.setFFHoldTime(dval);
+    return(true);
+  }
+  else if(param == "ff_step_limit") {        // deg; steps beyond publish no FF
+    m_engine.setFFStepLimitDeg(dval);
+    return(true);
+  }
+
+  // ---- integration lifecycle ----
+  else if(param == "max_dt") {               // s; dt credit cap; 0 = off
+    m_engine.setMaxDt(dval);
+    return(true);
+  }
+  else if(param == "antiwindup") {           // tracking AW at the rails
+    bool on = false;
+    if(!setBooleanOnString(on, value))
+      return(false);
+    m_engine.setAntiWindup(on);
+    return(true);
+  }
+  else if(param == "integrate_gate") {       // authority-aware integration
+    return(setBooleanOnString(m_integrate_gate, value));
+  }
+  else if(param == "gate_stale_thresh") {    // s; stale gate inputs -> freeze
+    if(dval <= 0.0) {
+      reportConfigWarning("gate_stale_thresh must be > 0");
+      return(false);
+    }
+    m_gate_stale_thresh = dval;
     return(true);
   }
 
@@ -635,6 +798,13 @@ void BBPID::registerVariables()
 
   // Generic runtime parameter channel (key=value), used by uBBPIDTuner
   Register("BBPID_SET", 0);
+
+  // Applied-output telemetry for the integration gate. Registered
+  // unconditionally (integrate_gate can be flipped live via BBPID_SET,
+  // and the values are useful in the appcast regardless).
+  Register("BB_CMD_AUTHORITY", 0);
+  Register("NVGR_STOP_REASON", 0);
+  Register("BB_MIX_SATURATION", 0);
 }
 
 //---------------------------------------------------------
@@ -662,6 +832,21 @@ bool BBPID::buildReport()
            << "  ff_rudder=" << doubleToString(m_engine.getFFRudder(),2) << endl;
   else
     m_msgs << "Feedforward:   OFF" << endl;
+
+  if(m_integrate_gate) {
+    m_msgs << "Integrate gate: " << (m_gate_open ? "OPEN" : "FROZEN");
+    m_msgs << "  (authority=" << (m_authority.empty() ? "?" : m_authority);
+    m_msgs << ", stop=" << (m_stop_reason.empty() ? "?" : m_stop_reason);
+    m_msgs << ", mix_sat=" << doubleToString(m_mix_saturation,2);
+    if(m_gate_inputs_stale)
+      m_msgs << ", INPUTS STALE";
+    m_msgs << ")" << endl;
+    m_msgs << "Integrals: speed=" << doubleToString(m_engine.speedITerm(),2)
+           << "  heading=" << doubleToString(m_engine.headingITerm(),3)
+           << "  yawrate=" << doubleToString(m_engine.yawrateITerm(),2) << endl;
+  }
+  else
+    m_msgs << "Integrate gate: OFF (legacy always-integrate)" << endl;
   m_msgs << endl;
 
   ACTable atab(4);

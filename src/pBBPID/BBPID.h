@@ -38,6 +38,7 @@ class BBPID : public AppCastingMOOSApp
    bool parseSchedulePoint(const std::string& value);
    void handleLiveGainMail(const std::string& key, double dval);
    void applyEngineLimits();
+   void updateIntegrationGate();       // authority/stop/mixer-sat -> engine
    std::string buildParamSnapshot();   // ';'-separated key=value of all params
 
  private: // Engine
@@ -101,6 +102,24 @@ class BBPID : public AppCastingMOOSApp
    double m_max_yawrate;     // deg/s, also the outer-loop integral clamp
    double m_speed_integral_limit;
    double m_yawrate_integral_limit;
+
+ private: // Actuation-aware integration (brief section 3.2).
+   // The controller predates a world where its output is not always
+   // in charge; these bridge the applied-output telemetry back in.
+   // Integrate only while (BB_CMD_AUTHORITY == AUTONOMY &&
+   // NVGR_STOP_REASON == NONE); pass mixer saturation down so the
+   // loops stop winding the excess the mixer cannot allocate.
+   bool        m_integrate_gate;      // config; false = legacy always-on
+   double      m_gate_stale_thresh;   // s; inputs older -> freeze + warn
+   std::string m_authority;           // last BB_CMD_AUTHORITY
+   std::string m_stop_reason;         // last NVGR_STOP_REASON
+   double      m_mix_saturation;      // last BB_MIX_SATURATION (q; >1 = sat)
+   double      m_tstamp_authority;
+   double      m_tstamp_stop_reason;
+   double      m_tstamp_mix_sat;
+   bool        m_gate_open;           // last computed state, for the report
+   bool        m_gate_inputs_stale;   // warning edge detector
+   std::string m_gate_last_pub;       // last BBPID_GATE string published
 };
 
 #endif

@@ -39,6 +39,12 @@ ProcessConfig = iFrontSeatBroker
    // handling_block script keys its go-signal on it.
    tx_vars = BB_CMD_AUTHORITY, BB_CMD_STOP_REASON, NVGR_STOP_REASON
 
+   // Mixer saturation (q from pThrustMix; > 1 = the mix could not
+   // allocate the full surge+yaw demand). pBBPID's integrate gate
+   // uses it to stop winding the excess -- the 27 Aug replay showed
+   // this input flat 0 on the backseat because it was never bridged.
+   tx_vars = BB_MIX_SATURATION
+
    // Applied effort, returned to the back seat as TELEMETRY
    // (design doc 14): pBB_DGPS_EKF keys its drift estimator off
    // these now that DESIRED_THRUST_L/R has no producer.
@@ -46,6 +52,13 @@ ProcessConfig = iFrontSeatBroker
 
    // RC variables (no suffix - iRCInterface leaves these bare)
    tx_vars = RC_CONNECTED, RC_CH6, RC_CH7, RC_CH8, RC_CH9
+
+   // RC_MARK: CH12 (SH momentary) rising-edge counter. The operator's
+   // only way to put a timestamp in the BACK-SEAT log during an RC-only
+   // run -- session-0 calibration has no uTimerScript posting
+   // MANEUVER_PHASE, so analysis/rc_cal.py uses marks to bracket
+   // segments (it can also auto-segment, but a mark is unambiguous).
+   tx_vars = RC_MARK
 
    // Laptop teleop status (from iTeleop) so the backseat helm and
    // its logs can see a teleop takeover.

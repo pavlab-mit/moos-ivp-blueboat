@@ -1,12 +1,12 @@
 /************************************************************/
 /*    NAME: Karan Mahesh                                    */
 /*    ORGN: MIT / Project Greece                            */
-/*    FILE: BBPIDEngine.cpp                                 */
+/*    FILE: LegacyBBPIDEngine.cpp                                 */
 /*    DATE: 2026/06/19                                      */
 /************************************************************/
 
 #include <cmath>
-#include "BBPIDEngine.h"
+#include "LegacyBBPIDEngine.h"
 #include "AngleUtils.h"   // angle180()
 
 using namespace std;
@@ -14,7 +14,7 @@ using namespace std;
 //---------------------------------------------------------
 // Constructor
 
-BBPIDEngine::BBPIDEngine()
+LegacyBBPIDEngine::LegacyBBPIDEngine()
 {
   m_max_thrust     = 100.0;
   m_max_rudder     = 100.0;
@@ -88,22 +88,22 @@ BBPIDEngine::BBPIDEngine()
 //---------------------------------------------------------
 // Gain / limit setters (note Kp,Kd,Ki order into ScalarPID)
 
-void BBPIDEngine::setSpeedGains(double kp, double ki, double kd)
+void LegacyBBPIDEngine::setSpeedGains(double kp, double ki, double kd)
 { m_speed_pid.SetGains(kp, kd, ki); }
 
-void BBPIDEngine::setHeadingGains(double kp, double ki, double kd)
+void LegacyBBPIDEngine::setHeadingGains(double kp, double ki, double kd)
 { m_heading_pid.SetGains(kp, kd, ki); }
 
-void BBPIDEngine::setYawRateGains(double kp, double ki, double kd)
+void LegacyBBPIDEngine::setYawRateGains(double kp, double ki, double kd)
 { m_yawrate_pid.SetGains(kp, kd, ki); }
 
-void BBPIDEngine::setSpeedLimits(double il, double ol)
+void LegacyBBPIDEngine::setSpeedLimits(double il, double ol)
 { m_speed_pid.SetLimits(il, ol); m_max_thrust = ol; m_speed_ilim = il; }
 
-void BBPIDEngine::setHeadingLimits(double il, double ol)
+void LegacyBBPIDEngine::setHeadingLimits(double il, double ol)
 { m_heading_pid.SetLimits(il, ol); m_max_yawrate = ol; }
 
-void BBPIDEngine::setYawRateLimits(double il, double ol)
+void LegacyBBPIDEngine::setYawRateLimits(double il, double ol)
 { m_yawrate_pid.SetLimits(il, ol); m_max_rudder = ol; m_yawrate_ilim = il; }
 
 //---------------------------------------------------------
@@ -121,7 +121,7 @@ static void rebuildPID(ScalarPID& pid, const std::string& name,
   pid.SetName(name);
 }
 
-void BBPIDEngine::resetIntegrators()
+void LegacyBBPIDEngine::resetIntegrators()
 {
   rebuildPID(m_speed_pid,   "bbpid_speed",   m_speed_ilim,   m_max_thrust);
   rebuildPID(m_heading_pid, "bbpid_heading", m_max_yawrate,  m_max_yawrate);
@@ -132,7 +132,7 @@ void BBPIDEngine::resetIntegrators()
 // addSchedulePoint(): insert a breakpoint, keeping the table
 // sorted ascending by speed. A repeated speed overwrites the prior row.
 
-void BBPIDEngine::addSchedulePoint(double speed, double kp, double ki,
+void LegacyBBPIDEngine::addSchedulePoint(double speed, double kp, double ki,
                                    double kd, double max_yawrate)
 {
   SchedPoint pt;
@@ -152,7 +152,7 @@ void BBPIDEngine::addSchedulePoint(double speed, double kp, double ki,
 // applySchedule(): linearly interpolate the yaw-rate gains and the
 // turn-rate cap for the current speed, then push them into the loop.
 
-void BBPIDEngine::applySchedule(double speed)
+void LegacyBBPIDEngine::applySchedule(double speed)
 {
   if(m_schedule.empty())
     return;
@@ -198,7 +198,7 @@ void BBPIDEngine::applySchedule(double speed)
 // and low-pass filtered). Safe to call every iterate even when the controller
 // is idle, so the yaw-rate scope stays live.
 
-double BBPIDEngine::computeMeasYawRate(double curr_time, double nav_heading,
+double LegacyBBPIDEngine::computeMeasYawRate(double curr_time, double nav_heading,
                                        double nav_yawrate_raw)
 {
   if(m_yawrate_derive) {
@@ -224,7 +224,7 @@ double BBPIDEngine::computeMeasYawRate(double curr_time, double nav_heading,
 //---------------------------------------------------------
 // update(): one full control tick
 
-void BBPIDEngine::update(double curr_time,
+void LegacyBBPIDEngine::update(double curr_time,
                          double desired_speed,   double nav_speed,
                          double desired_heading, double nav_heading,
                          double nav_yawrate_raw,
