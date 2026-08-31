@@ -41,8 +41,10 @@ Behavior = BHV_LegRun
 
   
     // Legrun parameters
-    p1 = -20:-60
-    p2 = 45:-30
+    // Shifted +30x/+30y (2026-08-31): ~42 m toward the left end of
+    // the dock (was p1 = -20:-60, p2 = 45:-30).
+    p1 = 10:-30
+    p2 = 75:0
     turn1_bias = 0
     turn2_bias = 0
     turn1_dir = port
