@@ -37,7 +37,15 @@ ProcessConfig = pBBPID
 
   // Low-pass the desired yaw rate (time const, s; 0=off). The yaw FF gain
   // dr amplifies des-yaw-rate noise into the rudder FF, so smooth it.
-  des_yawrate_filter = 0.3
+  // SESSION 4 (2026-08-31): 0.3 -> 0.5. The zig-reversal FF slam
+  // (~55% rudder flipped against hull angular momentum) put one leg
+  // per run over the 10 deg overshoot bar (zig_4 s2: 15.0; zig_2 s3:
+  // 13.2, rate peak ~2x des for ~1s). Spreading the desired-rate
+  // reversal over ~1s softens it, at ~0.2s added lag on step entry.
+  // TWO-SIDED acceptance: all legs ovs <= 10 AND 30-deg t63 stays
+  // <= 2s (margin is thin: 1.8s vs the 2.0s bar). If t63 gives,
+  // revert and shape the inner loop (kd) instead.
+  des_yawrate_filter = 0.5
 
   //=========================================================
   // Controller lifecycle fixes (brief section 3; bench-validated
