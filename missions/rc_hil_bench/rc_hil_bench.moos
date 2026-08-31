@@ -1,0 +1,89 @@
+//--------------------------------------------------------------
+// rc_hil_bench.moos -- MOOS-based HIL harness for iRCInterface
+//
+// Runs on the testbench navigator (XR4 on /dev/ttyAMA1, real
+// TX16S handset) with NO thrusters. Exercises the full MOOS RC
+// contract before anything touches the water:
+//   RC channels in  -> RC_CH*, RC_CONNECTED, RC_LINK_*
+//   MOOS vars out   -> handset telemetry (poked with uPokeDB)
+//
+// Checklist: docs/rc_hil_test.md
+// Launch:    pAntler rc_hil_bench.moos
+// Watch:     uXMS rc_hil_bench.moos   (config block below)
+// Poke:      uPokeDB rc_hil_bench.moos NVGR_ROLLING_VOLTAGE=24.6
+//--------------------------------------------------------------
+
+ServerHost   = localhost
+ServerPort   = 9201
+Community    = bench
+MOOSTimeWarp = 1
+
+// Pavlab origin -- gives NAV_X/NAV_Y pokes a real reference and
+// makes the handset GPS map/Dst sensors meaningful.
+LatOrigin  = 42.358456
+LongOrigin = -71.087589
+
+//--------------------------------------------------------------
+ProcessConfig = ANTLER
+{
+  MSBetweenLaunches = 200
+
+  Run = MOOSDB        @ NewConsole = false
+  Run = pLogger       @ NewConsole = false
+  Run = iRCInterface  @ NewConsole = false
+
+  // Launch uXMS by hand in a second terminal so it gets a real
+  // console: uXMS rc_hil_bench.moos
+}
+
+//--------------------------------------------------------------
+ProcessConfig = iRCInterface
+{
+  AppTick    = 16
+  CommsTick  = 16
+
+  device    = /dev/ttyAMA1
+  telemetry = true
+  telem_hz  = 2
+  gps_hz    = 1
+}
+
+//--------------------------------------------------------------
+// The alog is the HIL evidence: publish ordering, safe-default
+// values, and reconnect timing all get verified offline with
+// aloggrep. SYNC_LOG off, async only, like the boat missions.
+
+ProcessConfig = pLogger
+{
+  AppTick    = 10
+  CommsTick  = 10
+
+  File          = LOG_RC_HIL
+  PATH          = ./logs/
+  SyncLog       = false
+  AsyncLog      = true
+  FileTimeStamp = true
+
+  WildCardLogging = true
+  WildCardPattern = RC_*
+  WildCardPattern = NVGR_*
+  WildCardPattern = NAV_*
+  WildCardPattern = APPCAST
+}
+
+//--------------------------------------------------------------
+ProcessConfig = uXMS
+{
+  AppTick    = 4
+  CommsTick  = 4
+
+  var = RC_CONNECTED, RC_FRAME_VALID, RC_FAILSAFE, RC_FRAME_LOST
+  var = RC_CH1, RC_CH2, RC_CH3, RC_CH4
+  var = RC_CH5, RC_CH6, RC_CH7, RC_CH8, RC_CH9
+  var = RC_CH10, RC_CH11, RC_CH12
+  var = RC_LINK_LQ, RC_LINK_RSSI, RC_LINK_SNR, RC_PROTOCOL
+  var = NVGR_ROLLING_VOLTAGE, NVGR_RC_MODE, NVGR_RC_DEADMAN_ACTIVE
+
+  display_source = true
+  display_time   = true
+}

@@ -177,6 +177,48 @@ static void test_ff_capped_at_budget()
 }
 
 //---------------------------------------------------------
+// Quadratic speed-FF term (session 3): the hull's drag is
+// 9.2v + 10.1v|v| (rc_cal), which a linear cv cannot fit at both
+// ends of the staircase. cvv defaults to 0 = legacy bit-identical;
+// nonzero adds cvv*v*|v*| (signed, so reverse commands get
+// reverse FF).
+
+static BBPIDEngine make_speed_ff_engine()
+{
+  BBPIDEngine e = make_live_engine();
+  e.setFeedforwardEnable(true);
+  e.setFeedforwardSpeedEnable(true);
+  return e;
+}
+
+static void test_ff_speed_quadratic_term()
+{
+  double t = 1000.0;
+
+  // cvv omitted (3-arg call) == cvv 0: legacy FF value exactly.
+  BBPIDEngine legacy = make_speed_ff_engine();
+  legacy.setFeedforwardSpeed(0.0, 9.2, 0.0);
+  tick(legacy, t, 1.5, 0.0, 1.5);
+  check_near(legacy.getFFThrust(), 9.2 * 1.5, 1e-12,
+             "cvv default 0: FF is the legacy linear value");
+
+  // Quadratic term present: FF = cv*v + cvv*v^2 at the drag-curve
+  // coefficients matches the measured steady demand (~34 at 1.5).
+  BBPIDEngine quad = make_speed_ff_engine();
+  quad.setFeedforwardSpeed(0.0, 9.2, 0.0, 10.1);
+  tick(quad, t, 1.5, 0.0, 1.5);
+  check_near(quad.getFFThrust(), 9.2 * 1.5 + 10.1 * 1.5 * 1.5, 1e-12,
+             "cvv adds the quadratic drag term");
+
+  // Signed: a reverse command gets reverse FF, not forward.
+  BBPIDEngine rev = make_speed_ff_engine();
+  rev.setFeedforwardSpeed(0.0, 9.2, 0.0, 10.1);
+  tick(rev, t, -1.0, 0.0, -1.0);
+  check_near(rev.getFFThrust(), -9.2 - 10.1, 1e-12,
+             "cvv term is v*|v|: reverse command -> reverse FF");
+}
+
+//---------------------------------------------------------
 // The 43 s RC-repositioning gap, engine-level: with max_dt the
 // speed integral resumes sane instead of railed (surge -13.7).
 
@@ -264,6 +306,7 @@ int main()
   test_step_and_hold_ff_expires();
   test_180_pivot_full_rate();
   test_ff_capped_at_budget();
+  test_ff_speed_quadratic_term();
   test_gap_bounded_at_engine_level();
   test_integrate_gate();
   test_external_saturation_stops_excess();
