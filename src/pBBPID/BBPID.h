@@ -85,6 +85,7 @@ class BBPID : public AppCastingMOOSApp
    bool   m_yawrate_derive;
 
  private: // Bookkeeping
+   bool   m_config_parsed;   // gate registration until *_var overrides are final
    bool   m_active;          // false until first desired+nav mail
 
    void publishAutonomyCmd(double surge, double yaw, bool valid);
