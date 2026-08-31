@@ -6,7 +6,12 @@ Behavior = BHV_OpRegionV24
 	condition = MODE==ACTIVE
   updates   = RECOVER_UPDATES
 
-  core_poly = pts={60,10: -75.54,-54.26: -22,-167: 112,-107}
+  // Grown 2026-08-31 for the +30x/+30y track shift: the two
+  // track-side vertices moved +30/+30 (60,10 -> 90,40 and
+  // 112,-107 -> 142,-77), far-side vertices anchored. Old track
+  // remains inside; new leg p1=10:-30 / p2=75:0 clears every edge
+  // by >= 18 m including the turn bulges.
+  core_poly = pts={90,40: -75.54,-54.26: -22,-167: 142,-77}
 
   dynamic_region_var = RESCUE_REGION
 
