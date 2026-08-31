@@ -19,10 +19,14 @@ ProcessConfig = pBB_DGPS_EKF
   CommsTick = 16
 
   // Input variable names
-  input_gps_state = FIX_STATE_DGNSS  // Time-bundled fix state from iUnicore
+  input_gps_state = GNSS_STATE  // Time-bundled fix state from iUnicore
   input_gyro_z    = GYRO_Z_LVL_IMU   // Level-frame gyro Z (rad/s)
-  input_thrust_l  = DESIRED_THRUST_L // Left thruster command (0-100)
-  input_thrust_r  = DESIRED_THRUST_R // Right thruster command (0-100)
+  // APPLIED effort returned from the front-seat Navigator via the
+  // brokers (design doc 14). DESIRED_THRUST_L/R died with the
+  // back-seat pThrustMix: left pointing there, this app saw thrust
+  // 0 forever and ran the drift estimator under full power.
+  input_thrust_l  = NVGR_APPLIED_LEFT  // Left applied effort (-100..100)
+  input_thrust_r  = NVGR_APPLIED_RIGHT // Right applied effort (-100..100)
 
   // Output suffix - empty publishes helm-facing bare names
   // (NAV_X, NAV_Y, NAV_HEADING, etc.). Set non-empty to namespace
@@ -43,6 +47,22 @@ ProcessConfig = pBB_DGPS_EKF
   sigma_gps_hdg = 3.0     // GPS heading base noise (deg) - scaled by heading_acc
   sigma_gps_cog = 6.0     // GPS COG base noise (deg) - scaled by HDOP
   sigma_gps_spd = 0.1     // GPS speed noise (m/s)
+
+  //----------------------------------------------------------
+  // GPS Antenna Lever Arm (body frame, m)
+  //----------------------------------------------------------
+  // Both antennas sit on YIP's PORT pontoon, 14 in (0.356 m) off
+  // centreline (the 31 Aug calibration solved the lateral offset
+  // back out of NAV_X/Y at 0.346 m). Without this correction the
+  // filter reports antenna-frame position and, under rotation,
+  // phantom speed of omega x r (~0.25 m/s at 40 deg/s) -- the
+  // trigger for the spd=0 reverse runaway (checkpoint brief S5).
+  //
+  // Fleet-wide: all boats are built identically (confirmed
+  // 2026-08-31); hull-to-hull antenna placement differs by mms,
+  // so these values apply to yip AND via.
+  gps_lever_x = 0.0     // Antenna forward of hull reference (m) - not yet measured
+  gps_lever_y = -0.356  // Antenna starboard of hull reference (m) - port pontoon
 
   // Operational thresholds
   speed_threshold          = 0.3   // Min speed for COG updates (m/s)
