@@ -20,11 +20,15 @@ VNAME=""
 COLOR="yellow"
 FSEAT_IP=""
 BASE_HDG="150"
+RC_CAL="no"
 
 for ARGI; do
     if [ "${ARGI}" = "--help" -o "${ARGI}" = "-h" ]; then
         echo "$ME [OPTIONS]"
         echo "  --base=<150>      base heading for the block (regenerates script)"
+        echo "  --rc-cal          session-0 open-loop calibration: the timer"
+        echo "                    script is INERT and the boat is flown on RC"
+        echo "                    for the whole run. Score with analysis/rc_cal.py."
         echo "  --vname=<name>    community name (default: from get_robot_info.sh)"
         echo "  --fseat=<ip>      front-seat IP (default: from get_robot_info.sh)"
         echo "  --ip=<addr>  --mport=<9000>  --shore=<ip>"
@@ -33,6 +37,7 @@ for ARGI; do
         exit 0
     elif [ "${ARGI}" = "--just_make" -o "${ARGI}" = "-j" ]; then JUST_MAKE="yes"
     elif [ "${ARGI}" = "--noconfirm" -o "${ARGI}" = "-nc" ]; then CONFIRM="no"
+    elif [ "${ARGI}" = "--rc-cal" ]; then RC_CAL="yes"
     elif [ "${ARGI:0:7}" = "--base=" ];  then BASE_HDG="${ARGI#--base=*}"
     elif [ "${ARGI:0:8}" = "--vname=" ]; then VNAME="${ARGI#--vname=*}"
     elif [ "${ARGI:0:8}" = "--fseat=" ]; then FSEAT_IP="${ARGI#--fseat=*}"
@@ -59,16 +64,30 @@ fi
 
 # Regenerate the maneuver script for the requested base heading.
 mkdir -p plugs targs logs
-python3 gen_maneuver.py --base $BASE_HDG --out plugs/plug_uTimerScript.moos || exit 3
+if [ "${RC_CAL}" = "yes" ]; then
+    python3 gen_maneuver.py --rc-cal --out plugs/plug_uTimerScript.moos || exit 3
+else
+    python3 gen_maneuver.py --base $BASE_HDG --out plugs/plug_uTimerScript.moos || exit 3
+fi
 
 if [ "${CONFIRM}" = "yes" ]; then
     echo "=========================================="
-    echo " handling_block          $VNAME"
-    echo "   BASE_HDG  = $BASE_HDG"
-    echo "   IP_ADDR   = $IP_ADDR   FSEAT_IP = $FSEAT_IP"
-    echo "   MOOS_PORT = $MOOS_PORT SHORE_IP = $SHORE_IP"
-    echo " No helm: uTimerScript drives pBBPID. The block only"
-    echo " advances while BB_CMD_AUTHORITY=AUTONOMY (CH6 = AUTO)."
+    if [ "${RC_CAL}" = "yes" ]; then
+        echo " handling_block RC-CAL   $VNAME     *** SESSION 0 ***"
+        echo "   IP_ADDR   = $IP_ADDR   FSEAT_IP = $FSEAT_IP"
+        echo "   MOOS_PORT = $MOOS_PORT SHORE_IP = $SHORE_IP"
+        echo " OPEN-LOOP CALIBRATION. The timer script is INERT:"
+        echo " nothing commands the boat under autonomy. Fly the"
+        echo " whole run on RC (leave CH6 in RC). Run card is in"
+        echo " missions/handling_block/README.md."
+    else
+        echo " handling_block          $VNAME"
+        echo "   BASE_HDG  = $BASE_HDG"
+        echo "   IP_ADDR   = $IP_ADDR   FSEAT_IP = $FSEAT_IP"
+        echo "   MOOS_PORT = $MOOS_PORT SHORE_IP = $SHORE_IP"
+        echo " No helm: uTimerScript drives pBBPID. The block only"
+        echo " advances while BB_CMD_AUTHORITY=AUTONOMY (CH6 = AUTO)."
+    fi
     echo "=========================================="
     echo -n "Hit any key to continue"
     read ANSWER

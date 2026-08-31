@@ -16,6 +16,9 @@ ADD_SUBDIRECTORY(lib_crsf)
 # Command pipeline core: envelope, lease, slew, skid mixer, ESC map
 ADD_SUBDIRECTORY(lib_bb_command)
 
+# Feedback control core: bb::Pid primitive + cascaded PID engine
+ADD_SUBDIRECTORY(lib_bb_control)
+
 # Unicore GNSS parser
 ADD_SUBDIRECTORY(lib_unicore)
 

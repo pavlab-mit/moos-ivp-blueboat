@@ -48,6 +48,16 @@ ProcessConfig = pBBPID
   allow_reverse    = false
   command_stale_thresh = 1.5    // s; zero outputs if helm stops commanding
 
+  // Controller lifecycle (0/false = legacy; see plug_pBBPID.moos for the
+  // rationale): FF hold expiry + repositioning-step guard, dt credit cap,
+  // authority-aware integration gate.
+  ff_hold_time      = 2.0       // s; zero held FF after command settles
+  ff_step_limit     = 150       // deg; larger steps publish no FF
+  max_dt            = 0.5       // s; max Ki*e*dt credit per tick
+  antiwindup        = true      // tracking AW at output/FF/mixer rails
+  integrate_gate    = true      // integrate only under AUTONOMY && stop NONE
+  gate_stale_thresh = 2.0       // s; stale gate inputs -> freeze + warn
+
   // Variable name overrides (defaults shown)
   // desired_speed_var   = DESIRED_SPEED
   // desired_heading_var = DESIRED_HEADING
