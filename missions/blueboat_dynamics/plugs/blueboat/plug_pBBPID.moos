@@ -1,0 +1,215 @@
+//----------------------------------------------------------
+// pBBPID -- cascaded speed / heading-yawrate PID.
+//
+// Now also the AUTONOMY_CMD producer: it publishes the coherent
+// command contract the front-seat arbiter consumes, in addition
+// to the DESIRED_THRUST / DESIRED_RUDDER scalars it keeps as
+// diagnostics.
+//
+// GAINS ARE CARRIED VERBATIM from the via run of 5 Aug 2026
+// 16:27 (72 min, the log this refactor was baselined against).
+// They are NOT retuned here, deliberately: the actuation path
+// underneath them has changed -- ESC endpoints 800/2200 ->
+// 1100/1510/1900, an ArduRover mixer commanding ~2.3x more yaw
+// authority at the median, and the per-side LPF removed. Retuning
+// on top of an unmeasured actuation change would confound the
+// two. Measure first (plan section 8.3), then tune.
+//----------------------------------------------------------
+
+ProcessConfig = pBBPID
+{
+  AppTick    = 20
+  CommsTick  = 20
+
+  // UNITS: the yaw-rate path is in RADIANS / rad/s (heading error is converted
+  // to rad internally). Gains below were rescaled from the old deg/s tuning to
+  // preserve identical behavior: rate gains x57.296, crr x57.296^2 (=3282.8),
+  // max_yawrate x0.017453. heading_pid, filters, limits, and FF offsets
+  // (c0/cv/d0) are unit-invariant and unchanged.
+
+  // Gains:  param = Kp, Ki, Kd
+	speed_pid   = 1, 2, 0
+  heading_pid = 0.8, 0, 0
+  yawrate_pid = 60, 40, 0
+  //speed_pid   = 3.0, 0.5, 0.0       // thrust per (m/s) of speed error
+  //heading_pid = 1.3, 0.2, 0.0       // outer: heading err (rad) -> yaw rate (rad/s)
+  //yawrate_pid = 229.18, 28.648, 0.0 // inner: yaw-rate err (rad/s) -> rudder
+
+  // Low-pass the desired yaw rate (time const, s; 0=off). The yaw FF gain
+  // dr amplifies des-yaw-rate noise into the rudder FF, so smooth it.
+  // SESSION 4 (2026-08-31): 0.3 -> 0.5. The zig-reversal FF slam
+  // (~55% rudder flipped against hull angular momentum) put one leg
+  // per run over the 10 deg overshoot bar (zig_4 s2: 15.0; zig_2 s3:
+  // 13.2, rate peak ~2x des for ~1s). Spreading the desired-rate
+  // reversal over ~1s softens it, at ~0.2s added lag on step entry.
+  // TWO-SIDED acceptance: all legs ovs <= 10 AND 30-deg t63 stays
+  // <= 2s (margin is thin: 1.8s vs the 2.0s bar). If t63 gives,
+  // revert and shape the inner loop (kd) instead.
+  des_yawrate_filter = 0.5
+
+  //=========================================================
+  // Controller lifecycle fixes (brief section 3; bench-validated
+  // in lib_bb_control CTest, water validation pending). Each is
+  // 0/false = the legacy behavior the 27 Aug block measured.
+  //=========================================================
+  // Step-and-hold FF defects: zero the held desired-heading
+  // derivative 2 s (~2x helm cadence) after the command settles --
+  // removes the ff/kp standing error (6.4 deg measured). Steps
+  // beyond 150 deg are repositioning, not trajectory: publish no
+  // FF (at exact 180 the FF sign is numeric noise; it cancelled
+  // the railed feedback and pivots ran 2 deg/s instead of 25).
+  // Retires the +/-170 pivot band-aid in gen_maneuver.py.
+  ff_hold_time  = 2.0
+  ff_step_limit = 150
+
+  // Resume windup: one tick may credit at most 0.5 s of Ki*e*dt,
+  // so an RC-repositioning gap (43 s on the block) integrates one
+  // bounded step, not the whole gap.
+  max_dt = 0.5
+
+  // Tracking anti-windup at every rail the command can hit: each
+  // loop's own output clamp, the post-FF clamps, and (via the gate
+  // below) mixer saturation. The integral parks at the rail's worth
+  // of authority and recovers on the first reversed tick, instead
+  // of climbing to its own limit behind the wall and burning ~10 s
+  // coming back. Off = ScalarPID-verbatim rail behavior.
+  antiwindup = true
+
+  // Actuation-aware integration: integrate only while
+  // BB_CMD_AUTHORITY == AUTONOMY && NVGR_STOP_REASON == NONE
+  // (kills the latent kill-window windup), and stop winding the
+  // excess whenever the mixer reports saturation. Gate inputs
+  // stale -> integration freezes (P/D live) with a run warning.
+  integrate_gate    = true
+  gate_stale_thresh = 2.0
+
+  // Limits
+  max_thrust             = 100
+  max_rudder             = 100
+  max_yawrate            = 0.4363  // rad/s cap (=25 deg/s; overridden by schedule)
+  // Speed integral must be able to supply the full steady thrust to hold a
+  // commanded speed (P contributes 0 at zero error), so cap it at max_thrust.
+  speed_integral_limit   = 100
+  yawrate_integral_limit = 50
+
+  // Speed-scheduled yaw-rate gains (linearly interpolated on NAV_SPEED):
+  // turn hard at low speed, ease off as the deep hull resists at speed.
+  // (rad/s units: kp/ki/kd x57.296, max_yawrate x0.017453)
+  enable_gain_schedule = false
+  schedule_point = speed=0.5, kp=171.89, ki=5.7296, kd=0.0,    max_yawrate=0.5236
+  schedule_point = speed=1.5, kp=114.59, ki=5.7296, kd=0.0,    max_yawrate=0.34907
+  schedule_point = speed=3.0, kp=68.755, ki=2.8648, kd=11.459, max_yawrate=0.20944
+
+  // ----- Feedforward (added ahead of the PID; PID corrects the residual)
+  //   common c = c0 + cv*v* + crr*r*^2     -> added to DESIRED_THRUST
+  //   diff   d = d0 + dr*r* + dvr*v* * r*  -> added to DESIRED_RUDDER (scaled)
+  //   v* = desired speed [m/s], r* = desired yaw rate [rad/s]
+  //
+  // ff_yaw: nominal gains from the OPEN-LOOP plant ID (bb_plant_id.py on the
+  //   pDiffThrust dynamics log). Identified G(s)=0.0971/(2.32s+1)e^-0.5s for
+  //   DESIRED_RUDDER -> yaw rate, so dr = 1/K = 10.30 %/(deg/s) and the trim
+  //   d0 = -bias/K = 4.15 cancels the steady yaw offset. dvr=0 (single-model
+  //   fit; the gain schedule covers the speed dependence). NOTE: VAF was 51%
+  //   and implies ~9 deg/s at full rudder vs ~50 observed -> dr may be high
+  //   (over-commands); verify with a dedicated yaw step test.
+  // ff_speed: NOT updated -- speed was not identifiable from that log
+  //   (VAF 5%, current-dominated). Still the prior field-ID values.
+  // ff_speed = 4.428, 4.960, 0.4505     // c0, cv, crr  (prior bb_dynamics_id.py)
+  // ff_yaw   = 4.145, 10.300, 0.0       // d0, dr, dvr  (bb_plant_id.py plant TF)
+  // (rad/s units: crr x3282.8, dr x57.296; c0/cv/d0 unit-invariant)
+  // ff_speed (deg/s) was 20, 15, -0.05 ;  ff_yaw was 2.5806, 4.1129, 0
+  // SESSION 3 (2026-08-31): ff_speed gains a 4th coefficient cvv
+  // (quadratic drag, applied as cvv*v*|v*|; engine default 0 =
+  // legacy). Steady speed-hold thrust from the session-2 log
+  // (n=462, |spdErr|<0.1 held 3s, low rotation) matches the rc_cal
+  // drag curve within ~1 unit at every staircase point:
+  //   measured (v, thrust): (0.48, 5.1) (0.96, 15.2) (1.44, 33.4)
+  //   9.2v + 10.1v|v|   ->        6.7        14.9        34.2
+  // A linear cv cannot fit both ends -- the speed I-term was
+  // carrying 8-17 at steady speed in BOTH runs. Coefficients come
+  // straight from the boat's own measured drag curve.
+  // Acceptance next run: steady speed |I| falls toward 0 at every
+  // staircase rung, ffShare -> ~100% at steady speed.
+  ff_speed        = 0, 9.2, 30, 10.1
+  // SESSION 2 (2026-08-31): ff_yaw raised from 0,20,30 -- both terms
+  // were ~2.5x low. Steady-segment regression on the session-1 log
+  // (LOG_YIP_31_8_2026_____12_56_34, rudSat 0% so no railed-sample
+  // bias; n=353, tracking within 30%): plant needs 43.8 %/(rad/s) at
+  // pivot (v<0.3, n=134, resid sd 5.2) and 143 %/(rad/s) underway
+  // (v>0.7, n=109) -> dr=45, dvr=(143-44)/1.2=80. Intercepts ~0 so
+  // d0 stays 0. The 27 Aug estimate (~183 flat) came from n=155
+  // RAILED samples -- biased high, and blind to the speed slope.
+  // Acceptance next run: yawrate steady |I| falls toward 0 (was
+  // railing 50 at 4.4% at-limit), rateRMS down, overshoot not above
+  // ~10 deg. Worst-case FF: (45+80*1.5)*0.4363 = 72% rudder.
+  ff_yaw          = 0, 45, 80
+
+  // Per-axis FF toggles (live via the tuner): isolate the speed (thrust) or
+  // yaw (rudder) FF term without touching the master ff_enable.
+  ff_speed_enable = true
+  ff_yaw_enable   = true
+
+
+  // ----- Real boat -----
+  // GYRO_Z_LVL_IMU is a leveled/near-dead signal in the field logs (std
+  // ~0.85 deg/s) and may not reach the backseat community at all -> pBBPID
+  // would stall in hold-off (no yaw-rate feedback) and never publish its
+  // yaw-rate telemetry or thrust/rudder. So derive yaw rate from NAV_HEADING
+  // (always present), same as SIM. If you have a VERIFIED live yaw-rate var
+  // in pBBPID's community, prefer external feedback. The controller now wants
+  // rad/s, so set yawrate_scale to convert the source to rad/s:
+  //     yawrate_source = external
+  //     nav_yawrate_var = TURN_RATE   // (deg/s)  -> yawrate_scale = 0.017453
+  //  or nav_yawrate_var = GYRO_Z_LVL_IMU if it is rad/s -> yawrate_scale = 1.0
+  yawrate_source = external
+	// nav_yawrate_var = GYRO_Z_LVL_IMU
+  yawrate_filter = 0.3             // LPF weight on the fresh d(hdg)/dt sample
+  rudder_polarity = 1              // VERIFY on bench against pThrustMix
+  ff_enable        = true
+  // ff_yaw was identified directly in DESIRED_RUDDER units (the plant ID
+  // included pThrustMix), so this is exactly 1.0 -- no separate calibration.
+  ff_rudder_scale  = 1.0
+
+ // speed filtering when desired yaw rate is high
+ yaw_priority_gain = 0.5     // 0 = off (default, unchanged behavior)
+ yaw_priority_knee = 0.6     // derate starts at 60% of the yaw budget
+ min_speed_frac    = 0.5     // never below half the commanded speed
+ derate_filter     = 0.5     // seconds
+
+  allow_reverse        = true
+  command_stale_thresh = 1.5
+
+  // Speed-loop feedback: SIGNED hull-frame surge from the EKF, not
+  // the unsigned NAV_SPEED magnitude. With NAV_SPEED, spd=0 was an
+  // unstable equilibrium in reverse -- once pushed through zero the
+  // error stayed negative and the loop ran away to ~1.45 m/s astern
+  // (31 Aug run, checkpoint brief S5). NAV_SURGE goes negative when
+  // the boat backs down, so the error changes sign and recovers.
+  nav_speed_var = NAV_SURGE
+
+  //=========================================================
+  // AUTONOMY_CMD -- the command contract
+  //=========================================================
+  // Published every cycle. valid=1 only while actively
+  // computing; holding off and stale both publish valid=0 with
+  // zeros rather than going SILENT, because silence reads to the
+  // arbiter as staleness and that is a different fault from
+  // alive-but-not-ready.
+  //
+  // autonomy_cmd_var = AUTONOMY_CMD
+  // publish_autonomy_cmd = true
+
+  //=========================================================
+  // WARNING: rudder_polarity
+  //=========================================================
+  // Since this app now publishes AUTONOMY_CMD, the sign of
+  // `rudder` IS the contract's yaw, which is defined as
+  // + = starboard. A mis-set polarity no longer produces an
+  // internally inconsistent sign -- it publishes a CONTRACT
+  // VIOLATION, turning the boat the wrong way under autonomy
+  // while RC still behaves correctly.
+  //
+  // VERIFY THIS ON THE DOCK before the first autonomous run.
+  // Deprecated; to be removed once the pipeline is on one
+  // convention throughout.
+}

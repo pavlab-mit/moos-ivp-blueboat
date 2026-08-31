@@ -32,10 +32,13 @@ ProcessConfig = ANTLER
   Run = iM300Health    @ NewConsole = false
   Run = pMarinePIDV22  @ NewConsole = false
 #elseifdef XMODE BBOAT
+  // Ported to the refactored control stack (2026-08-31): pBBPID
+  // replaces pMarinePIDV22 + the old back-seat pThrustMix (mixing
+  // now lives on the FRONT seat; the back seat publishes
+  // DESIRED_THRUST/RUDDER only). Matches alpha_pavlab_asv.
   Run = iBackSeatBroker  @ NewConsole = false
   Run = pBB_DGPS_EKF     @ NewConsole = false
-  Run = pMarinePIDV22    @ NewConsole = false
-  Run = pThrustMix       @ NewConsole = false
+  Run = pBBPID           @ NewConsole = false
   Run = pBB_Health       @ NewConsole = false
 #endif
 }
@@ -47,10 +50,14 @@ ProcessConfig = ANTLER
 #include plugs/heron/plug_iM300Health.moos
 #include plugs/heron/plug_pMarinePIDV22.moos
 #elseifdef XMODE BBOAT
+// Local COPIES of the alpha_pavlab_asv blueboat plugs, synced
+// 2026-08-31 (refactored wire contract; GNSS_STATE + NVGR_APPLIED
+// EKF inputs + GPS lever arm; pBBPID calibration: ff_yaw,
+// ff_speed+cvv, des_yawrate_filter, nav_speed_var = NAV_SURGE).
+// If the alpha plugs are re-tuned, re-copy them here.
 #include plugs/blueboat/plug_iBackSeatBroker.moos
 #include plugs/blueboat/plug_pBB_DGPS_EKF.moos
-#include plugs/blueboat/plug_pMarinePIDV22.moos
-#include plugs/blueboat/plug_pThrustMix.moos
+#include plugs/blueboat/plug_pBBPID.moos
 #include plugs/blueboat/plug_pBB_Health.moos
 #endif
 
