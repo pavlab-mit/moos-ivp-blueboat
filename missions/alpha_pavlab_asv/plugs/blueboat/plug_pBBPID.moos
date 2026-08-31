@@ -111,7 +111,18 @@ ProcessConfig = pBBPID
   // (rad/s units: crr x3282.8, dr x57.296; c0/cv/d0 unit-invariant)
   // ff_speed (deg/s) was 20, 15, -0.05 ;  ff_yaw was 2.5806, 4.1129, 0
   ff_speed        = 0, 7.5, 30
-  ff_yaw          = 0, 20, 30
+  // SESSION 2 (2026-08-31): ff_yaw raised from 0,20,30 -- both terms
+  // were ~2.5x low. Steady-segment regression on the session-1 log
+  // (LOG_YIP_31_8_2026_____12_56_34, rudSat 0% so no railed-sample
+  // bias; n=353, tracking within 30%): plant needs 43.8 %/(rad/s) at
+  // pivot (v<0.3, n=134, resid sd 5.2) and 143 %/(rad/s) underway
+  // (v>0.7, n=109) -> dr=45, dvr=(143-44)/1.2=80. Intercepts ~0 so
+  // d0 stays 0. The 27 Aug estimate (~183 flat) came from n=155
+  // RAILED samples -- biased high, and blind to the speed slope.
+  // Acceptance next run: yawrate steady |I| falls toward 0 (was
+  // railing 50 at 4.4% at-limit), rateRMS down, overshoot not above
+  // ~10 deg. Worst-case FF: (45+80*1.5)*0.4363 = 72% rudder.
+  ff_yaw          = 0, 45, 80
 
   // Per-axis FF toggles (live via the tuner): isolate the speed (thrust) or
   // yaw (rudder) FF term without touching the master ff_enable.

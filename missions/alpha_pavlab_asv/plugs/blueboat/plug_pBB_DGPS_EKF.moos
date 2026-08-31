@@ -58,9 +58,9 @@ ProcessConfig = pBB_DGPS_EKF
   // phantom speed of omega x r (~0.25 m/s at 40 deg/s) -- the
   // trigger for the spd=0 reverse runaway (checkpoint brief S5).
   //
-  // WARNING: these values are YIP's. VIA's antenna geometry is
-  // NOT recorded -- on via set both to 0 (no correction) until
-  // it is measured.
+  // Fleet-wide: all boats are built identically (confirmed
+  // 2026-08-31); hull-to-hull antenna placement differs by mms,
+  // so these values apply to yip AND via.
   gps_lever_x = 0.0     // Antenna forward of hull reference (m) - not yet measured
   gps_lever_y = -0.356  // Antenna starboard of hull reference (m) - port pontoon
 
