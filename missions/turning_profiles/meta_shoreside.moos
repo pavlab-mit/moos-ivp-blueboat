@@ -1,0 +1,37 @@
+//*******************************************************
+// ShoreSide Configuration File (turning_profiles)
+ServerHost = localhost
+ServerPort = $(MOOS_PORT)
+Community  = shoreside
+
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_origin_warp.moos
+
+//--------------------------------------------------------
+Processconfig = ANTLER
+{
+  MSBetweenLaunches = 100
+
+  Run = MOOSDB          @ NewConsole = false
+#ifdef LAUNCH_GUI yes
+  Run = pMarineViewer   @ NewConsole = false
+#endif
+  Run = pLogger         @ NewConsole = false
+  Run = uProcessWatch   @ NewConsole = false
+  Run = pShare          @ NewConsole = false
+  Run = pHostInfo       @ NewConsole = false
+  Run = uFldShoreBroker @ NewConsole = false
+  Run = uFldNodeComms   @ NewConsole = false
+  Run = pRealm          @ NewConsole = false
+}
+
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_pShare.moos
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_pHostInfo.moos
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_uProcessWatch.moos
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_pRealm.moos
+
+#include ../alpha_pavlab_asv/plugs/shoreside/plug_uFldShoreBroker.moos
+#include ../alpha_pavlab_asv/plugs/shoreside/plug_uFldNodeComms.moos
+#include ../alpha_pavlab_asv/plugs/shoreside/plug_pLogger.moos
+#ifdef LAUNCH_GUI yes
+#include plug_pMarineViewer.moos
+#endif
