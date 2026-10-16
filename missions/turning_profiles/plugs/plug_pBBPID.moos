@@ -33,6 +33,7 @@ ProcessConfig = pBBPID
 #ifdef PROFILE agile
   max_yawrate       = 3.0    // rad/s; 172 deg/s -- never the binding limit
   yaw_priority_gain = 0      // governor off: hold speed through the turn
+  ff_speed = 0, 9.2, 0, 10.1
 #elseifdef PROFILE slow
   max_yawrate       = 0.10   // rad/s = 5.7 deg/s
   yaw_priority_gain = 0      // governor off: hold speed through the turn
