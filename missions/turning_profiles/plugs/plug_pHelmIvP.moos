@@ -1,0 +1,24 @@
+//------------------------------------------
+// pHelmIvP Config Block (turning_profiles)
+
+ProcessConfig = pHelmIvP
+{
+  // 4 Hz: pBBPID drops to zero when DESIRED_* is older than
+  // command_stale_thresh (1.5 s); alpha's 1 Hz helm is too close.
+  AppTick    = 4
+  CommsTick  = 4
+
+  ok_skew    = any
+
+  Behaviors  = targs/targ_$(VNAME).bhv
+  Verbose    = false
+  Domain     = course:0:359:360
+  Domain     = speed:0:$(MAX_SPD):51
+
+  // REQUIRED for BHV_FixedTurn. Every completion leaves one helm
+  // iteration with no active behavior (the FIX_TURN=false flag is
+  // applied on the next iteration). Helms built after Aug 2026
+  // default to parking on that "NothingToDo" all-stop, which froze
+  // the boat after the first turn in the exp calibration mission.
+  park_on_allstop = false
+}

@@ -1,0 +1,31 @@
+//--------------------------------------------------
+// uFldNodeBroker config block (turning_profiles)
+// alpha's list plus the turn-progress variables.
+
+ProcessConfig = uFldNodeBroker
+{
+  AppTick   = 2
+  CommsTick = 2
+
+  app_logging = true
+
+  try_shore_host = pshare_route=$(SHORE_IP):$(SHORE_PSHARE)
+
+  bridge = src=VIEW_POLYGON
+  bridge = src=VIEW_CIRCLE
+  bridge = src=VIEW_POINT
+  bridge = src=VIEW_SEGLIST
+  bridge = src=VIEW_TEXTBOX
+  bridge = src=VIEW_COMMS_PULSE
+  bridge = src=APPCAST
+  bridge = src=REALMCAST
+  bridge = src=NODE_REPORT_LOCAL,  alias=NODE_REPORT
+  bridge = src=NODE_MESSAGE_LOCAL, alias=NODE_MESSAGE
+  bridge = src=QUIT_MISSION
+
+  // Turn progress, so the shoreside log and viewer see each trial.
+  bridge = src=FT_REPORT
+  bridge = src=LR_MODE_REPORT
+  bridge = src=MODE
+  bridge = src=BBPID_PARAMS_ACTIVE
+}

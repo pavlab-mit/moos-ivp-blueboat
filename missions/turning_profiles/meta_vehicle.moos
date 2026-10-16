@@ -1,0 +1,80 @@
+//------------------------------------------------------------
+// turning_profiles -- capability characterization: 360-degree
+// fixed turns at scheduled speeds, under one of two pBBPID
+// profiles (agile / slow). See README.md.
+//
+// Back-seat community, helm-driven: BHV_LegRun carries the boat to
+// each turn at the trial speed, BHV_FixedTurn executes a 355-degree
+// turn at a hard heading offset and posts FT_REPORT (avg/min/max
+// radius). No custom sequencing app: the whole schedule is static
+// in the generated .bhv plug, so nothing can stall waiting on a
+// speed-validity gate or a missing report.
+//
+// Boat-specific plugs are INCLUDED FROM alpha_pavlab_asv (broker,
+// EKF, health) so they live in exactly one place. pBBPID is a local
+// copy with the profile blocks appended; the launcher diffs its
+// verbatim section against alpha on every launch.
+//------------------------------------------------------------
+ServerHost = localhost
+ServerPort = $(MOOS_PORT)
+Community  = $(VNAME)
+
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_origin_warp.moos
+
+//------------------------------------------------------------
+ProcessConfig = ANTLER
+{
+  MSBetweenLaunches = 100
+
+  Run = MOOSDB             @ NewConsole = false
+  Run = pShare             @ NewConsole = false
+  Run = pLogger            @ NewConsole = false
+  Run = pNodeReporter      @ NewConsole = false
+  Run = uProcessWatch      @ NewConsole = false
+  Run = pHelmIvP           @ NewConsole = false
+  Run = pHostInfo          @ NewConsole = false
+  Run = uFldNodeBroker     @ NewConsole = false
+  Run = pDeadManPost       @ NewConsole = false
+  Run = pRealm             @ NewConsole = false
+
+#ifdef XMODE SIM
+  Run = uSimMarineV22      @ NewConsole = false
+  Run = pBBPID             @ NewConsole = false
+#elseifdef XMODE BBOAT
+  Run = iBackSeatBroker    @ NewConsole = false
+  Run = pBB_DGPS_EKF       @ NewConsole = false
+  Run = pBBPID             @ NewConsole = false
+  Run = pBB_Health         @ NewConsole = false
+#endif
+}
+
+#ifdef XMODE SIM
+  // Actuator-mode sim: no embedded PID, consumes pBBPID's
+  // DESIRED_THRUST / DESIRED_RUDDER. Exercises the real controller
+  // and the real schedule; the hull numbers do not transfer.
+  #include plugs/plug_uSimMarineV22.moos
+#elseifdef XMODE BBOAT
+  #include ../alpha_pavlab_asv/plugs/blueboat/plug_iBackSeatBroker.moos
+  #include ../alpha_pavlab_asv/plugs/blueboat/plug_pBB_DGPS_EKF.moos
+  #include ../alpha_pavlab_asv/plugs/blueboat/plug_pBB_Health.moos
+#endif
+
+// Local copy of alpha's pBBPID + SIM branch + PROFILE blocks.
+#include plugs/plug_pBBPID.moos
+
+// Local: AppTick 4 (pBBPID's 1.5 s command-stale gate wants > 1 Hz)
+// and park_on_allstop = false (BHV_FixedTurn leaves one helm
+// iteration with no active behavior at every completion).
+#include plugs/plug_pHelmIvP.moos
+
+// Local: alpha's bridge list + FT_REPORT / LR_MODE_REPORT / MODE so the
+// shoreside sees turn completions live.
+#include plugs/plug_uFldNodeBroker.moos
+
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_pShare.moos
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_pHostInfo.moos
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_pRealm.moos
+#include ../alpha_pavlab_asv/plugs/shared_all/plug_uProcessWatch.moos
+#include ../alpha_pavlab_asv/plugs/shared_asv/plug_pLogger.moos
+#include ../alpha_pavlab_asv/plugs/shared_asv/plug_pNodeReporter.moos
+#include ../alpha_pavlab_asv/plugs/shared_asv/plug_pDeadManPost.moos

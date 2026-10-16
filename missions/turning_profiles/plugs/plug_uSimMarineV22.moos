@@ -1,0 +1,30 @@
+//-------------------------------------------
+// uSimMarineV22 Config Block -- ACTUATOR MODE
+//
+// The embedded PID is intentionally omitted: uSimMarineV22 couples
+// its internal PID (acting on DESIRED_HEADING/SPEED) only when PID
+// params are present. With none here it registers for and consumes
+// DESIRED_THRUST / DESIRED_RUDDER from pBBPID, so the sim shakeout
+// runs the real controller and the real schedule. Hull numbers from
+// sim do NOT transfer to the water.
+
+ProcessConfig = uSimMarineV22
+{
+  AppTick   = 10
+  CommsTick = 10
+
+  start_pos = $(START_POS)
+  prefix    = NAV
+
+  thrust_map = 100:2
+  turn_rate  = 90
+
+  depth_control        = false
+  max_acceleration     = 0.2
+  max_deceleration     = 0.5
+  max_depth_rate       = 0.5
+  max_depth_rate_speed = 2.0
+
+  maxrudder  = 100
+  maxthrust  = 100
+}
