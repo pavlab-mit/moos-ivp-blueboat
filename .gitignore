@@ -70,3 +70,12 @@ __pycache__/
 .Python
 *.egg-info/
 *.egg
+
+# Campaign result folders: keep the small run records (json/txt), drop
+# renders, photos, decks and derived track dumps.
+missions/**/results_*/*.gif
+missions/**/results_*/*.jpg
+missions/**/results_*/*.png
+missions/**/results_*/*.mov
+missions/**/results_*/*.pptx
+missions/**/results_*/*.csv
