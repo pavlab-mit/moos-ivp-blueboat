@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yip Tuning Day</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F4F7F6;
+    --card: #FFFFFF;
+    --ink: #16282C;
+    --ink-2: #5A7076;
+    --ink-3: #8CA0A3;
+    --line: #D8E2E1;
+    --accent: #0997A8;
+    --accent-soft: #0997A81f;
+    --good: #2E7D48;
+    --good-soft: #2E7D481a;
+    --bad: #B23B31;
+    --bad-soft: #B23B3118;
+    --flag: #9A6D1B;
+    --flag-soft: #9A6D1B1a;
+    --grid: #16282C14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0C1518;
+      --card: #121F24;
+      --ink: #E2ECEC;
+      --ink-2: #8FA6A9;
+      --ink-3: #5F7477;
+      --line: #223236;
+      --accent: #21A5B4;
+      --accent-soft: #21A5B426;
+      --good: #5BBF7E;
+      --good-soft: #5BBF7E21;
+      --bad: #E0766B;
+      --bad-soft: #E0766B21;
+      --flag: #D9A441;
+      --flag-soft: #D9A44121;
+      --grid: #E2ECEC17;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0C1518;
+    --card: #121F24;
+    --ink: #E2ECEC;
+    --ink-2: #8FA6A9;
+    --ink-3: #5F7477;
+    --line: #223236;
+    --accent: #21A5B4;
+    --accent-soft: #21A5B426;
+    --good: #5BBF7E;
+    --good-soft: #5BBF7E21;
+    --bad: #E0766B;
+    --bad-soft: #E0766B21;
+    --flag: #D9A441;
+    --flag-soft: #D9A44121;
+    --grid: #E2ECEC17;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 0;
+    padding: 40px 20px 64px;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+
+  h1, h2 {
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h1 { font-size: 44px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.05; }
+  h2 { font-size: 22px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink-2); }
+  .eyebrow {
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+    font-size: 15px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 4px;
+  }
+  .meta { color: var(--ink-2); font-size: 14px; margin-top: 6px; }
+  .mono, td.num, .num { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+  header { border-bottom: 2px solid var(--ink); padding-bottom: 18px; }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px 12px; }
+  .tile .v { font-family: "Barlow Condensed", sans-serif; font-size: 38px; font-weight: 700; line-height: 1; }
+  .tile .v small { font-size: 20px; font-weight: 600; color: var(--ink-2); }
+  .tile .k { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+
+  /* timeline table */
+  .scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px; }
+  th {
+    font-family: "Barlow Condensed", sans-serif; font-size: 14px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2);
+    text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line);
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num { white-space: nowrap; color: var(--ink-2); font-size: 13px; padding-top: 11px; }
+  .badge {
+    display: inline-block; font-family: "Barlow Condensed", sans-serif; font-weight: 600;
+    font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 1px 8px 2px; border-radius: 4px; white-space: nowrap;
+  }
+  .b-pass { color: var(--good); background: var(--good-soft); }
+  .b-cal  { color: var(--accent); background: var(--accent-soft); }
+  .b-bad  { color: var(--bad); background: var(--bad-soft); }
+  .b-flag { color: var(--flag); background: var(--flag-soft); }
+  .what { color: var(--ink); }
+  .what .mono { font-size: 13px; color: var(--ink-2); }
+
+  /* chart panels */
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px 14px 8px; }
+  .panel h3 { font-family: "Barlow Condensed", sans-serif; font-size: 17px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+  .panel .sub { font-size: 12px; color: var(--ink-2); margin: 1px 0 6px; }
+  .panel svg { width: 100%; height: auto; display: block; }
+  .bar { fill: var(--accent); }
+  .bar-dim { fill: var(--accent); opacity: 0.45; }
+  .vlab { font-family: "IBM Plex Mono", monospace; font-size: 11px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+  .slab { font-family: "IBM Plex Mono", monospace; font-size: 11px; fill: var(--ink-2); }
+  .tline { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; }
+  .tlab { font-family: "IBM Plex Mono", monospace; font-size: 10px; fill: var(--ink-3); }
+  .base { stroke: var(--line); stroke-width: 1; }
+
+  /* config ledger + notes */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; }
+  .card h2 { margin-bottom: 10px; }
+  .ledger { font-family: "IBM Plex Mono", monospace; font-size: 13px; line-height: 1.9; }
+  .ledger b { font-weight: 500; color: var(--accent); }
+  .ledger .u { color: var(--ink-3); }
+  ul.notes { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+  ul.notes li::marker { color: var(--accent); }
+  .accept td:first-child { color: var(--ink-2); }
+  .ok { color: var(--good); font-weight: 600; }
+  .no { color: var(--bad); font-weight: 600; }
+
+  .tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--ink); color: var(--bg);
+    font-family: "IBM Plex Mono", monospace; font-size: 12px;
+    padding: 4px 8px; border-radius: 4px; white-space: nowrap;
+  }
+  footer { color: var(--ink-3); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 12px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .bar, .bar-dim { transition: opacity .12s ease; }
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">BlueBoat control · field report</p>
+    <h1>Yip Tuning Day</h1>
+    <p class="meta">31 Aug 2026 · Charles River, MIT Sailing Pavilion · 10 water runs, 07:07&#8202;–&#8202;14:46 local logs · control-refactor branch</p>
+  </header>
+
+  <section class="tiles">
+    <div class="tile"><div class="v num">10</div><div class="k">water runs — calibration, 4 tuning sessions, 3 dynamics</div></div>
+    <div class="tile"><div class="v num">0</div><div class="k">feedback gains changed — the whole campaign was calibration</div></div>
+    <div class="tile"><div class="v num">3</div><div class="k">defects found · 2 fixed same day · 1 isolated upstream</div></div>
+    <div class="tile"><div class="v num">1.5<small>&#8202;s</small></div><div class="k">t63 on a 30° step @ 1.5 m/s (pass line ≤ 2 s)</div></div>
+  </section>
+
+  <section>
+    <h2>The day, run by run</h2>
+    <div class="scroll" style="margin-top:10px">
+      <table>
+        <tr><th>Time</th><th>Run</th><th>What went in / came out</th><th>Verdict</th></tr>
+        <tr><td class="num">11:07</td><td class="what">Calibration 1 (RC)</td>
+            <td>Drag curve <span class="mono">effort = 9.2v + 10.1v|v|</span>; thrust-asymmetry bracketed</td>
+            <td><span class="badge b-cal">cal</span></td></tr>
+        <tr><td class="num">11:41</td><td class="what">Null run (RC)</td>
+            <td>Continuous-null fit: <span class="mono">A = 1.80</span> (CW 1.81 / CCW 1.78)</td>
+            <td><span class="badge b-cal">cal</span></td></tr>
+        <tr><td class="num">12:05</td><td class="what">Handling block</td>
+            <td><b>Reverse runaway found</b> — unsigned NAV_SPEED made spd = 0 unstable astern; GPS lever arm was the trigger. 100 s flown backwards at 1.48 m/s</td>
+            <td><span class="badge b-bad">defect</span></td></tr>
+        <tr><td class="num">12:30</td><td class="what">Bench fix</td>
+            <td>EKF hull-frame kinematics: signed <span class="mono">NAV_SURGE</span>, lever-arm correction, TS-gated fusion · 45 unit checks + log replay (surge tracks −1.487 vs measured −1.495)</td>
+            <td><span class="badge b-pass">fixed</span></td></tr>
+        <tr><td class="num">12:56</td><td class="what">Session 1 · re-baseline</td>
+            <td>Fix water-confirmed — no runaway, pivot phantom speed gone; first fully valid scorecard</td>
+            <td><span class="badge b-pass">pass</span></td></tr>
+        <tr><td class="num">13:21</td><td class="what">Session 2 · yaw FF</td>
+            <td><span class="mono">ff_yaw 0,45,80</span> from steady regression — overshoot halved, yaw-rate integral 50 → 2.5</td>
+            <td><span class="badge b-pass">pass</span></td></tr>
+        <tr><td class="num">13:45</td><td class="what">Session 3 · speed FF</td>
+            <td>Quadratic drag term added to engine; <span class="mono">ff_speed 0,9.2,30,10.1</span> = the measured drag curve — staircase t63 12.4 → 3.0 s</td>
+            <td><span class="badge b-pass">pass</span></td></tr>
+        <tr><td class="num">14:01</td><td class="what">Session 4 · shaping</td>
+            <td><span class="mono">des_yawrate_filter 0.5</span> + <span class="mono">A 1.77</span> — reversal rate spikes gone, pivot drift −0.069 (band ±0.15). <b>Converged.</b></td>
+            <td><span class="badge b-pass">pass</span></td></tr>
+        <tr><td class="num">14:36&#8202;–&#8202;46</td><td class="what">Dynamics ×3</td>
+            <td>Circle-acquire flinch isolated: upstream <span class="mono">BHV_LegRun</span> steers at the reciprocal leg bearing for exactly one helm tick at leg capture (missing <span class="mono">return false</span>); one-line patch proposed</td>
+            <td><span class="badge b-flag">bug found</span></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Convergence, sessions 1 → 4</h2>
+    <p class="meta" style="margin:4px 0 10px">Clean phases only — RC-contaminated legs excluded. Dashed line = pass bar where one exists.</p>
+    <div class="panels" id="panels"></div>
+  </section>
+
+  <div class="cols">
+    <section class="card">
+      <h2>As-left configuration</h2>
+      <div class="ledger">
+        thrust_asymmetry <b>1.77</b> <span class="u">(front seat, measured)</span><br>
+        ff_yaw <b>0, 45, 80</b> <span class="u">%/(rad/s), steady regression</span><br>
+        ff_speed <b>0, 9.2, 30, 10.1</b> <span class="u">= drag curve, new v² term</span><br>
+        des_yawrate_filter <b>0.5</b> <span class="u">s</span><br>
+        nav_speed_var <b>NAV_SURGE</b> <span class="u">signed hull-frame surge</span><br>
+        gps_lever <b>0, −0.356</b> <span class="u">m fwd/stbd, fleet-wide</span><br>
+        speed / heading / yawrate PID <b>1,2,0 · 0.8,0,0 · 60,40,0</b><br>
+        <span class="u">— feedback gains untouched since 27 Aug</span>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Acceptance vs. the brief</h2>
+      <div style="overflow-x:auto"><table class="accept" style="min-width:0">
+        <tr><td>t63, 30° @ 1.5 m/s</td><td class="num">1.5&#8202;–&#8202;1.8 s</td><td class="num">≤ 2 s</td><td class="ok">pass</td></tr>
+        <tr><td>Step overshoot</td><td class="num">≤ 6.7°</td><td class="num">≤ 10°</td><td class="ok">pass</td></tr>
+        <tr><td>Settled error</td><td class="num">≤ 2.3°</td><td class="num">≤ 2°</td><td class="ok">≈ pass</td></tr>
+        <tr><td>Pivot rate, p90</td><td class="num">24&#8202;–&#8202;31°/s</td><td class="num">≥ 25°/s</td><td class="ok">pass</td></tr>
+        <tr><td>Straight XTE rms</td><td class="num">3.0 m</td><td class="num">≤ 1 m</td><td class="no">open</td></tr>
+      </table></div>
+      <p class="meta" style="margin-top:8px">XTE is a helm-level gap — the block has no cross-track loop; every heading metric under it passes.</p>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Carry-forward</h2>
+    <ul class="notes">
+      <li>Patch <span class="mono">BHV_LegRun</span> (one line, upstream moos-ivp) — kills the one-tick 180° flinch at circle acquire.</li>
+      <li>Teach <span class="mono">handling_block.py</span> the direct signed-surge A readout and switch its speed metrics to <span class="mono">NAV_SURGE</span>.</li>
+      <li>Cross-track control at helm level, if the 1 m XTE bar matters for missions.</li>
+      <li>High-speed note from RC zigzags: yaw plant gain grows super-linearly above ~1.7 m/s (~300 %/(rad/s)) — revisit FF only if faster missions come.</li>
+      <li>Commit the branch — EKF fix, cvv engine term, registration-race fixes, plugs, docs are all uncommitted.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Sources: LOG_YIP_31_8_2026 · 11_07_07, 11_41_09, 12_05_45, 12_56_34, 13_21_56, 13_45_35, 14_01_57 + dynamics 14_36/41/46 ·
+    scored by analysis/handling_block.py · full narrative in docs/tuning_playbook.md and docs/control_checkpoint_brief.md
+  </footer>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+(function(){
+  var panels = [
+    { title: "Worst step overshoot", unit: "deg — lower is better", bar: 10,
+      vals: [16.9, 9.5, 8.0, 6.7], note: ["S1 baseline","S2 ff_yaw","S3 ff_speed","S4 filter+A"] },
+    { title: "Worst zig-reversal overshoot", unit: "deg — the FF-slam wart", bar: 10,
+      vals: [14.3, 15.0, 13.2, 4.2], note: ["S1 baseline","S2 ff_yaw","S3 ff_speed","S4 filter 0.5"] },
+    { title: "Decel t63, 1.5 → 0.5 m/s", unit: "seconds", bar: null,
+      vals: [11.5, 12.4, 3.0, 2.8], note: ["S1","S2","S3 v² FF term","S4"] },
+    { title: "Speed-loop steady |I|", unit: "thrust units (limit 100)", bar: null,
+      vals: [17, 15, 2.9, 2.2], note: ["S1 I doing FF's job","S2","S3 FF = drag curve","S4"] }
+  ];
+  var tip = document.getElementById('tip');
+  var host = document.getElementById('panels');
+  var W = 240, H = 150, baseY = 118, x0 = 14, bw = 38, gap = 16;
+
+  panels.forEach(function(p){
+    var max = Math.max.apply(null, p.vals.concat(p.bar || 0)) * 1.15;
+    var s = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+p.title+'">';
+    if (p.bar) {
+      var by = baseY - (p.bar/max)*100;
+      s += '<line class="tline" x1="'+x0+'" x2="'+(W-10)+'" y1="'+by+'" y2="'+by+'"/>';
+      s += '<text class="tlab" x="'+(W-10)+'" y="'+(by-3)+'" text-anchor="end">bar '+p.bar+'</text>';
+    }
+    p.vals.forEach(function(v,i){
+      var h = Math.max(3,(v/max)*100), x = x0 + i*(bw+gap), y = baseY - h;
+      var last = (i === p.vals.length-1);
+      s += '<path class="'+(last?'bar':'bar-dim')+'" data-i="'+i+'" d="M'+x+' '+baseY+
+           ' V'+(y+4)+' Q'+x+' '+y+' '+(x+4)+' '+y+' H'+(x+bw-4)+
+           ' Q'+(x+bw)+' '+y+' '+(x+bw)+' '+(y+4)+' V'+baseY+' Z"/>';
+      s += '<text class="vlab" x="'+(x+bw/2)+'" y="'+(y-5)+'" text-anchor="middle">'+v+'</text>';
+      s += '<text class="slab" x="'+(x+bw/2)+'" y="'+(baseY+16)+'" text-anchor="middle">S'+(i+1)+'</text>';
+    });
+    s += '<line class="base" x1="'+x0+'" x2="'+(W-10)+'" y1="'+baseY+'" y2="'+baseY+'"/></svg>';
+
+    var d = document.createElement('div');
+    d.className = 'panel';
+    d.innerHTML = '<h3>'+p.title+'</h3><div class="sub">'+p.unit+'</div>'+s;
+    host.appendChild(d);
+
+    d.querySelectorAll('path').forEach(function(el){
+      el.addEventListener('mousemove', function(ev){
+        var i = +el.getAttribute('data-i');
+        tip.textContent = p.note[i]+' · '+p.vals[i];
+        tip.style.display = 'block';
+        tip.style.left = (ev.clientX+12)+'px';
+        tip.style.top = (ev.clientY-28)+'px';
+      });
+      el.addEventListener('mouseleave', function(){ tip.style.display = 'none'; });
+    });
+  });
+})();
+</script>
+</body>
+</html>
