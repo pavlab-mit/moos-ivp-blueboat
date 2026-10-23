@@ -1,0 +1,22 @@
+turn_radius: LOG_YIP_16_10_2026_____11_56_52.alog
+  profile slow  (max_yawrate = 0.1 rad/s = 5.7 deg/s; yaw_priority_gain = 0; allow_reverse = true)  [._moos + BBPID_PARAMS_ACTIVE x8]
+  8 turn window(s); steady segment starts after 60 deg of heading change
+
+   #   cmd  dir  R_fit  R_kin   R_ft  ft[min-max] v_mean  v_min  v_ent   yawM  rud50  rud90  sat%  mix%  rev%  aut%   time   turn
+   1  1.50 star   13.6   13.9   27.5  [26.7-29.0]   1.53   1.46   1.55    6.3     32     35     0     0    11   100     59    357
+   2  1.50 star   14.3   13.9   29.3  [27.5-31.0]   1.54   1.45   1.45    6.3     33     36     0     0    18   100     60    356
+   3  1.75 star   14.4   14.7   29.1  [28.2-31.4]   1.69   1.60   1.63    6.6     32     34     0     0     0   100     56    355
+   4  1.75 star   15.5   15.4   31.3  [31.0-32.5]   1.74   1.68   1.70    6.5     30     33     0     0     0   100     57    356
+   5  2.00 star   17.4   17.3   34.5  [33.9-36.0]   1.94   1.86   1.95    6.4     29     32     0    12     0   100     56    355
+   6  2.00 star   17.8   17.3   35.9  [34.6-36.4]   1.96   1.88   1.95    6.5     28     31     0     8     0   100     56    357
+   7  2.25 star   23.6   24.3   46.9  [44.9-50.8]   2.10   1.81   2.16    5.0     22     24     0   100     0   100     72    356
+   8  2.25 star   31.9   29.2   61.1  [49.8-65.2]   2.14   1.78   2.08    4.2     18     21     0   100     0   100     82    356
+
+  capability table (slow):
+  setpoint  n R_fit mean    [min-max]  v_mean   yawM  rud90  rev%
+      1.50  2       14.0  [13.6-14.3]    1.53    6.3     36    14
+      1.75  2       15.0  [14.4-15.5]    1.71    6.5     33     0
+      2.00  2       17.6  [17.4-17.8]    1.95    6.5     31     0
+      2.25  2       27.7  [23.6-31.9]    2.12    4.6     23     0
+
+  wrote /sessions/rcw-015iitstpnnsnagakz2wdd1q/tp_out/11_56_52.json
