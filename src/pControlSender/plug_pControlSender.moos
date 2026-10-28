@@ -1,0 +1,45 @@
+//----------------------------------------------------------
+// pControlSender -- barrier filter between pBBPID and the arbiter
+//
+//   pBBPID --AUTONOMY_CMD_PRECBF----------------------> pControlSender --AUTONOMY_CMD--> arbiter
+//          --DESIRED_THRUST_PRECBF/_RUDDER_PRECBF--> filter --DESIRED_THRUST/_RUDDER--^
+//
+// pBBPID needs no code change, only these three lines in its block:
+//
+//   ProcessConfig = pBBPID
+//   {
+//     ...
+//     thrust_var       = DESIRED_THRUST_PRECBF
+//     rudder_var       = DESIRED_RUDDER_PRECBF
+//     autonomy_cmd_var = AUTONOMY_CMD_PRECBF
+//   }
+//
+// If pBBPID is left on its default autonomy_cmd_var it writes
+// AUTONOMY_CMD itself and the filter is bypassed. pControlSender
+// detects that (frames without its cbf=1 marker) and, with
+// all_stop_on_foreign_writer = true, posts ALL_STOP.
+//----------------------------------------------------------
+ProcessConfig = pControlSender
+{
+  AppTick   = 50
+  CommsTick = 50
+
+  precbf_var  = AUTONOMY_CMD_PRECBF
+  thrust_var  = DESIRED_THRUST
+  rudder_var  = DESIRED_RUDDER
+  output_var  = AUTONOMY_CMD
+
+  // Uncomment once the filter publishes the seq of the
+  // AUTONOMY_CMD_PRECBF frame it filtered (same cycle as
+  // DESIRED_THRUST/DESIRED_RUDDER). Makes per-tick labels exact.
+  // filter_seq_var = CBF_SEQ
+
+  producer = pBBPID_CBF
+
+  filter_timeout_sec = 0.5
+  pair_tolerance_sec = 0.02
+  max_input_age_sec  = 1.0
+  precbf_warn_sec    = 3.0
+
+  all_stop_on_foreign_writer = true
+}

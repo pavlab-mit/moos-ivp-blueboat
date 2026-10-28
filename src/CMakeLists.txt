@@ -43,6 +43,7 @@ ADD_SUBDIRECTORY(iRCInterface)   # CRSF (successor, both directions)
 ADD_SUBDIRECTORY(pBBDynamicsMissionManager)
 ADD_SUBDIRECTORY(iTeleop)
 ADD_SUBDIRECTORY(pBB_AthensLogger)
+ADD_SUBDIRECTORY(pControlSender)
 
 # Armadillo-dependent processes
 IF(${ARMA_AVAIL})
